@@ -1,0 +1,69 @@
+const colors={resources:'#77b7c7',railways:'#dad3b8',enemies:'#e75e51',buildings:'#e5c985',power:'#77c9ea'};
+// Accept the first export format as well as current byte-valued map colors.
+const rgb=color=>'rgb('+color.map(value=>Math.max(0,Math.min(255,Math.round(value/(color.some(n=>n>255)?255:1))))).join(',')+')';
+export function mountMap(payload,view=null){
+  const map=payload.snapshot,canvas=document.querySelector('#world-map');if(!canvas||!map)return ()=>{};
+  const context=canvas.getContext('2d'),layers=new Set(view?.layers||['resources','railways','enemies','buildings','players','pins']);
+  let width=1,height=1,scale=view?.scale||1,cx=view?.cx||0,cy=view?.cy||0,frame=null,dragged=false;
+  const pointers=new Map();let gesture=null;
+  let livePositions=null;
+  const currentPlayers=()=>livePositions?.enabled?(livePositions.state==='live'&&livePositions.world===map.world&&livePositions.seed===map.seed?livePositions.players.filter(player=>player.surface===map.surface):[]):map.players;
+  const chunks=map.chunks.map(chunk=>{
+    const image=document.createElement('canvas');image.width=16;image.height=16;const ctx=image.getContext('2d');let cell=0;
+    for(let i=0;i<chunk.tiles.length;i+=2){ctx.fillStyle=rgb(map.palette[chunk.tiles[i]-1].color);for(let j=0;j<chunk.tiles[i+1];j++,cell++)ctx.fillRect(cell%16,Math.floor(cell/16),1,1);}
+    return {...chunk,image};
+  });
+  const entities=map.entities;
+  const pos=(x,y)=>[(x-cx)*scale+width/2,(y-cy)*scale+height/2];
+  const world=(x,y)=>[(x-width/2)/scale+cx,(y-height/2)/scale+cy];
+  const visible=entity=>(layers.has(entity.category)||entity.power&&layers.has('power'));
+  function draw(){
+    frame=null;context.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);context.fillStyle='#151f20';context.fillRect(0,0,width,height);context.imageSmoothingEnabled=false;
+    for(const chunk of chunks){const [x,y]=pos(chunk.x*32,chunk.y*32),size=32*scale;if(x+size<0||y+size<0||x>width||y>height)continue;context.drawImage(chunk.image,x,y,size+.5,size+.5);
+      if(layers.has('pollution')&&chunk.pollution>0){context.fillStyle=`rgba(224,64,42,${Math.min(.65,Math.log1p(chunk.pollution)/12)})`;context.fillRect(x,y,size,size);}}
+    for(const entity of entities){if(!visible(entity))continue;const [x,y]=pos(entity.x,entity.y),w=Math.max(entity.w*scale,entity.category==='resources'?1:2),h=Math.max(entity.h*scale,2);if(x+w<0||y+h<0||x-w>width||y-h>height)continue;
+      context.fillStyle=entity.power&&layers.has('power')?colors.power:entity.category==='resources'?rgb(entity.color):colors[entity.category];context.fillRect(x-w/2,y-h/2,w,h);}
+    function marker(item,color,label){const [x,y]=pos(item.x,item.y);if(x<0||y<0||x>width||y>height)return;context.fillStyle=color;context.beginPath();context.arc(x,y,4,0,Math.PI*2);context.fill();context.font='11px Segoe UI, sans-serif';context.lineWidth=3;context.strokeStyle='#17211e';context.strokeText(label,x+8,y-7);context.fillText(label,x+8,y-7);}
+    if(layers.has('players'))for(const player of currentPlayers())marker(player,livePositions?.enabled?rgb(player.color):'#d4c994',player.name+(livePositions?.enabled?'':' (saved)'));
+    if(layers.has('pins')){for(const pin of map.tags)marker(pin,'#98ded4',pin.label);for(const pin of payload.pins)marker(pin,'#f4bc62',pin.label);}
+    const length=[10,50,100,500,1000,5000].find(value=>value*scale>=65)||10000;context.strokeStyle='#dce5d6';context.lineWidth=2;context.beginPath();context.moveTo(20,height-29);context.lineTo(20+length*scale,height-29);context.stroke();context.fillStyle='#dce5d6';context.font='10px Segoe UI, sans-serif';context.fillText(length+' tiles',20,height-13);
+  }
+  function schedule(){if(frame===null)frame=requestAnimationFrame(draw);}
+  function fit(){if(!chunks.length)return;const xs=chunks.map(chunk=>chunk.x*32),ys=chunks.map(chunk=>chunk.y*32),left=Math.min(...xs),top=Math.min(...ys),right=Math.max(...xs)+32,bottom=Math.max(...ys)+32;cx=(left+right)/2;cy=(top+bottom)/2;scale=Math.max(.02,Math.min(width/(right-left+64),height/(bottom-top+64)));schedule();}
+  function zoom(factor,x=width/2,y=height/2){const before=world(x,y);scale=Math.min(24,Math.max(.02,scale*factor));const after=world(x,y);cx+=before[0]-after[0];cy+=before[1]-after[1];schedule();}
+  function select(x,y){
+    const [wx,wy]=world(x,y);document.querySelector('#map-coordinates').textContent=`X ${Math.round(wx)} · Y ${Math.round(wy)}`;
+    const pinForm=document.querySelector('#pin-form');if(pinForm){pinForm.elements.x.value=Math.round(wx);pinForm.elements.y.value=Math.round(wy);}
+    if(layers.has('players')){
+      const player=currentPlayers().find(item=>Math.hypot(item.x-wx,item.y-wy)<10/scale);
+      if(player){document.querySelector('#map-selection-title').textContent=player.name;document.querySelector('#map-selection-detail').textContent=`${livePositions?.enabled?'Live player':'Saved player position'} · X ${player.x.toFixed(1)} · Y ${player.y.toFixed(1)} · ${player.surface||map.surface}`;return;}
+    }
+    let nearest=null,distance=Infinity;for(const item of entities){if(!visible(item))continue;const d=Math.hypot(item.x-wx,item.y-wy);if(d<Math.max(item.w,item.h,8/scale)&&d<distance){nearest=item;distance=d;}}
+    const title=document.querySelector('#map-selection-title'),detail=document.querySelector('#map-selection-detail');
+    title.textContent=nearest?nearest.name.replaceAll('-',' '):'Selected location';
+    detail.textContent=nearest?[`X ${nearest.x.toFixed(1)} · Y ${nearest.y.toFixed(1)}`,nearest.recipe?'Recipe: '+nearest.recipe.replaceAll('-',' '):'',nearest.amount!=null?'Remaining resource: '+nearest.amount.toLocaleString():'',nearest.power?'Power equipment':''].filter(Boolean).join(' · '):`X ${Math.round(wx)} · Y ${Math.round(wy)}. Select a building or resource for details.`;
+  }
+  function point(event){const rect=canvas.getBoundingClientRect();return [event.clientX-rect.left,event.clientY-rect.top];}
+  canvas.addEventListener('wheel',event=>{event.preventDefault();zoom(Math.exp(-event.deltaY*.0015),...point(event));},{passive:false});
+  canvas.addEventListener('pointerdown',event=>{canvas.setPointerCapture(event.pointerId);pointers.set(event.pointerId,point(event));dragged=false;gesture=pointers.size===2?{distance:Math.hypot(...pointers.values().next().value.map((v,i)=>v-[...pointers.values()][1][i]))}:null;});
+  canvas.addEventListener('pointermove',event=>{
+    const p=point(event),previous=pointers.get(event.pointerId);document.querySelector('#map-coordinates').textContent=world(...p).map((n,i)=>(i?'Y ':'X ')+Math.round(n)).join(' · ');
+    if(!previous)return;pointers.set(event.pointerId,p);if(pointers.size===2){const [a,b]=[...pointers.values()],distance=Math.hypot(a[0]-b[0],a[1]-b[1]);if(gesture?.distance>0)zoom(distance/gesture.distance,(a[0]+b[0])/2,(a[1]+b[1])/2);gesture={distance};dragged=true;}
+    else{const dx=p[0]-previous[0],dy=p[1]-previous[1];cx-=dx/scale;cy-=dy/scale;if(Math.abs(dx)+Math.abs(dy)>2)dragged=true;schedule();}
+  });
+  canvas.addEventListener('pointerup',event=>{if(!dragged&&pointers.size===1)select(...point(event));pointers.delete(event.pointerId);gesture=null;});
+  canvas.addEventListener('pointercancel',event=>{pointers.delete(event.pointerId);gesture=null;});
+  canvas.addEventListener('keydown',event=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','+','=','-','0'].includes(event.key)){event.preventDefault();if(event.key==='0')fit();else if(['+','=','-'].includes(event.key))zoom(event.key==='-'?.8:1.25);else{cx+=(event.key==='ArrowRight'?80:event.key==='ArrowLeft'?-80:0)/scale;cy+=(event.key==='ArrowDown'?80:event.key==='ArrowUp'?-80:0)/scale;schedule();}}});
+  document.querySelectorAll('[data-map-layer]').forEach(input=>{input.checked=layers.has(input.dataset.mapLayer);input.addEventListener('change',()=>{if(input.checked)layers.add(input.dataset.mapLayer);else layers.delete(input.dataset.mapLayer);schedule();});});
+  document.querySelector('#map-fit').addEventListener('click',fit);
+  document.querySelector('#map-base').addEventListener('click',()=>{cx=0;cy=0;scale=1.5;schedule();});
+  document.querySelector('#map-plus').addEventListener('click',()=>zoom(1.5));document.querySelector('#map-minus').addEventListener('click',()=>zoom(1/1.5));
+  document.querySelectorAll('[data-map-pin]').forEach(button=>button.addEventListener('click',()=>{const pin=payload.pins.find(item=>item.id===button.dataset.mapPin);if(pin){cx=pin.x;cy=pin.y;scale=2;schedule();}}));
+  const resize=new ResizeObserver(()=>{const rect=canvas.getBoundingClientRect();width=rect.width;height=rect.height;canvas.width=Math.round(width*devicePixelRatio);canvas.height=Math.round(height*devicePixelRatio);schedule();});resize.observe(canvas);
+  const rect=canvas.getBoundingClientRect();width=rect.width;height=rect.height;if(view)schedule();else fit();
+  const cleanup=()=>{resize.disconnect();if(frame!==null)cancelAnimationFrame(frame);};
+  cleanup.getView=()=>({cx,cy,scale,layers:[...layers]});cleanup.isInteracting=()=>pointers.size>0;
+  cleanup.updatePlayers=value=>{livePositions=value;schedule();};
+  cleanup.centerPlayer=name=>{const player=currentPlayers().find(item=>item.name===name);if(player){cx=player.x;cy=player.y;scale=Math.max(scale,1.5);schedule();}};
+  return cleanup;
+}

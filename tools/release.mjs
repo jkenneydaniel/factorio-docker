@@ -1,0 +1,47 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import {fileURLToPath} from 'node:url';
+import {makeZip} from '../panel/zip.js';
+
+const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const version=JSON.parse(await fs.readFile(path.join(root,'panel/package.json'),'utf8')).version;
+if(!/^\d+\.\d+\.\d+-alpha(?:\.\d+)?$/.test(version))throw new Error('Expected an alpha version.');
+const name='factory-control-'+version;
+const exact=new Set(['.gitignore','.env.example','.gitattributes','compose.yaml','README.md','LICENSE','CHANGELOG.md','SECURITY.md','THIRD_PARTY_NOTICES.md','Start-Server.ps1','Configure-Lan.ps1','Configure-Autostart.ps1','Register-LanAnnouncer.ps1','Start-LanAnnouncer.ps1']);
+const prefixes=['panel/','docs/','.github/'];
+const files=[];
+async function walk(relative=''){
+  for(const entry of await fs.readdir(path.join(root,relative),{withFileTypes:true})){
+    const file=(relative?relative+'/':'')+entry.name;
+    if(!exact.has(file)&&!prefixes.some(prefix=>file.startsWith(prefix)||file+'/'===prefix)&&file!=='tools'&&file!=='tools/release.mjs')continue;
+    if(entry.isSymbolicLink())throw new Error('Symlink in source allowlist: '+file);
+    if(/^(?:data|backups|\.panel-data|import|users\.json|controller-token|registration-link\.txt|initial-login\.txt|rconpw|server-settings\.json|map\.json)$/.test(entry.name))throw new Error('Runtime/private path in source: '+file);
+    if(entry.isDirectory()){
+      if(['node_modules'].includes(entry.name)||entry.name.startsWith('.test-'))continue;
+      await walk(file);continue;
+    }
+    if(!entry.isFile())throw new Error('Unexpected source entry: '+file);
+    if(file.startsWith('tools/')&&file!=='tools/release.mjs')continue;
+    if(!exact.has(file)&&!/(?:\.(?:js|mjs|json|lua|html|css|md|yml|yaml)|\/Dockerfile|\/LICENSE|\/\.dockerignore)$/.test(file))throw new Error('Unexpected source file type: '+file);
+    const data=await fs.readFile(path.join(root,file));
+    if(data.includes(0))throw new Error('Binary source file: '+file);
+    const text=data.toString('utf8');
+    const checks=[[/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,'private key'],[/\b(?:172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)\b/,'private deployment address'],[/\b(?:[\dA-F]{2}[:-]){5}[\dA-F]{2}\b/i,'hardware address'],[/C:[\\/]Users[\\/](?!Public\b)[^\s"'<>]+/i,'personal Windows path'],[/\b(?:gh[pousr]_[A-Za-z0-9]{30,}|AKIA[A-Z0-9]{16})\b/,'access key']];
+    for(const [pattern,label] of checks)if(pattern.test(text))throw new Error(`${label} detected in ${file}`);
+    files.push({name:file,data});
+  }
+}
+await walk();files.sort((a,b)=>a.name.localeCompare(b.name));
+for(const required of ['LICENSE','README.md','compose.yaml','.env.example','.github/workflows/ci.yml','panel/setup.js'])if(!files.some(file=>file.name===required))throw new Error('Missing release file: '+required);
+const dist=path.join(root,'dist');await fs.mkdir(dist,{recursive:true});
+const destination=path.join(dist,name);
+// Refuse replacement so a manual review artifact is never silently overwritten.
+await fs.mkdir(destination);
+for(const file of files){const target=path.join(destination,file.name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,file.data);}
+const manifest=files.map(file=>`${crypto.createHash('sha256').update(file.data).digest('hex')}  ${file.name}`).join('\n')+'\n';
+const archive=makeZip(files.map(file=>({name:name+'/'+file.name,data:file.data})));
+await fs.writeFile(path.join(dist,name+'.zip'),archive);
+await fs.writeFile(path.join(dist,name+'.manifest.txt'),manifest);
+await fs.writeFile(path.join(dist,name+'.sha256'),crypto.createHash('sha256').update(archive).digest('hex')+'  '+name+'.zip\n');
+console.log(`Prepared ${files.length} source files in dist/${name}/ and ZIP/checksum/manifest. No runtime data copied.`);

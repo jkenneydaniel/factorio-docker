@@ -1,0 +1,100 @@
+name: factorio-server
+
+services:
+  factorio:
+    image: ${FACTORIO_IMAGE:-factoriotools/factorio:2.0.77}
+    container_name: ${FACTORIO_CONTAINER:-factorio-server}
+    restart: always
+    stop_grace_period: 2m
+    stdin_open: true
+    tty: true
+    ports:
+      - "${GAME_PORT:-34197}:34197/udp"
+    volumes:
+      - type: bind
+        source: ./data
+        target: /factorio
+    environment:
+      # Only the active world and its autosaves are kept in data/saves.
+      # Previous worlds are archived in backups. Starts resume the latest
+      # active-world save, including autosaves and saves written on shutdown.
+      LOAD_LATEST_SAVE: "true"
+      GENERATE_NEW_SAVE: "false"
+      DLC_SPACE_AGE: "false"
+      UPDATE_MODS_ON_START: "false"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  panel-controller:
+    image: ${PANEL_IMAGE:-local/factory-control:0.1.0-alpha}
+    build: ./panel
+    container_name: ${CONTROLLER_CONTAINER:-factorio-panel-controller}
+    restart: always
+    # Match Factorio's data owner; retain the existing socket group only.
+    user: "845:${DOCKER_SOCKET_GID:-0}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1536m
+    tmpfs: [/tmp]
+    environment:
+      MODE: controller
+      PORT: "8081"
+      FACTORIO_CONTAINER: ${FACTORIO_CONTAINER:-factorio-server}
+      GAME_ADDRESS: "${SERVER_ADDRESS:-localhost}:${GAME_PORT:-34197}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/factorio
+      - ./backups:/backups
+      - ./.panel-data/controller:/state
+      - ./.panel-data/secrets/controller-token:/run/secrets/controller_token:ro
+    networks: [management]
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "2"}
+
+  panel:
+    image: ${PANEL_IMAGE:-local/factory-control:0.1.0-alpha}
+    build: ./panel
+    container_name: ${PANEL_CONTAINER:-factorio-panel}
+    restart: always
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    tmpfs: [/tmp]
+    ports:
+      - "${PANEL_PORT:-8080}:8080/tcp"
+    environment:
+      PANEL_HOSTS: "${SERVER_ADDRESS:-localhost},127.0.0.1,localhost,${PANEL_EXTRA_HOSTS:-}"
+    volumes:
+      - ./.panel-data/auth:/auth
+      - ./.panel-data/secrets/controller-token:/run/secrets/controller_token:ro
+    depends_on:
+      panel-controller:
+        condition: service_healthy
+    networks: [management]
+    logging:
+      driver: json-file
+      options: {max-size: "5m", max-file: "2"}
+
+  # Explicit one-time setup. It has no Docker socket and cannot manage servers.
+  setup:
+    profiles: [setup]
+    image: ${PANEL_IMAGE:-local/factory-control:0.1.0-alpha}
+    build: ./panel
+    user: "0:0"
+    network_mode: none
+    environment:
+      SETUP_ROOT: /workspace
+      PANEL_URL: "http://${SERVER_ADDRESS:-localhost}:${PANEL_PORT:-8080}"
+    volumes:
+      - .:/workspace
+    entrypoint: [node, /app/setup.js]
+
+networks:
+  management:
+    driver: bridge

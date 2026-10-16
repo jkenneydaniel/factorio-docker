@@ -1,0 +1,91 @@
+{
+  "map_gen_settings": {
+    "seed": null,
+    "default_enable_all_autoplace_controls": true,
+    "autoplace_controls": {
+      "iron-ore": {
+        "frequency": 1,
+        "size": 1,
+        "richness": 1
+      },
+      "copper-ore": {
+        "frequency": 1,
+        "size": 1,
+        "richness": 1
+      },
+      "stone": {
+        "frequency": 1,
+        "size": 1,
+        "richness": 1
+      },
+      "coal": {
+        "frequency": 1,
+        "size": 1,
+        "richness": 1
+      },
+      "uranium-ore": {
+        "frequency": 1,
+        "size": 1,
+        "richness": 1
+      },
+      "crude-oil": {
+        "frequency": 1,
+        "size": 1,
+        "richness": 1
+      },
+      "water": {
+        "frequency": 1,
+        "size": 1
+      },
+      "trees": {
+        "frequency": 1,
+        "size": 1
+      },
+      "enemy-base": {
+        "frequency": 1,
+        "size": 1
+      }
+    },
+    "width": 0,
+    "height": 0,
+    "starting_area": 1,
+    "cliff_settings": {
+      "cliff_elevation_interval": 40,
+      "richness": 1
+    },
+    "property_expression_names": {
+      "control:moisture:frequency": 1,
+      "control:moisture:bias": 0,
+      "control:aux:frequency": 1,
+      "control:aux:bias": 0
+    },
+    "peaceful_mode": false,
+    "no_enemies_mode": false
+  },
+  "map_settings": {
+    "enemy_evolution": {
+      "enabled": true,
+      "time_factor": 0.000004,
+      "destroy_factor": 0.002,
+      "pollution_factor": 9e-7
+    },
+    "enemy_expansion": {
+      "enabled": true,
+      "max_expansion_distance": 7,
+      "settler_group_min_size": 5,
+      "settler_group_max_size": 20,
+      "min_expansion_cooldown": 14400,
+      "max_expansion_cooldown": 216000
+    },
+    "difficulty_settings": {
+      "technology_price_multiplier": 1,
+      "spoil_time_modifier": 1
+    },
+    "pollution": {
+      "enabled": true,
+      "diffusion_ratio": 0.02,
+      "ageing": 1,
+      "enemy_attack_pollution_consumption_modifier": 1
+    }
+  }
+}

@@ -1,0 +1,29 @@
+name: Test and build
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+      - name: Test isolated fixtures
+        run: npm test --prefix panel
+      - name: Validate default deployment
+        run: docker compose --env-file .env.example config --quiet
+      - name: Build alpha image
+        run: docker build -t local/factory-control:0.1.0-alpha panel
+      - name: Check public source artifact
+        run: node tools/release.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alpha-source
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            dist/*.manifest.txt
