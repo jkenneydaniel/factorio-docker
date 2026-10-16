@@ -1,35 +1,61 @@
 # Factory Control
 
-**v0.1.0-alpha** — a self-hosted Factorio server and LAN management panel, built
+**v0.2.1-alpha** — a self-hosted Factorio server and LAN management panel, built
 with Docker Compose. This is an early release for trusted home networks.
 
 Manage worlds, saves, backups, players, server settings and accounts from a
-browser. Configure a new world with sliders and an automatically updating
-Factorio terrain preview. Explore a saved map with resources, buildings and pins.
+browser with a consistent dark interface and warm amber actions. Create a world
+through Play style, Customize and Review, with precise sliders/numbers and an
+automatically updating Factorio terrain preview. Explore a saved map with
+resources, buildings and pins. Owner registration continues into a resumable
+readiness and joining guide.
 
 ## Requirements
 
-- An x86-64 host with Docker Engine/Desktop running Linux containers and Compose v2.
+- Windows, macOS or Linux with Docker Engine/Desktop running Linux containers and
+  Compose v2, on x86-64 or ARM64. The pinned game uses amd64 emulation on ARM64;
+  panel services build natively. See the [platform matrix](docs/SETUP.md#platform-choices).
 - Allow roughly 3 GB of free memory for the stack and an isolated map worker,
   plus enough disk space for your worlds and backups. Large factories need more.
 - Matching Factorio **2.0.77** clients. This alpha pins the game version and disables
   optional Space Age mods for base-game/PC/Switch compatibility.
-- Docker Desktop on Windows is the verified host. Linux installation is supported
-  by the setup/ownership design but has not yet been tested on a separate Linux
-  host. ARM, rootless Docker, macOS and Internet hosting are unverified.
+- Docker Desktop on Windows is the previously verified game host. Mac/Linux/ARM
+  setup configuration is provided; game execution on those hosts is not verified
+  by this change. Rootless Docker, remote daemons and Internet hosting are outside
+  this release’s setup support.
 
 The app and setup run in containers; you do not need Node.js on the host.
 This repository includes no game binaries, mods, personal saves or accounts.
 
-## First-time setup
+## Guided setup (recommended)
+
+After installing and starting Docker, open the extracted folder and run:
+
+- **Windows:** `.\Setup.ps1` in PowerShell.
+- **Mac:** double-click `Setup.command`, or run `sh Setup.sh` in Terminal.
+- **Linux:** `sh Setup.sh` in Terminal.
+
+Choose a new world, import a save from `import/`, or recover an expired
+registration link. The guide preserves existing data, helps configure the
+connection address and asks before starting the stack (default No).
+Run `sh Setup.sh --check` or `.\Setup.ps1 -Check` for read-only checks.
+No host Node.js installation is needed.
+
+See [host-specific setup and troubleshooting](docs/SETUP.md), including Linux
+ARM64 emulation prerequisites. Setup does not install emulation or open firewalls.
+
+## Manual first-time setup
 
 Download the source or clone this repository. Work in its root directory.
 
 1. Copy `.env.example` to `.env` (`Copy-Item .env.example .env` in PowerShell,
-   or `cp .env.example .env` on Linux).
+   or `cp .env.example .env` on Mac/Linux).
 2. Set `SERVER_ADDRESS` to the Docker host's reserved LAN IPv4 address or DNS name.
    Keep the port out of this value. For access only on the host, leave `localhost`.
-   On Linux set `DOCKER_SOCKET_GID` to the result of `stat -c %g /var/run/docker.sock`.
+   On native Linux Engine set `DOCKER_SOCKET_GID` to the result of
+   `stat -c %g /var/run/docker.sock`; Docker Desktop uses 0. Leave
+   `FACTORIO_PLATFORM=linux/amd64` so the game and isolated map workers agree.
+   On ARM64, configure Docker’s amd64 emulation first; see the setup guide.
 3. Choose **one** of these setup commands:
 
    ```sh
@@ -88,7 +114,7 @@ primary supported path. Switch LAN discovery can differ from PC discovery.
 Use unique LAN usernames and the exact matching game version on all clients.
 
 All three services restart with Docker. Enable Docker Desktop's **Start when you
-sign in** setting on Windows, or enable the Docker service on Linux. Windows
+sign in** setting on Windows/Mac, or enable the Docker service on Linux. Windows
 Desktop startup requires sign-in. `Configure-Autostart.ps1` and
 `Register-LanAnnouncer.ps1` are optional Windows helpers; they change host startup
 settings only when explicitly run. They are not part of setup.
@@ -108,6 +134,13 @@ device. Read the release notes, update the source, then deliberately run
 `docker compose up -d --build`. This can recreate containers and disconnect players.
 Editing source files alone does not update the running app. Do not upgrade the
 Factorio image independently of the clients. No automatic game/mod updates occur.
+
+The panel checks public GitHub releases every six hours and notifies administrators
+in Settings and the sidebar. Settings → Updates lets an administrator review and
+install supported panel/controller releases or separately upgrade Factorio to a
+chosen newer 2.0.x version, with pre-update backups, persistent progress and recovery.
+See [in-panel updates and one-time enablement](docs/UPDATES.md). Preview releases
+are included by default for this alpha; stable-only and offline modes are available.
 
 Keep `data/`, `backups/`, `.panel-data/` and `.env` private. Never upload the entire
 working directory: those folders contain worlds, credentials, invitations and

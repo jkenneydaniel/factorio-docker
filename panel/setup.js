@@ -3,6 +3,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {initializePanel} from './init.js';
 import {validateWorld} from './zip.js';
+import {initializeUpdateBaseline} from './update-source.js';
 
 export async function setup(root,args=[],{url='http://localhost:8080',ownership=false,log=console.log}={}){
   root=path.resolve(root);
@@ -14,7 +15,7 @@ export async function setup(root,args=[],{url='http://localhost:8080',ownership=
   const origin=new URL(url);
   if(!['http:','https:'].includes(origin.protocol)||origin.username||origin.password||origin.pathname!=='/'||origin.search||origin.hash)throw new Error('Panel URL must be an HTTP(S) origin.');
   // Only ordinary directories are allowed for managed state, even on reruns.
-  for(const relative of ['data','data/config','data/saves','data/mods','backups','.panel-data','.panel-data/auth','.panel-data/controller','.panel-data/secrets']){
+  for(const relative of ['data','data/config','data/saves','data/mods','backups','.panel-data','.panel-data/auth','.panel-data/controller','.panel-data/secrets','.panel-data/updates']){
     const stat=await fs.lstat(path.join(root,relative)).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
     if(stat&&!stat.isDirectory())throw new Error(`Setup refuses a symlink or non-directory at ${relative}.`);
   }
@@ -38,7 +39,7 @@ export async function setup(root,args=[],{url='http://localhost:8080',ownership=
     const target=path.join(root,relative);
     if(!await exists(target)){await fs.mkdir(target,{mode});created.push({target,uid,directory:true});}
   }
-  for(const [relative,uid,mode] of [['data',845],['data/config',845],['data/saves',845],['data/mods',845],['backups',845],['.panel-data',845],['.panel-data/auth',1000,0o700],['.panel-data/controller',845,0o750],['.panel-data/secrets',845,0o700]])await directory(relative,uid,mode);
+  for(const [relative,uid,mode] of [['data',845],['data/config',845],['data/saves',845],['data/mods',845],['backups',845],['.panel-data',845],['.panel-data/auth',1000,0o700],['.panel-data/controller',845,0o750],['.panel-data/secrets',845,0o700],['.panel-data/updates',845,0o750]])await directory(relative,uid,mode);
   async function createFile(relative,value,uid){
     const target=path.join(root,relative);
     try{await fs.writeFile(target,value,{flag:'wx',mode:0o600});created.push({target,uid});}
@@ -48,6 +49,7 @@ export async function setup(root,args=[],{url='http://localhost:8080',ownership=
   for(const name of ['server-adminlist.json','server-banlist.json','server-whitelist.json'])await createFile('data/config/'+name,'[]\n',845);
   if(imported)await createFile('data/saves/Imported-world.zip',imported,845);
   const result=await initializePanel(state,url,{recovery:recover});
+  await initializeUpdateBaseline(root);
   if(ownership){
     // Never recursively chown existing worlds, accounts, or backups.
     async function own(target,uid){
@@ -57,7 +59,7 @@ export async function setup(root,args=[],{url='http://localhost:8080',ownership=
       await fs.chown(target,uid,uid);
     }
     for(const item of created){
-      if(item.directory&&['auth','secrets','controller'].includes(path.basename(item.target)))await own(item.target,item.uid);
+      if(item.directory&&['auth','secrets','controller','updates'].includes(path.basename(item.target)))await own(item.target,item.uid);
       else await fs.chown(item.target,item.uid,item.uid);
     }
     if(result.link)await fs.chown(path.join(state,'registration-link.txt'),845,845);

@@ -69,6 +69,8 @@ export function makeZip(files) {
     central.writeUInt32LE(0x02014b50); central.writeUInt16LE(20,4); central.writeUInt16LE(20,6); central.writeUInt16LE(0x800,8);
     central.writeUInt32LE(crc,16); central.writeUInt32LE(file.data.length,20); central.writeUInt32LE(file.data.length,24); central.writeUInt16LE(name.length,28); central.writeUInt32LE(offset,42);
     central.writeUInt16LE(dosTime,12);central.writeUInt16LE(dosDate,14);
+    // Release launchers need Unix executable bits when extracted by Finder/unzip.
+    if(file.executable===true){central.writeUInt16LE(0x0314,4);central.writeUInt32LE((0o100755<<16)>>>0,38);}
     chunks.push(local,name,file.data); directory.push(central,name); offset+=local.length+name.length+file.data.length;
   }
   const central=Buffer.concat(directory), end=Buffer.alloc(22);

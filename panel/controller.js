@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
-import {docker,rcon,demultiplex} from './docker.js';
+import {docker,rcon,demultiplex,gameContainerRoute} from './docker.js';
 import {assert,HttpError,sleep,stamp,readJSON,writeJSON,json,readBody,requestJSON,safeName,existingFile,inside,equalSecret,redact} from './common.js';
 import {makeZip,zipEntries,validateWorld} from './zip.js';
 import {validateBackup,summarizeBackups} from './backup-health.js';
@@ -13,6 +13,7 @@ import {LivePlayers} from './live-players.js';
 import {validateConfiguration} from './world-settings.js';
 import {WorldPreviews,renderWorldPreview,cleanPreviewWorkers} from './world-preview.js';
 import {engineMapSettings,mergeSettings} from './engine-settings.js';
+import {UpdateManager} from './update-manager.js';
 const worldDefaults=await readJSON(new URL('./world-defaults.json',import.meta.url));
 
 const data=process.env.FACTORIO_DATA||'/factorio';
@@ -51,10 +52,14 @@ function persistAutoMap(){
 const info=()=>docker('GET',`/containers/${container}/json`);
 const control=action=>docker('POST',`/containers/${container}/${action}${action==='stop'||action==='restart'?'?t=120':''}`);
 const logFile=path.join(data,'factorio-current.log');
-const worldPreviews=new WorldPreviews({canRun:()=>!active,render:async input=>{const server=await info();assert((server.Image||server.Config.Image)===input.image,'Factorio changed. Refresh this preview.');return renderWorldPreview(input,{data,server});}});
+const worldPreviews=new WorldPreviews({canRun:()=>!active&&!updater.busy,render:async input=>{const server=await info();assert((server.Image||server.Config.Image)===input.image,'Factorio changed. Refresh this preview.');return renderWorldPreview(input,{data,server});}});
+const updater=new UpdateManager({root:process.env.UPDATE_STATE_DIR||'/updates',docker,backup:label=>backup(label),canInstall:()=>!active,waitIdle:()=>worldPreviews.waitIdle(),current:(await readJSON(new URL('./package.json',import.meta.url))).version});
+await updater.init();
+setInterval(()=>void updater.refresh().catch(error=>console.error('Update state unavailable:',redact(error.message))),1000).unref();
 setInterval(()=>void worldPreviews.tick(),500).unref();
 const livePlayersFile=path.join(state,'live-players.json');
 const livePlayers=new LivePlayers({config:await readJSON(livePlayersFile,{enabled:false}),query:rcon,persist:config=>writeJSON(livePlayersFile,config),scope:async()=>{
+  if(updater.busy)return {running:false};
   const server=await info();
   if(!server.State.Running||active&&['switch','restore','settings','restart','stop','start'].includes(active.action))return {running:false};
   const world=await activeSave(),value=await rcon('/seed'),seed=Number(value.match(/\d+/)?.[0]);assert(Number.isFinite(seed),'Factorio seed is unavailable.');return {running:true,world,seed};
@@ -86,6 +91,7 @@ async function worlds(){
   const current=await activeSave();const result=[];
   for(const file of await listFiles(saves,0))if(file.relative.endsWith('.zip'))result.push({...file,id:fileId('active',file.relative),name:path.basename(file.relative,'.zip'),kind:file.relative.startsWith('_autosave')?'autosave':'active',current:file.relative===current});
   for(const file of await listFiles(backups,4))if(file.relative.endsWith('.zip')&&!file.relative.startsWith('panel-backups/')&&!file.relative.includes('/.'))result.push({...file,id:fileId('archive',file.relative),name:path.basename(file.relative,'.zip'),kind:'archive',current:false});
+  for(const world of result)world.hasPreview=world.kind==='archive'&&!!await fs.stat(path.join(backups,world.relative.replace(/\.zip$/,'.png'))).then(s=>s.isFile()).catch(()=>false);
   return result.sort((a,b)=>Number(b.current)-Number(a.current)||b.modified.localeCompare(a.modified));
 }
 async function backupList(){return (await listFiles(backupDir,0)).filter(file=>file.relative.endsWith('.zip')).map(file=>({...file,validation:validations[file.relative]?.size===file.size&&validations[file.relative]?.modified===file.modified?validations[file.relative]:null})).sort((a,b)=>b.modified.localeCompare(a.modified));}
@@ -130,15 +136,17 @@ async function backup(label='manual',{save=true}={}){
 }
 async function setJob(job,updates){Object.assign(job,updates);await writeJSON(path.join(state,'jobs.json'),jobs);}
 async function runJob(action,params,actor){
+  await updater.refresh();assert(!updater.busy,'An update is in progress. Wait for it to finish.',409);
+  assert(!updater.pendingRestore||action==='restore'&&params.name===updater.pendingRestore.backup,'Restore the recorded pre-update backup from Backups before running more server operations.',409);
   assert(!active,'Another operation is in progress. Please wait.',409);
   const job={id:crypto.randomUUID(),action,actor,started:new Date().toISOString(),state:'running',message:'Starting…'};
   active=job;jobs.unshift(job);jobs=jobs.slice(0,100);await writeJSON(path.join(state,'jobs.json'),jobs);
   void (async()=>{
-    try{if(worldPreviews.running)await stageMessage(job,'Waiting for the current map preview to finish…');await worldPreviews.waitIdle();const result=await actions[action](params,job);await setJob(job,{state:'succeeded',message:typeof result==='string'?result:'Completed.',result,finished:new Date().toISOString()});}
+    try{if(worldPreviews.running)await stageMessage(job,'Waiting for the current map preview to finish…');await worldPreviews.waitIdle();const result=await actions[action](params,job);if(action==='restore')await updater.restored(params.name);await setJob(job,{state:'succeeded',message:typeof result==='string'?result:'Completed.',result,finished:new Date().toISOString()});}
     catch(error){await setJob(job,{state:'failed',message:redact(error.message),finished:new Date().toISOString()});}
     finally{
       if(action==='refresh-map'&&params.automatic){autoMap.finish(params.automatic,job.state==='succeeded',job.state==='failed'?job.message:null);await persistAutoMap().catch(error=>console.error('Map queue persistence failed:',redact(error.message)));}
-      active=null;
+      active=null;statusCache=null;statusAt=0;
     }
   })();return job;
 }
@@ -224,7 +232,7 @@ async function createWorld(params,job,{optionsOnly=false}={}){
     let exported=configuration;
     if(extract){
     await stageMessage(job,'Extracting settings from an isolated copy…');
-    await docker('POST',`/containers/create?name=${helper}`,{Image:server.Config.Image,Env:['DLC_SPACE_AGE=false','UPDATE_MODS_ON_START=false','LOAD_LATEST_SAVE=false','SAVE_NAME=source'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[mountConfig],Memory:1073741824}});helperExists=true;
+    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Env:['DLC_SPACE_AGE=false','UPDATE_MODS_ON_START=false','LOAD_LATEST_SAVE=false','SAVE_NAME=source'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[mountConfig],Memory:1073741824}});helperExists=true;
     await docker('POST',`/containers/${helper}/start`);await ready(helper);
     await rcon(EXPORT_LUA,helper);await rcon(EXPORT_LUA,helper);
     exported=validateConfiguration(await readJSON(path.join(work,'script-output/export-settings.json'),null),{limits:false});
@@ -239,7 +247,7 @@ async function createWorld(params,job,{optionsOnly=false}={}){
     exported.map_gen_settings.seed=seed;
     await writeJSON(path.join(work,'config/new-map-gen-settings.json'),exported.map_gen_settings);await writeJSON(path.join(work,'config/new-map-settings.json'),exported.map_settings);
     await stageMessage(job,`Generating a new world with seed ${seed}…`);
-    await docker('POST',`/containers/create?name=${helper}`,{Image:server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--create','/factorio/saves/generated.zip','--map-gen-settings','/factorio/config/new-map-gen-settings.json','--map-settings','/factorio/config/new-map-settings.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[mountConfig],Memory:1073741824}});helperExists=true;
+    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--create','/factorio/saves/generated.zip','--map-gen-settings','/factorio/config/new-map-gen-settings.json','--map-settings','/factorio/config/new-map-settings.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[mountConfig],Memory:1073741824}});helperExists=true;
     await docker('POST',`/containers/${helper}/start`);
     const result=await docker('POST',`/containers/${helper}/wait?condition=not-running`,undefined,{timeout:180000});
     assert(result.StatusCode===0,'Factorio could not generate the world.');
@@ -249,7 +257,7 @@ async function createWorld(params,job,{optionsOnly=false}={}){
     // A preview is generated separately, without opening or scripting the fresh save.
     if(params.preview!==false){
       await stageMessage(job,'Creating the map preview…');
-      await docker('POST',`/containers/create?name=${helper}`,{Image:server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--generate-map-preview','/factorio/preview.png','--map-preview-size','1024','--map-gen-settings','/factorio/config/new-map-gen-settings.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[mountConfig],Memory:1073741824}});helperExists=true;
+      await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--generate-map-preview','/factorio/preview.png','--map-preview-size','1024','--map-gen-settings','/factorio/config/new-map-gen-settings.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[mountConfig],Memory:1073741824}});helperExists=true;
       await docker('POST',`/containers/${helper}/start`);await docker('POST',`/containers/${helper}/wait?condition=not-running`,undefined,{timeout:180000});
       const preview=await fs.readFile(path.join(work,'preview.png')).catch(()=>null);if(preview)await fs.writeFile(path.join(library,`${name}.png`),preview);
     }
@@ -330,6 +338,13 @@ async function handle(req,res){
   if(req.url==='/health')return json(res,200,{ok:true});
   assert(equalSecret(req.headers.authorization,`Bearer ${token}`),'Unauthorized.',401);
   const url=new URL(req.url,'http://controller');
+  if(url.pathname.startsWith('/update-')){
+    if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await updater.refresh());
+    if(req.method==='POST'&&url.pathname==='/update-plan')return json(res,200,await updater.plan(await requestJSON(req)));
+    if(req.method==='POST'&&url.pathname==='/update-install')return json(res,202,await updater.install(await requestJSON(req),req.headers['x-panel-user']||'administrator'));
+    throw new HttpError(404,'Not found.');
+  }
+  if(req.method!=='GET'){await updater.refresh();assert(!updater.busy,'An update is in progress. Wait for it to finish.',409);}
   if(req.method==='GET'&&url.pathname==='/status')return json(res,200,await status());
   if(['/world-preview','/world-preview-image'].includes(url.pathname)){
     const owner=req.headers['x-panel-user'];assert(typeof owner==='string'&&/^[A-Za-z0-9][A-Za-z0-9_\-]{2,31}$/.test(owner),'Preview needs an administrator session.',403);
@@ -407,7 +422,7 @@ async function pollSavedMap(){
       const item=event.completed,file=await existingFile(saves,item.source).catch(()=>null);
       if(file){const stat=await fs.stat(file);autoMap.observe({...item,version:saveVersion(item.world,item.source,stat)},snapshot);}
     }
-    if(!active&&!event.saving&&autoMap.pending){
+    if(!active&&!updater.busy&&!event.saving&&autoMap.pending){
       const item=autoMap.pending,file=await existingFile(saves,item.source).catch(()=>null);
       if(!file||item.world!==await activeSave()||saveVersion(item.world,item.source,await fs.stat(file))!==item.version)autoMap.pending=null;
       const task=autoMap.claim(false);
@@ -420,7 +435,7 @@ async function pollSavedMap(){
 setInterval(pollSavedMap,Number(process.env.MAP_SAVE_POLL_MS||2000)).unref();
 await pollSavedMap();
 setInterval(async()=>{
-  if(!schedule.enabled||active)return;
+  if(!schedule.enabled||active||updater.busy)return;
   const elapsed=Date.now()-new Date(schedule.lastRun||Date.now()).getTime();
   if(!schedule.lastRun){schedule.lastRun=new Date().toISOString();await writeJSON(path.join(state,'schedule.json'),schedule);return;}
   if(elapsed<schedule.hours*3600000)return;

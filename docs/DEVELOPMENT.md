@@ -17,12 +17,17 @@ docker run --rm -v "./panel:/test:ro" -w /test node:24.22.0-bookworm-slim npm te
 
 `node panel/test/ui-preview.js` starts a loopback-only UI fixture on port 8089.
 Its data are synthetic; it cannot manage a real game. Preview images are fixture
-artwork rather than Factorio renders. Stop it with Ctrl+C.
+artwork rather than Factorio renders. Stop it with Ctrl+C. Optional environment
+flags support browser checks: `UI_POPULATED=1`, `UI_ONBOARDING_TEST=1`,
+`UI_READY_TEST=waiting`, `UI_ROLE=viewer`, `UI_AUTH_TEST=login`,
+`UI_RELEASE_TEST=available`, `UI_UPDATE_REVIEW_TEST=1` and `UI_CREATE_TEST=1`.
+`UI_PREVIEW_PORT` chooses another loopback port. Creation/completion are in-memory
+simulations only; real lifecycle, account writes and installations stay blocked.
 
 ## Build without deploying
 
 ```sh
-docker build -t local/factory-control:0.1.0-alpha panel
+docker build -t local/factory-control:0.2.1-alpha panel
 docker compose --env-file .env.example config --quiet
 ```
 
@@ -31,7 +36,11 @@ Building images and editing source do not replace running containers. Avoid
 checkout during release preparation. Real smoke checks need a disposable checkout,
 distinct project/container names and loopback-only ports. Never share its state
 directories with production. Windows Docker Desktop is the verified host; test
-a separate Linux host before claiming Linux verification.
+a separate Linux host before claiming Linux runtime verification. The host setup
+guide covers Mac/Linux x86-64 and ARM64 configuration; ARM64 game processes use
+amd64 emulation. Host launcher tests substitute a fake Docker executable and
+never create containers. CI exercises those launchers on Mac, Linux and Windows;
+configured CI is not evidence of a successful hosted run.
 
 ## Prepare a public source artifact
 
@@ -42,7 +51,7 @@ node tools/release.mjs
 ```
 
 This packages only explicitly allowed source roots into
-`dist/factory-control-0.1.0-alpha/`, plus a ZIP, SHA-256 checksum and file manifest.
+`dist/factory-control-0.2.1-alpha/`, plus a ZIP, SHA-256 checksum and file manifest.
 It rejects symbolic links, unexpected file types and common credential/private
 deployment patterns. It never copies `.env`, state, saves, backups, captures or
 local diagnostics. Review the manifest and Git changes before publishing. This
@@ -55,7 +64,7 @@ Git here and review every staged path against the generated manifest. Do not dra
 the full working directory into GitHub. The public source is MIT licensed.
 
 CI runs tests, validates default Compose configuration and builds the image.
-Publishing a GitHub Release tagged `v0.1.0-alpha` runs the release packaging
+Publishing a GitHub Release tagged `v0.2.1-alpha` runs the release packaging
 workflow and attaches the source ZIP, checksum and manifest. No image registry
 push is configured until a repository/registry owner is chosen.
 

@@ -18,4 +18,8 @@ exposed configuration keys and numeric/boolean standard values. It is generated
 from the project's field definitions, rather than redistributing the full game
 example files. Omitted low-level tuning is supplied by the installed game.
 
-The project has no npm dependencies or bundled third-party frontend assets.
+The project has no npm dependencies. A selected set of Tabler Icons v3.49.0
+outline icons is bundled in `panel/public/icons.js` under the MIT license.
+Copyright (c) 2020 Paweł Kuna. The complete notice is preserved in
+`panel/public/LICENSE-tabler.md`. Icons come from the official
+[Tabler Icons repository](https://github.com/tabler/tabler-icons).

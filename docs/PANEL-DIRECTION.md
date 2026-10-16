@@ -1,0 +1,89 @@
+# Panel direction and feature priorities
+
+## Implemented direction
+
+The whole panel now follows the selected second creation concept:
+charcoal/forest surfaces, warm amber primary actions, softer borders and corners,
+labelled navigation, consistent official Tabler outline icons and readable forms.
+Overview, Worlds, Map, Backups, Players, Activity, Settings, Updates, Accounts,
+sign-in, registration and onboarding share these styles. The large preview belongs
+in world creation and the dedicated Map page; other pages focus on their tasks.
+
+The overview leads with the active world, Save now, recent activity, useful
+shortcuts, connection details, online players and actual backup age/verification.
+Restart/stop are inside labelled Server actions. It contains no large map.
+
+World creation is a dedicated three-step flow:
+
+1. **Play style:** installed defaults, a quieter start (peaceful mode), or settings
+   already copied from the active world. Loading current settings remains an
+   explicit isolated operation, with a review before replacing draft edits.
+2. **Customize:** a large live generator preview beside Resources, Terrain and
+   Enemies tabs. Resources group frequency/size/richness by material. Uranium/oil,
+   gameplay/pollution and complete JSON use disclosures. Sliders retain numeric
+   editing, normal bounds, keyboard access and advanced expressions.
+3. **Review:** name, seed and changes to exposed defaults, with a reminder that
+   the complete advanced configuration is included. Create into the library by
+   default. Switching after generation is unchecked and requires confirmation
+   explaining player disconnection, save and backup behavior.
+
+The previous preview remains visibly stale while a new image is generated.
+Validation reveals the relevant hidden group and focuses its invalid input.
+The draft survives navigation within the session; reloading clears it. Completion
+shows the finished preview when available and links to the library/create again.
+Worlds have search, library/active/autosave filters and real preview thumbnails
+only when a generated image exists. Opening a preview never switches worlds.
+
+## Completed onboarding
+
+The host launchers check prerequisites, guide new/import/recovery choices and
+ask before startup (default No). They need Docker, with no extra host runtime.
+The private owner registration link leads to account creation and then a resumable
+browser guide. Existing accounts are not forced into first-run onboarding.
+
+The guide checks actual game readiness, an active world and confirmed first save.
+It never starts or saves the game automatically. Save now is an explicit action;
+completion is unavailable until the server-side checks pass and is persisted on
+the administrator account. Setup guide remains available from Settings/sidebar.
+
+Show the installed client version and copyable game/panel addresses. Loopback
+addresses are labelled as host-only. A client connection is still required to
+confirm LAN access; local health cannot prove it. Installation details show the
+configured game image and amd64 helper/emulation policy, without inventing the
+host OS or claiming native ARM execution. No unverified-backup success badge.
+
+## Updates
+
+Public GitHub release checks, preview/stable channels, staged/checksummed panel
+installation and separately selected Factorio 2.0.x upgrades are implemented.
+Only an administrator can review/install. Automatic installation remains off.
+Preferences display actual host configuration; the channel is not a fake editable
+selector. Progress and recovery details persist across panel replacement.
+See [update behavior and recovery](UPDATES.md).
+
+## Useful next additions
+
+| Priority | Addition | Acceptance boundary |
+| --- | --- | --- |
+| Next | Versioned play-style presets and saved custom presets | Exact engine values, preserved seed and a clear changed-settings review; Rail world is not just a decorative label. |
+| Next | Persisted drafts and a small seed shortlist | Store each seed with its exact configuration fingerprint/preview; bound background rendering. |
+| Soon | Richer world metadata | Seed, playtime and last played must come from verified world data. |
+| Soon | Maintenance countdown and scheduled restart | Warn players, save/back up, persist timezone and cancellation. |
+| Soon | Game/mod compatibility planner | Check exact mod/client versions and explain upgrade/recovery limits; no silent game updates. |
+| Later | Mod-set profiles | Validate dependencies and stage before activation. |
+| Later | Off-host backups and restore rehearsal | Archive checksums and successful isolated game loading are separate proof states. |
+
+## Design and verification boundaries
+
+The source references remain `output/design/02-world-creation.png` and the revised
+overview/updates/onboarding images in `output/design/`. Those generated concept
+maps are illustrative game art, not verified seed renders. Production continues
+to use the installed Factorio preview and existing sampled map renderer. The
+isolated UI fixture uses clearly synthetic imagery and has no Docker access.
+
+Generated mockup features such as saved drafts, seed comparison, an editable
+release-channel selector and elaborate presets are not claimed as implemented.
+No achievement eligibility badge is inferred from an image. Base-game 2.0.x
+compatibility remains the alpha scope. Browser review and automated checks do
+not establish game execution on Mac/Linux/ARM or live deployment acceptance.
+See [verification](VERIFICATION.md) for the exact tested boundary.

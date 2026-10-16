@@ -1,6 +1,11 @@
 import http from 'node:http';
 import {HttpError, redact} from './common.js';
 
+// Compose platform selection does not propagate to containers created by API.
+export function gameContainerRoute(name) {
+  return '/containers/create?'+new URLSearchParams({name,platform:process.env.FACTORIO_PLATFORM||'linux/amd64'});
+}
+
 export function docker(method, route, data, {raw=false,timeout=150000}={}) {
   return new Promise((resolve,reject)=>{
     const body=data===undefined ? undefined : Buffer.from(JSON.stringify(data));

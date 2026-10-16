@@ -34,9 +34,9 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     const value=body?JSON.parse(body):{},url=new URL(req.url,'http://docker');const reply=(status,data)=>{res.writeHead(status,{'content-type':'application/json'});res.end(data===undefined?'':JSON.stringify(data));};
     if(url.pathname==='/containers/json')return reply(200,[]);
     if(url.pathname==='/containers/factorio-server/archive'){res.writeHead(200,{'content-type':'application/x-tar'});return res.end(settingsTar(worldDefaults.map_settings));}
-    if(url.pathname==='/containers/factorio-server/json')return reply(200,{State:{Running:running,Status:running?'running':'exited',StartedAt:new Date(Date.now()-20000).toISOString()},Config:{Image:'factoriotools/factorio:2.0.77'},Mounts:[{Type:'bind',Source:data,Destination:'/factorio'}]});
+    if(url.pathname==='/containers/factorio-server/json')return reply(200,{Image:'sha256:installed-game',State:{Running:running,Status:running?'running':'exited',StartedAt:new Date(Date.now()-20000).toISOString()},Config:{Image:'factoriotools/factorio:2.0.77'},Mounts:[{Type:'bind',Source:data,Destination:'/factorio'}]});
     if(url.pathname.endsWith('/stats'))return reply(200,{cpu_stats:{cpu_usage:{total_usage:20},system_cpu_usage:100,online_cpus:2},precpu_stats:{cpu_usage:{total_usage:10},system_cpu_usage:50},memory_stats:{usage:123456}});
-    if(url.pathname==='/containers/create'){helpers.set(url.searchParams.get('name'),value);return reply(201,{Id:url.searchParams.get('name')});}
+    if(url.pathname==='/containers/create'){assert.equal(url.searchParams.get('platform'),'linux/amd64');assert.equal(value.Image,'sha256:installed-game');helpers.set(url.searchParams.get('name'),value);return reply(201,{Id:url.searchParams.get('name')});}
     const helperName=url.pathname.split('/')[2],helper=helpers.get(helperName);
     if(helper&&url.pathname.endsWith('/start')){const work=helper.HostConfig.Mounts[0].Source;if(helper.Cmd?.includes('--create')){generatedConfiguration={map_gen_settings:JSON.parse(await fs.readFile(path.join(work,'config/new-map-gen-settings.json'),'utf8')),map_settings:JSON.parse(await fs.readFile(path.join(work,'config/new-map-settings.json'),'utf8'))};await fs.writeFile(path.join(work,'saves/generated.zip'),save);}else if(helper.Cmd?.includes('--generate-map-preview'))await fs.writeFile(path.join(work,'preview.png'),Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),Buffer.alloc(24)]));return reply(204);}
     if(helper&&url.pathname.endsWith('/wait'))return reply(200,{StatusCode:0});
@@ -64,7 +64,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
   });
   await new Promise(resolve=>engine.listen(socket,resolve));
   const controllerPort=await freePort(),panelPort=await freePort();
-  const shared={...process.env,CONTROLLER_TOKEN_FILE:tokenFile};
+  const shared={...process.env,CONTROLLER_TOKEN_FILE:tokenFile,RELEASE_CHECKS:'false',UPDATE_STATE_DIR:path.join(root,'updates')};
   const controller=spawn(process.execPath,['server.js'],{cwd:project,env:{...shared,MODE:'controller',PORT:String(controllerPort),DOCKER_SOCKET:socket,FACTORIO_DATA:data,BACKUPS_DIR:backups,STATE_DIR:state,FACTORIO_READY_TIMEOUT_MS:'1200'},stdio:'pipe'});
   const panel=spawn(process.execPath,['server.js'],{cwd:project,env:{...shared,MODE:'panel',PORT:String(panelPort),AUTH_DIR:auth,CONTROLLER_URL:`http://127.0.0.1:${controllerPort}`,PANEL_HOSTS:'127.0.0.1'},stdio:'pipe'});
   let errors='';controller.stderr.on('data',chunk=>errors+=chunk);panel.stderr.on('data',chunk=>errors+=chunk);
@@ -84,6 +84,29 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     assert.equal((await request('/jobs',{method:'POST',body:{action:'switch',params:{}}})).status,400);
   });
   await t.test('dashboard reports real controller data',async()=>{const result=await request('/status');assert.equal(result.status,200);const value=await result.json();assert.deepEqual(value.players,['TestEngineer']);assert.equal(value.currentWorld,'Original.zip');assert.equal(value.seed,'12345');});
+  await t.test('onboarding requires admin, CSRF and real readiness before completion',async()=>{
+    assert.equal((await fetch(origin+'/api/onboarding')).status,401);
+    assert.equal((await request('/onboarding',{user:viewer})).status,403);
+    assert.equal((await request('/onboarding',{method:'POST',body:{complete:true},csrf:false})).status,403);
+    assert.equal((await request('/onboarding',{method:'POST',body:{complete:false}})).status,400);
+    assert.equal((await request('/onboarding',{method:'POST',body:{complete:true}})).status,409);
+    assert.equal((await (await request('/onboarding')).json()).completed,true,'legacy admin is not automatically onboarded');
+    for(const asset of ['/icons.js','/onboarding.js']){const result=await fetch(origin+asset);assert.equal(result.status,200);assert.match(result.headers.get('content-type'),/javascript/);}
+  });
+  await t.test('release metadata requires administrator access and cannot install updates',async()=>{
+    assert.equal((await fetch(origin+'/api/updates')).status,401);
+    assert.equal((await request('/updates',{user:viewer})).status,403);
+    const result=await request('/updates');assert.equal(result.status,200);
+    const value=await result.json();assert.equal(value.state,'disabled');assert.equal(value.installation,'manual');
+    assert.equal((await request('/updates',{method:'POST',body:{install:true}})).status,404);
+  });
+  await t.test('update review, installation and history require an administrator and CSRF verification',async()=>{
+    for(const route of ['/update-status','/update-plan','/update-install'])assert.equal((await request(route,{user:viewer})).status,403);
+    assert.equal((await fetch(origin+'/api/update-status')).status,401);
+    assert.equal((await request('/update-install',{method:'POST',body:{confirm:true},csrf:false})).status,403);
+    assert.equal((await request('/update-install',{method:'POST',body:{confirm:false}})).status,400);
+    const history=await (await request('/update-status')).json();assert.equal(history.busy,false);assert.deepEqual(history.jobs,[]);
+  });
   await t.test('draft previews are authenticated, bounded, reusable images without world creation or active-game commands',async()=>{
     assert.equal((await fetch(origin+'/api/world-preview')).status,401);
     assert.equal((await request('/world-preview',{user:viewer})).status,403);
@@ -111,7 +134,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     const scriptsBefore=activeScripts;
     const created=await action('create',{name:'Custom',seed:'987654',configuration,preview:true,activate:false});assert.equal(created.state,'succeeded',created.message);
     assert.equal(generatedConfiguration.map_gen_settings.seed,987654);delete generatedConfiguration.map_gen_settings.seed;const expected=structuredClone(configuration);delete expected.map_gen_settings.seed;assert.deepEqual(generatedConfiguration,expected);
-    assert.equal(activeScripts,scriptsBefore);assert.equal(current,'Original.zip');assert.equal(running,true);assert.ok((await fs.stat(path.join(backups,'panel-worlds/Custom.zip'))).size);assert.equal(helpers.size,0);
+    assert.equal(activeScripts,scriptsBefore);assert.equal(current,'Original.zip');assert.equal(running,true);assert.ok((await fs.stat(path.join(backups,'panel-worlds/Custom.zip'))).size);assert.equal((await (await request('/worlds')).json()).worlds.find(w=>w.name==='Custom').hasPreview,true);assert.equal(helpers.size,0);
     const prepared=await action('world-options');assert.equal(prepared.state,'succeeded',prepared.message);const copied=await (await request('/world-options')).json();assert.equal(copied.copied.sourceWorld,'Original.zip');assert.deepEqual(copied.copied.configuration,worldDefaults);assert.equal(activeScripts,scriptsBefore);assert.equal(current,'Original.zip');
   });
   await t.test('live positions are disabled until an administrator acknowledges the achievement impact',async()=>{
@@ -148,6 +171,10 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     const list=await (await request('/backups')).json();assert.equal(list.backups.length,2);const result=await request('/download?kind=backup&name='+encodeURIComponent(list.backups[0].relative));assert.equal(result.status,200);
     const entries=zipEntries(Buffer.from(await result.arrayBuffer()));assert.ok(entries.some(entry=>entry.name==='saves/Original.zip'));assert.ok(entries.some(entry=>entry.name==='config/server-settings.json'));for(const entry of entries)entry.read();
     assert.equal(list.backups[0].validation.ok,true);assert.equal(list.health.verifiedCount,2);assert.equal((await action('verify-backup',{name:list.backups[0].relative})).state,'succeeded');
+  });
+  await t.test('completed onboarding persists into later authenticated sessions',async()=>{
+    const result=await request('/onboarding',{method:'POST',body:{complete:true}});assert.equal(result.status,200,await result.clone().text());
+    const fresh=await login('admin','test-admin-password');const value=await (await request('/session',{user:fresh})).json();assert.equal(value.onboarding.completed,true);assert.ok(value.onboarding.completedAt);
   });
   await t.test('saved map and shared pins enforce explored bounds and read-only permissions',async()=>{
     assert.equal((await (await request('/map')).json()).snapshot,null);

@@ -32,6 +32,10 @@ test('owner claim retires only unchanged legacy generated accounts and expired i
   const accounts=new Accounts(root),invite=await accounts.invite('admin','Setup',{bootstrap:true});
   await accounts.register({token:invite.token,username:'TestOwner',password:'my chosen long password'});
   assert.deepEqual(Object.keys(await accounts.users()).sort(),['Custom','TestOwner']);
+  assert.deepEqual(await new Accounts(root).onboarding('TestOwner'),{completed:false});
+  assert.deepEqual(await accounts.onboarding('Custom'),{completed:true},'existing installations are not forced into first run');
+  await accounts.completeOnboarding('TestOwner');assert.equal((await new Accounts(root).onboarding('TestOwner')).completed,true);
+  assert.ok((await accounts.onboarding('TestOwner')).completedAt);
   const next=await accounts.invite('admin','Setup',{bootstrap:true});
   await accounts.register({token:next.token,username:'admin',password:'another long password'});
   const again=await accounts.invite('admin','Setup',{bootstrap:true});
