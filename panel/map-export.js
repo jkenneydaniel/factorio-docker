@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {docker,rcon} from './docker.js';
+import {docker,rcon,gameContainerRoute} from './docker.js';
 import {assert,writeJSON,readJSON,inside,existingFile} from './common.js';
 import {saveVersion} from './save-map.js';
 
@@ -33,7 +33,7 @@ export async function exportMap({data,state,server,source,world=source,save=true
     const mount=server.Mounts.find(item=>item.Destination==='/factorio');assert(mount?.Type==='bind','Map export requires the Factorio bind mount.');
     let hostRoot=mount.Source.replace(/\\/g,'/');if(/^[A-Za-z]:\//.test(hostRoot))hostRoot='/run/desktop/mnt/host/'+hostRoot[0].toLowerCase()+hostRoot.slice(2);
     await stageMessage(job,'Loading an isolated copy of the world…');
-    await docker('POST',`/containers/create?name=${helper}`,{Image:server.Config.Image,Env:['DLC_SPACE_AGE=false','UPDATE_MODS_ON_START=false','LOAD_LATEST_SAVE=false','SAVE_NAME=source'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[{Type:'bind',Source:hostRoot.replace(/\/$/,'')+'/'+relative,Target:'/factorio'}],Memory:1073741824}});exists=true;
+    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Env:['DLC_SPACE_AGE=false','UPDATE_MODS_ON_START=false','LOAD_LATEST_SAVE=false','SAVE_NAME=source'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[{Type:'bind',Source:hostRoot.replace(/\/$/,'')+'/'+relative,Target:'/factorio'}],Memory:1073741824}});exists=true;
     await docker('POST',`/containers/${helper}/start`);await ready(helper);
     // Factorio requires repeating the first script command to acknowledge cheats.
     // This only affects the disposable copy, never the active save.

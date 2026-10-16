@@ -10,6 +10,14 @@ test('backup ZIP round-trips binary save data and configuration',()=>{
   const files=[{name:'saves/Factory.zip',data:Buffer.from([0,1,255,128])},{name:'config/server-settings.json',data:Buffer.from('{"auto_pause":true}')}];
   const entries=zipEntries(makeZip(files));assert.equal(entries.length,2);for(let i=0;i<files.length;i++)assert.deepEqual(entries[i].read(),files[i].data);
 });
+test('release ZIP preserves executable Unix launchers without changing ordinary backup entries',()=>{
+  const buffer=makeZip([{name:'Setup.command',data:Buffer.from('#!/bin/sh\n'),executable:true},{name:'README.md',data:Buffer.from('Read me')}]);
+  const first=buffer.indexOf(Buffer.from('504b0102','hex')),second=first+46+Buffer.byteLength('Setup.command');
+  assert.equal(buffer.readUInt16LE(first+4)>>>8,3,'Unix creator enables executable permissions on extraction');
+  assert.equal(buffer.readUInt32LE(first+38)>>>16,0o100755);
+  assert.equal(buffer.readUInt32LE(second+38),0,'ordinary entries retain their prior attributes');
+  assert.equal(zipEntries(buffer)[0].read().toString(),'#!/bin/sh\n');
+});
 test('ZIP integrity failures, traversal, symlinks, and misleading world files are rejected',()=>{
   assert.throws(()=>makeZip([{name:'../escaped',data:Buffer.from('x')}]),/Unsafe/);
   assert.throws(()=>makeZip([{name:'C:/escaped',data:Buffer.from('x')}]),/Unsafe/);

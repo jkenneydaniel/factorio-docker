@@ -1,6 +1,6 @@
 # Security and deployment scope
 
-v0.1.0-alpha is intended for a trusted LAN with trusted administrators. It has
+v0.2.0-alpha is intended for a trusted LAN with trusted administrators. It has
 not received an independent security audit. Internet exposure, public registration,
 multiple replicas and multi-tenant hosting are unsupported.
 
@@ -14,6 +14,14 @@ The controller mounts the Docker socket. A compromised controller or powerful
 administrator can effectively control the Docker host. Do not treat container
 capability restrictions as isolation from the host when a socket is mounted.
 The web service does not receive that socket, game files or full backups.
+
+Administrator-confirmed updates launch a temporary root worker with the Docker
+socket and installation directory mounted. It can replace application source and
+containers and retains private recovery copies under `.panel-data/updates/`.
+Treat releases and the configured release repository as trusted host software.
+Checksums detect damaged downloads; they do not authenticate a compromised
+publisher. Only supported state contracts and unmodified source installations
+are accepted. See [update scope and recovery](docs/UPDATES.md).
 
 Game identity verification is off in the default LAN setup to allow LAN usernames.
 Use a game password/whitelist if not everyone on your network should join.

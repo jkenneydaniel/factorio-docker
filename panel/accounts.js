@@ -31,7 +31,7 @@ export class Accounts {
       state.invitations[id]=invitation;await save();return {token,role,expires};
     });
   }
-  inspect(token){return this.transaction(state=>{const item=this.invitation(state,token);return {role:item.role,expires:item.expires};});}
+  inspect(token){return this.transaction(state=>{const item=this.invitation(state,token);return {role:item.role,expires:item.expires,owner:!!item.retire};});}
   invitation(state,token){
     assert(typeof token==='string'&&/^[A-Za-z0-9_-]{43}$/.test(token),'This invitation is invalid or expired.',400);
     const item=state.invitations[digest(token)];assert(item&&item.expires>Date.now(),'This invitation is invalid or expired.',400);return item;
@@ -46,10 +46,16 @@ export class Accounts {
       assert(Object.keys(state.users).length<100,'The account limit has been reached.');
       for(const [name,hash] of Object.entries(retire))if(state.users[name]?.hash===hash)delete state.users[name];
       const user={...hashPassword(password),role:invitation.role,created:new Date().toISOString()};
+      if(invitation.retire)user.onboarding={completed:false};
       state.users[username]=user;delete state.invitations[digest(token)];await save();return {username,role:user.role};
     });
   }
   revoke(id){return this.transaction(async(state,save)=>{assert(Object.hasOwn(state.invitations,id),'Invitation not found.',404);delete state.invitations[id];await save();return {ok:true};});}
+  onboarding(username){return this.transaction(state=>state.users[username]?.onboarding||{completed:true});}
+  completeOnboarding(username){return this.transaction(async(state,save)=>{
+    assert(Object.hasOwn(state.users,username),'Account not found.',404);
+    state.users[username].onboarding={completed:true,completedAt:new Date().toISOString()};await save();return state.users[username].onboarding;
+  });}
   changePassword(username,currentPassword,password){return this.transaction(async(state,save)=>{
     assert(typeof currentPassword==='string'&&currentPassword.length<=256&&Object.hasOwn(state.users,username)&&checkPassword(currentPassword,state.users[username]),'Current password is incorrect.',403);
     assert(typeof password==='string'&&password.length>=12&&password.length<=128,'Use a password between 12 and 128 characters.');

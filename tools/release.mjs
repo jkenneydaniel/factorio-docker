@@ -9,6 +9,7 @@ const version=JSON.parse(await fs.readFile(path.join(root,'panel/package.json'),
 if(!/^\d+\.\d+\.\d+-alpha(?:\.\d+)?$/.test(version))throw new Error('Expected an alpha version.');
 const name='factory-control-'+version;
 const exact=new Set(['.gitignore','.env.example','.gitattributes','compose.yaml','README.md','LICENSE','CHANGELOG.md','SECURITY.md','THIRD_PARTY_NOTICES.md','Start-Server.ps1','Configure-Lan.ps1','Configure-Autostart.ps1','Register-LanAnnouncer.ps1','Start-LanAnnouncer.ps1']);
+for(const file of ['Setup.sh','Setup.command','Setup.ps1','Start-Server.sh'])exact.add(file);
 const prefixes=['panel/','docs/','.github/'];
 const files=[];
 async function walk(relative=''){
@@ -38,10 +39,12 @@ const dist=path.join(root,'dist');await fs.mkdir(dist,{recursive:true});
 const destination=path.join(dist,name);
 // Refuse replacement so a manual review artifact is never silently overwritten.
 await fs.mkdir(destination);
-for(const file of files){const target=path.join(destination,file.name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,file.data);}
+for(const file of files){const target=path.join(destination,file.name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,file.data);if(/\.(?:sh|command)$/.test(file.name))await fs.chmod(target,0o755);}
 const manifest=files.map(file=>`${crypto.createHash('sha256').update(file.data).digest('hex')}  ${file.name}`).join('\n')+'\n';
-const archive=makeZip(files.map(file=>({name:name+'/'+file.name,data:file.data})));
+const archive=makeZip(files.map(file=>({name:name+'/'+file.name,data:file.data,executable:/\.(?:sh|command)$/.test(file.name)})));
 await fs.writeFile(path.join(dist,name+'.zip'),archive);
 await fs.writeFile(path.join(dist,name+'.manifest.txt'),manifest);
 await fs.writeFile(path.join(dist,name+'.sha256'),crypto.createHash('sha256').update(archive).digest('hex')+'  '+name+'.zip\n');
+// Bump this state contract when auth/controller persistence requires migration.
+await fs.writeFile(path.join(dist,name+'.update.json'),JSON.stringify({format:1,version,updater:1,stateVersion:1,rollbackSafe:true},null,2)+'\n');
 console.log(`Prepared ${files.length} source files in dist/${name}/ and ZIP/checksum/manifest. No runtime data copied.`);

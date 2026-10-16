@@ -7,6 +7,7 @@ panel/.test-*/
 !.env.example
 .local-tools/
 dist/
+output/
 import/
 node_modules/
 *.log

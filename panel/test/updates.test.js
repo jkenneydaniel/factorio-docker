@@ -1,0 +1,39 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {ReleaseChecks,compareVersions,selectRelease,version} from '../updates.js';
+const release=(tag,extra={})=>({tag_name:tag,published_at:'2026-10-15T12:00:00Z',prerelease:tag.includes('-'),draft:false,...extra});
+test('release versions compare numerically and use semantic prerelease ordering',()=>{
+  assert.equal(compareVersions('v0.10.0','0.9.9'),1);
+  assert.equal(compareVersions('0.1.0-alpha.10','0.1.0-alpha.2'),1);
+  assert.equal(compareVersions('0.1.0','0.1.0-rc.1'),1);
+  assert.equal(compareVersions('0.1.0-alpha','0.1.0-alpha.1'),-1);
+  assert.equal(compareVersions('0.1.0+build.1','v0.1.0'),0);
+  assert.equal(version('v01.2.3'),null);assert.equal(version('main'),null);assert.equal(version('1.0.0-alpha.01'),null);
+});
+test('preview includes alphas; stable excludes prereleases; drafts and malformed tags never notify',()=>{
+  const list=[release('0.1.0'),release('v0.2.0-alpha'),release('v9.0.0',{draft:true}),release('v8.0.0',{published_at:null}),release('not-semver'),release('1.0.0-beta',{prerelease:false})];
+  assert.equal(selectRelease(list,'preview').tag_name,'1.0.0-beta');
+  assert.equal(selectRelease(list,'stable').tag_name,'0.1.0');
+  assert.equal(selectRelease([release('v0.2.0-alpha')],'stable'),null);
+});
+test('checks coalesce, cache, use conditional requests and never downgrade newer installations',async()=>{
+  let now=1000,calls=0;const requests=[];
+  const checks=new ReleaseChecks({current:'0.1.0-alpha',now:()=>now,interval:100,fetcher:async(url,options)=>{
+    calls++;requests.push({url,options});await new Promise(resolve=>setImmediate(resolve));
+    return calls===1?new Response(JSON.stringify([release('v0.1.1-alpha')]),{headers:{etag:'"release-list"'}}):new Response(null,{status:304});
+  }});
+  const [a,b]=await Promise.all([checks.check(),checks.check()]);assert.equal(calls,1);assert.deepEqual(a,b);assert.equal(a.state,'available');assert.equal(a.installation,'manual');
+  assert.equal(a.latest.url,'https://github.com/jkenneydaniel/factorio-docker/releases/tag/v0.1.1-alpha');
+  await checks.check();assert.equal(calls,1);now+=101;await checks.check();assert.equal(calls,2);assert.equal(requests[1].options.headers['if-none-match'],'"release-list"');
+  assert.ok(requests.every(r=>r.url.startsWith('https://api.github.com/repos/')));
+  checks.current='0.2.0';now+=101;assert.equal((await checks.check()).available,false);
+});
+test('offline, rate limits and unavailable repositories stay explicit; disabled checks make no request',async()=>{
+  for(const status of [403,404,429]){
+    const checks=new ReleaseChecks({current:'0.1.0-alpha',fetcher:async()=>new Response('',{status})});
+    const result=await checks.check();assert.equal(result.state,'unavailable');assert.equal(result.available,false);assert.ok(result.error);
+  }
+  const offline=new ReleaseChecks({current:'0.1.0-alpha',fetcher:async()=>{throw new Error('offline');}});
+  assert.match((await offline.check()).error,/Cannot reach GitHub/);
+  const disabled=new ReleaseChecks({current:'0.1.0-alpha',enabled:false,fetcher:()=>assert.fail('Must not fetch')});assert.equal((await disabled.check()).state,'disabled');
+});

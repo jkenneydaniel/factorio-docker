@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {docker,demultiplex} from './docker.js';
+import {docker,demultiplex,gameContainerRoute} from './docker.js';
 import {assert,inside,writeJSON,redact} from './common.js';
 
 const canonical=value=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])):value;
@@ -51,7 +51,7 @@ export async function renderWorldPreview({configuration,seed},{data,server}){
     await fs.mkdir(path.join(work,'config'),{recursive:true});await fs.mkdir(path.join(work,'mods'),{recursive:true});
     await fs.cp(path.join(data,'mods'),path.join(work,'mods'),{recursive:true,dereference:false});
     await writeJSON(path.join(work,'config/map-gen.json'),{...configuration.map_gen_settings,seed});
-    await docker('POST','/containers/create?name='+helper,{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--generate-map-preview','/factorio/preview.png','--map-preview-size','1024','--map-gen-settings','/factorio/config/map-gen.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.preview':'true','factorio-panel.preview-id':id},HostConfig:{NetworkMode:'none',Mounts:[{Type:'bind',Source:root.replace(/\/$/,'')+'/'+relative,Target:'/factorio'}],Memory:1073741824,NanoCpus:1000000000}});exists=true;
+    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--generate-map-preview','/factorio/preview.png','--map-preview-size','1024','--map-gen-settings','/factorio/config/map-gen.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.preview':'true','factorio-panel.preview-id':id},HostConfig:{NetworkMode:'none',Mounts:[{Type:'bind',Source:root.replace(/\/$/,'')+'/'+relative,Target:'/factorio'}],Memory:1073741824,NanoCpus:1000000000}});exists=true;
     await docker('POST','/containers/'+helper+'/start');
     const result=await docker('POST','/containers/'+helper+'/wait?condition=not-running',undefined,{timeout:60000});
     if(result.StatusCode!==0){const logs=demultiplex(await docker('GET','/containers/'+helper+'/logs?stdout=1&stderr=1&tail=8',undefined,{raw:true}));throw new Error('Preview could not be rendered. '+redact(logs).slice(-1200));}

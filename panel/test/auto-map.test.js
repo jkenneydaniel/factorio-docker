@@ -28,6 +28,7 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
     if(url.pathname==='/containers/json')return reply(200,[]);
     if(url.pathname==='/containers/factorio-server/json')return reply(200,{State:{Running:true,Status:'running'},Config:{Image:'test-factorio:2.0.77'},Mounts:[{Type:'bind',Destination:'/factorio',Source:data}]});
     if(url.pathname==='/containers/create'){
+      assert.equal(url.searchParams.get('platform'),'linux/amd64');
       assert.equal(body.HostConfig.NetworkMode,'none');const name=url.searchParams.get('name');helpers.set(name,{work:path.join(data,'.panel-work',name.slice('factorio-panel-map-'.length))});return reply(201,{Id:name});
     }
     const execMatch=url.pathname.match(/^\/containers\/([^/]+)\/exec$/);
@@ -58,7 +59,7 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
   });
   await new Promise(resolve=>engine.listen(socket,resolve));
   const portProbe=http.createServer();await new Promise(resolve=>portProbe.listen(0,'127.0.0.1',resolve));const port=portProbe.address().port;await new Promise(resolve=>portProbe.close(resolve));
-  const controller=spawn(process.execPath,['server.js'],{cwd:project,env:{...process.env,MODE:'controller',PORT:String(port),CONTROLLER_TOKEN_FILE:tokenFile,DOCKER_SOCKET:socket,FACTORIO_DATA:data,BACKUPS_DIR:backups,STATE_DIR:state,MAP_SAVE_POLL_MS:'25',MAP_SAVE_DEBOUNCE_MS:'75'},stdio:'pipe'});
+  const controller=spawn(process.execPath,['server.js'],{cwd:project,env:{...process.env,MODE:'controller',PORT:String(port),CONTROLLER_TOKEN_FILE:tokenFile,DOCKER_SOCKET:socket,FACTORIO_DATA:data,BACKUPS_DIR:backups,STATE_DIR:state,UPDATE_STATE_DIR:path.join(root,'updates'),MAP_SAVE_POLL_MS:'25',MAP_SAVE_DEBOUNCE_MS:'75'},stdio:'pipe'});
   let errors='';controller.stderr.on('data',chunk=>errors+=chunk);
   t.after(async()=>{holdFirst=false;controller.kill();await new Promise(resolve=>controller.once('close',resolve));await new Promise(resolve=>engine.close(resolve));await fs.rm(root,{recursive:true,force:true});});
   async function api(route,body){const result=await fetch(`http://127.0.0.1:${port}`+route,{method:body===undefined?'GET':'POST',headers:{authorization:'Bearer test-token','content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});assert.ok(result.ok,await result.clone().text());return result.json();}
