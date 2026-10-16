@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Reduce idle controller CPU by caching saved-map metadata until the snapshot
+  file changes, including lightweight map-status requests. Automatic refresh
+  after completed saves remains enabled.
+
 ## 0.1.0-alpha
 
 Initial public alpha source release.

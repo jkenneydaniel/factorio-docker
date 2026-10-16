@@ -8,6 +8,7 @@ import {makeZip,zipEntries,validateWorld} from './zip.js';
 import {validateBackup,summarizeBackups} from './backup-health.js';
 import {exportMap} from './map-export.js';
 import {completedSave,saveVersion,SaveMapQueue} from './save-map.js';
+import {SnapshotMetadata} from './snapshot-metadata.js';
 import {LivePlayers} from './live-players.js';
 import {validateConfiguration} from './world-settings.js';
 import {WorldPreviews,renderWorldPreview,cleanPreviewWorkers} from './world-preview.js';
@@ -41,6 +42,7 @@ for(const job of jobs)if(job.action==='refresh-map'&&job.state==='interrupted'&&
 let schedule=await readJSON(path.join(state,'schedule.json'),{enabled:false,hours:6,keep:12,lastRun:null});
 let validations=await readJSON(path.join(state,'backup-validation.json'),{});
 const autoMapFile=path.join(state,'map-refresh.json');
+const snapshotMetadata=new SnapshotMetadata(path.join(state,'map.json'));
 const autoMap=new SaveMapQueue(await readJSON(autoMapFile,{}),{debounceMs:Number(process.env.MAP_SAVE_DEBOUNCE_MS||2000)});
 let autoMapWrites=Promise.resolve(),autoMapSaved=null,autoMapPolling=false;
 function persistAutoMap(){
@@ -347,7 +349,7 @@ async function handle(req,res){
     const current=await activeSave();return json(res,200,{snapshot,automatic:autoMap.status(),staleWorld:snapshot.world!==current,pins:(await readJSON(path.join(state,'map-pins.json'),[])).filter(pin=>pin.world===snapshot.world&&pin.seed===snapshot.seed)});
   }
   if(req.method==='GET'&&url.pathname==='/map-status'){
-    const snapshot=await readJSON(path.join(state,'map.json'),null);return json(res,200,{created:snapshot?.created||null,automatic:autoMap.status(),active:active?.action==='refresh-map'?{message:active.message}:null});
+    const snapshot=await snapshotMetadata.read();return json(res,200,{created:snapshot?.created||null,automatic:autoMap.status(),active:active?.action==='refresh-map'?{message:active.message}:null});
   }
   if(req.method==='GET'&&url.pathname==='/live-players')return json(res,200,await livePlayers.get());
   if(req.method==='POST'&&url.pathname==='/pins'){
@@ -400,7 +402,7 @@ server.requestTimeout=300000;server.listen(Number(process.env.PORT||8081),'0.0.0
 async function pollSavedMap(){
   if(autoMapPolling)return;autoMapPolling=true;
   try{
-    const event=completedSave(await logText()),snapshot=await readJSON(path.join(state,'map.json'),null);
+    const event=completedSave(await logText()),snapshot=await snapshotMetadata.read();
     if(event.completed&&!event.saving){
       const item=event.completed,file=await existingFile(saves,item.source).catch(()=>null);
       if(file){const stat=await fs.stat(file);autoMap.observe({...item,version:saveVersion(item.world,item.source,stat)},snapshot);}

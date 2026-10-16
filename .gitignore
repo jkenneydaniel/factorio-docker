@@ -3,6 +3,7 @@ backups/
 .panel-data/
 panel/.test-*/
 .env
+compose.override.yaml
 .env.*
 !.env.example
 .local-tools/
