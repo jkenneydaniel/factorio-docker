@@ -24,7 +24,7 @@ this source and has not been performed on the running server.
 The initial implementation supports the standard single `compose.yaml` local
 installation layout and bind mounts, on the host platforms in SETUP.md. Additional
 Compose overrides, custom container identities inconsistent with Compose labels,
-custom game image repositories and unsupported state migrations require a reviewed
+unrecognized game image repositories and unsupported state migrations require a reviewed
 host upgrade. Existing customized ports, address and configured names are retained.
 
 ## Install a panel release
@@ -55,16 +55,37 @@ untrusted release merely because its checksum matches.
 
 ## Upgrade Factorio separately
 
-Enter an exact newer `2.0.x` version and choose Review game upgrade. Confirm that
-all clients, including Switch where applicable, and installed mods support that
-version. The installer does not automatically upgrade mods or enable DLC. New
-major/minor versions and arbitrary image URLs are intentionally not accepted.
+Choose **Image source**, an exact `2.0.x` Factorio version and, for Factory
+Control, its published image revision. The source defaults to the installed
+source. Existing Factorio Tools installations continue to work; panel updates
+never switch them automatically.
 
-Installation saves and verifies a pre-update archive, pulls the selected official
-`factoriotools/factorio` version for `linux/amd64`, replaces only Factorio, then
-checks its reported version through RCON. ARM hosts retain their emulation policy.
-Players disconnect during game replacement. A stopped game is started by a
-confirmed game upgrade; the review explicitly describes the operation.
+Supported images:
+
+- `factoriotools/factorio:<version>`
+- `ghcr.io/jkenneydaniel/factorio-server:<version>-fc.<revision>`
+
+Choose a newer game version to upgrade, or keep the same version to switch
+sources/update packaging. Same-source game downgrades, revision downgrades,
+floating tags and arbitrary repositories are refused. A game upgrade still
+requires matching clients and compatible mods. Mods and DLC selections are not
+automatically changed. Only the `2.0.x` branch and `linux/amd64` are supported;
+ARM hosts retain Docker's amd64 emulation policy.
+
+Our image is built directly from Debian and the official Factorio download,
+without using Factorio Tools as its base. Its build and deliberate publication
+procedure is in [factorio-image/README.md](../factorio-image/README.md). The tag
+must be published and publicly pullable before it can be installed.
+
+Review shows the exact target image and explains a same-version change. After
+confirmation, installation saves and verifies a pre-change archive, pulls the
+selected image, verifies its declared version, paths, permissions, entrypoint,
+ports and compatibility revision, then runs a disposable version/tool probe with
+no host data mounts or network. The verified image is pinned by repository digest.
+Only the Factorio image changes; existing environment, startup options, mounts,
+ports, names and world/config/mod data are preserved. It then checks the reported
+version through RCON. Players disconnect during replacement. A stopped game is
+started by a confirmed image change, as described in the review.
 
 If download/preflight fails, the running game is left unchanged. If replacement
 or readiness fails, the game is stopped and the previous image is prepared in a
@@ -82,6 +103,14 @@ The source packager and release workflow now emit/upload:
 - `factory-control-<version>.sha256`
 - `factory-control-<version>.manifest.txt`
 - `factory-control-<version>.update.json`
+
+Releases also provide `.source.zip`, `.source.sha256`, `.source.manifest.txt`
+and `.source.update.json` bundles containing the independent image build files.
+New installers prefer this complete bundle. The original ZIP omits those new
+paths so existing 0.2.x workers can install the panel without rejecting unknown
+source files. Both bundles use the same release root and tested panel source.
+For a complete fresh source checkout, use `.source.zip` or Git. Source-bundle
+metadata adds `bundle: "source"`; the older update assets retain their contract.
 
 Installer metadata declares `format: 1`, the exact version, `updater: 1`,
 `stateVersion: 1` and `rollbackSafe: true`. A release requiring persistent-state

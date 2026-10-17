@@ -4,19 +4,19 @@ import crypto from 'node:crypto';
 import {assert,inside,readJSON,writeJSON} from './common.js';
 import {zipEntries} from './zip.js';
 
-const roots=new Set(['.gitignore','.gitattributes','.env.example','compose.yaml','README.md','LICENSE','CHANGELOG.md','SECURITY.md','THIRD_PARTY_NOTICES.md','Setup.sh','Setup.command','Setup.ps1','Start-Server.sh','Start-Server.ps1','Configure-Lan.ps1','Configure-Autostart.ps1','Register-LanAnnouncer.ps1','Start-LanAnnouncer.ps1','tools/release.mjs']);
+const roots=new Set(['.gitignore','.gitattributes','.env.example','compose.yaml','README.md','LICENSE','CHANGELOG.md','SECURITY.md','THIRD_PARTY_NOTICES.md','Setup.sh','Setup.command','Setup.ps1','Start-Server.sh','Start-Server.ps1','Configure-Lan.ps1','Configure-Autostart.ps1','Register-LanAnnouncer.ps1','Start-LanAnnouncer.ps1','tools/release.mjs','tools/factorio-image.mjs']);
 export const sha256=data=>crypto.createHash('sha256').update(data).digest('hex');
 export function publicSource(name){
   if(typeof name!=='string'||name.includes('\\')||name.split('/').some(p=>!p||p==='.'||p==='..'||p==='node_modules'||p.startsWith('.test-')))return false;
-  return roots.has(name)||/^(?:panel|docs|\.github)\//.test(name)&&/(?:\.(?:js|mjs|json|lua|html|css|md|yml|yaml)|\/Dockerfile|\/LICENSE|\/\.dockerignore)$/.test(name);
+  return roots.has(name)||/^(?:panel|docs|factorio-image|\.github)\//.test(name)&&/(?:\.(?:js|mjs|json|lua|html|css|md|yml|yaml|py|ini|sh)|\/Dockerfile|\/LICENSE|\/\.dockerignore)$/.test(name);
 }
 export async function sourceSnapshot(root){
   const files={};
   async function walk(relative=''){
     for(const item of await fs.readdir(path.join(root,relative),{withFileTypes:true})){
       const name=relative?relative+'/'+item.name:item.name;
-      if(item.isSymbolicLink()&&(['panel','docs','.github','tools'].some(p=>name===p||name.startsWith(p+'/'))||roots.has(name)))throw new Error('Installation source contains a symlink: '+name);
-      if(item.isDirectory()&&['panel','docs','.github','tools'].some(p=>name===p||name.startsWith(p+'/'))&&!['node_modules'].includes(item.name)&&!item.name.startsWith('.test-'))await walk(name);
+      if(item.isSymbolicLink()&&(['panel','docs','factorio-image','.github','tools'].some(p=>name===p||name.startsWith(p+'/'))||roots.has(name)))throw new Error('Installation source contains a symlink: '+name);
+      if(item.isDirectory()&&['panel','docs','factorio-image','.github','tools'].some(p=>name===p||name.startsWith(p+'/'))&&!['node_modules'].includes(item.name)&&!item.name.startsWith('.test-'))await walk(name);
       else if(publicSource(name)){
         assert(item.isFile(),'Installation source contains a symlink or special file: '+name);
         files[name]=sha256(await fs.readFile(inside(root,name)));
@@ -37,11 +37,11 @@ export async function assertUnmodified(root,baseline){
   assert(JSON.stringify(Object.entries(current).sort())===JSON.stringify(Object.entries(baseline.files).sort()),'Installation source has local changes. Preserve and reconcile them before updating; no files were replaced.',409);
 }
 export function unpackRelease(buffer,checksum,version,metadata){
-  const name='factory-control-'+version,expected=name+'.zip';
+  const name='factory-control-'+version,expected=name+(metadata?.bundle==='source'?'.source':'')+'.zip';
   const checksumEntry=checksum.trim().match(/^([a-fA-F0-9]{64}) {2}(\S+)$/);
   assert(checksumEntry?.[2]===expected,'Release checksum file is invalid.');
   assert(sha256(buffer)===checksum.slice(0,64).toLowerCase(),'Release checksum does not match.');
-  assert(metadata?.format===1&&metadata.version===version&&metadata.updater===1&&metadata.stateVersion===1&&metadata.rollbackSafe===true,'This release needs an installer or state migration not supported by this updater.');
+  assert(metadata?.format===1&&metadata.version===version&&metadata.updater===1&&metadata.stateVersion===1&&metadata.rollbackSafe===true&&(!metadata.bundle||metadata.bundle==='source'),'This release needs an installer or state migration not supported by this updater.');
   const files=new Map();
   for(const entry of zipEntries(buffer)){
     assert(entry.name.startsWith(name+'/'),'Release archive has an unexpected root.');

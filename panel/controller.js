@@ -14,6 +14,8 @@ import {validateConfiguration} from './world-settings.js';
 import {WorldPreviews,renderWorldPreview,cleanPreviewWorkers} from './world-preview.js';
 import {engineMapSettings,mergeSettings} from './engine-settings.js';
 import {UpdateManager} from './update-manager.js';
+import {controllerDiagnostics} from './diagnostics.js';
+import {BackupRetention} from './backup-retention.js';
 const worldDefaults=await readJSON(new URL('./world-defaults.json',import.meta.url));
 
 const data=process.env.FACTORIO_DATA||'/factorio';
@@ -25,7 +27,7 @@ const saves=path.join(data,'saves'), settingsFile=path.join(data,'config/server-
 const library=path.join(backups,'panel-worlds'), backupDir=path.join(backups,'panel-backups');
 for(const dir of [state,library,backupDir])await fs.mkdir(dir,{recursive:true});
 await cleanPreviewWorkers(data);
-let jobs=await readJSON(path.join(state,'jobs.json'),[]), active=null;
+let jobs=await readJSON(path.join(state,'jobs.json'),[]), active=null,retentionConfiguring=false;
 for(const job of jobs)if(['queued','running'].includes(job.state)){job.state='interrupted';job.message='Controller restarted during this operation. Check server status before retrying.';}
 await writeJSON(path.join(state,'jobs.json'),jobs);
 // A controller restart can interrupt an export before its finally block runs.
@@ -53,8 +55,12 @@ const info=()=>docker('GET',`/containers/${container}/json`);
 const control=action=>docker('POST',`/containers/${container}/${action}${action==='stop'||action==='restart'?'?t=120':''}`);
 const logFile=path.join(data,'factorio-current.log');
 const worldPreviews=new WorldPreviews({canRun:()=>!active&&!updater.busy,render:async input=>{const server=await info();assert((server.Image||server.Config.Image)===input.image,'Factorio changed. Refresh this preview.');return renderWorldPreview(input,{data,server});}});
-const updater=new UpdateManager({root:process.env.UPDATE_STATE_DIR||'/updates',docker,backup:label=>backup(label),canInstall:()=>!active,waitIdle:()=>worldPreviews.waitIdle(),current:(await readJSON(new URL('./package.json',import.meta.url))).version});
+const updater=new UpdateManager({root:process.env.UPDATE_STATE_DIR||'/updates',docker,backup:label=>backup(label),canInstall:()=>!active&&!retentionConfiguring,waitIdle:()=>worldPreviews.waitIdle(),current:(await readJSON(new URL('./package.json',import.meta.url))).version});
 await updater.init();
+const retention=new BackupRetention({root:backupDir,file:path.join(state,'backup-retention.json'),
+  protectedNames:()=>updater.jobs.filter(job=>job.recovery?.requiresWorldRestore).map(job=>job.backup),
+  validations:()=>validations,onDeleted:async names=>{for(const name of names)delete validations[name];await writeJSON(path.join(state,'backup-validation.json'),validations);}});
+await retention.init();
 setInterval(()=>void updater.refresh().catch(error=>console.error('Update state unavailable:',redact(error.message))),1000).unref();
 setInterval(()=>void worldPreviews.tick(),500).unref();
 const livePlayersFile=path.join(state,'live-players.json');
@@ -138,11 +144,11 @@ async function setJob(job,updates){Object.assign(job,updates);await writeJSON(pa
 async function runJob(action,params,actor){
   await updater.refresh();assert(!updater.busy,'An update is in progress. Wait for it to finish.',409);
   assert(!updater.pendingRestore||action==='restore'&&params.name===updater.pendingRestore.backup,'Restore the recorded pre-update backup from Backups before running more server operations.',409);
-  assert(!active,'Another operation is in progress. Please wait.',409);
+  assert(!active&&!retentionConfiguring,'Another operation is in progress. Please wait.',409);
   const job={id:crypto.randomUUID(),action,actor,started:new Date().toISOString(),state:'running',message:'Starting…'};
   active=job;jobs.unshift(job);jobs=jobs.slice(0,100);await writeJSON(path.join(state,'jobs.json'),jobs);
   void (async()=>{
-    try{if(worldPreviews.running)await stageMessage(job,'Waiting for the current map preview to finish…');await worldPreviews.waitIdle();const result=await actions[action](params,job);if(action==='restore')await updater.restored(params.name);await setJob(job,{state:'succeeded',message:typeof result==='string'?result:'Completed.',result,finished:new Date().toISOString()});}
+    try{if(worldPreviews.running)await stageMessage(job,'Waiting for the current map preview to finish…');await worldPreviews.waitIdle();const result=await actions[action](params,job);if(action==='restore')await updater.restored(params.name);await setJob(job,{state:'succeeded',message:typeof result==='string'?result:result?.message||'Completed.',result,finished:new Date().toISOString()});}
     catch(error){await setJob(job,{state:'failed',message:redact(error.message),finished:new Date().toISOString()});}
     finally{
       if(action==='refresh-map'&&params.automatic){autoMap.finish(params.automatic,job.state==='succeeded',job.state==='failed'?job.message:null);await persistAutoMap().catch(error=>console.error('Map queue persistence failed:',redact(error.message)));}
@@ -288,7 +294,13 @@ const actions={
   start:async()=>{await control('start');await ready();return 'Factorio is running.';},
   stop:async params=>{assert(params.confirm===true,'Confirm stopping the server.');await control('stop');return 'Factorio stopped and saved.';},
   restart:async params=>{assert(params.confirm===true,'Confirm restarting the server.');await control('restart');await ready();return 'Factorio restarted and loaded its latest save.';},
-  backup:async(params,job)=>`Backup created: ${await backup(job?.actor==='scheduled backup'?'scheduled':'manual')}`,
+  backup:async(params,job)=>{const scheduled=job?.actor==='scheduled backup',name=await backup(scheduled?'scheduled':'manual');if(scheduled)await retention.pruneScheduled(schedule.keep);return `Backup created: ${name}`;},
+  'cleanup-backups':async(params,job)=>{
+    const automatic=job.actor==='automatic backup cleanup';
+    if(automatic&&!retention.due)return 'Automatic backup cleanup is no longer due.';
+    try{const planId=automatic?(await retention.preview()).id:params.planId;return await retention.cleanup(planId);}
+    finally{if(automatic)await retention.ran();}
+  },
   'verify-backup':params=>verifyBackup(params.name),
   'live-tracking':async(params,job)=>{
     await livePlayers.validate(params);
@@ -346,6 +358,7 @@ async function handle(req,res){
   }
   if(req.method!=='GET'){await updater.refresh();assert(!updater.busy,'An update is in progress. Wait for it to finish.',409);}
   if(req.method==='GET'&&url.pathname==='/status')return json(res,200,await status());
+  if(req.method==='GET'&&url.pathname==='/diagnostics')return json(res,200,await controllerDiagnostics({docker,container,version:updater.current,recentStatus:Date.now()-statusAt<10000?statusCache:null,locations:[{id:'saves',title:'World storage',path:saves},{id:'backups',title:'Backup storage',path:backupDir},{id:'state',title:'Controller storage',path:state}]}));
   if(['/world-preview','/world-preview-image'].includes(url.pathname)){
     const owner=req.headers['x-panel-user'];assert(typeof owner==='string'&&/^[A-Za-z0-9][A-Za-z0-9_\-]{2,31}$/.test(owner),'Preview needs an administrator session.',403);
     if(req.method==='GET'&&url.pathname==='/world-preview')return json(res,200,worldPreviews.status(owner));
@@ -357,7 +370,7 @@ async function handle(req,res){
   }
   if(req.method==='GET'&&url.pathname==='/world-options'){const copied=await readJSON(path.join(state,'world-options.json'),null);return json(res,200,{defaults:worldDefaults,copied,currentWorld:await activeSave(),image:(await info()).Config.Image});}
   if(req.method==='GET'&&url.pathname==='/worlds')return json(res,200,{worlds:await worlds()});
-  if(req.method==='GET'&&url.pathname==='/backups'){const items=await backupList();return json(res,200,{backups:items,schedule,health:await backupHealth(items)});}
+  if(req.method==='GET'&&url.pathname==='/backups'){const items=await backupList();return json(res,200,{backups:items,schedule,retention:retention.status(),health:await backupHealth(items)});}
   if(req.method==='GET'&&url.pathname==='/map'){
     const snapshot=await readJSON(path.join(state,'map.json'),null);
     if(!snapshot)return json(res,200,{snapshot:null,pins:[],automatic:autoMap.status()});
@@ -395,11 +408,19 @@ async function handle(req,res){
   }
   if(req.method==='POST'&&url.pathname==='/jobs'){
     const body=await requestJSON(req);assert(Object.hasOwn(actions,body.action),'Unsupported action.');
+    if(body.action==='cleanup-backups')assert(body.params?.confirm===true&&typeof body.params.planId==='string','Review and confirm backup cleanup first.');
     if(body.action==='create'&&body.params?.configuration!==undefined)validateConfiguration(body.params.configuration);
     if(body.action==='refresh-map')assert(!body.params||Object.keys(body.params).length===0,'Manual map refresh does not accept source overrides.');
     if(body.action==='live-tracking'&&body.params?.enabled)assert(body.params.confirm===true,'Acknowledge that live tracking disables achievements.');
     if(['switch','restore','stop','restart','settings'].includes(body.action)||body.action==='create'&&body.params?.activate)assert(body.params?.confirm===true,'This action requires confirmation.');
     return json(res,202,await runJob(body.action,body.params||{},body.actor||'admin'));
+  }
+  if(req.method==='POST'&&url.pathname==='/backup-retention'){
+    const body=await requestJSON(req);
+    if(body.operation==='preview')return json(res,200,await retention.preview(body.policy));
+    assert(body.operation==='save','Choose a cleanup operation.');assert(!active&&!retentionConfiguring,'Wait for the current operation before changing cleanup settings.',409);
+    retentionConfiguring=true;
+    try{return json(res,200,await retention.configure(body.policy,body));}finally{retentionConfiguring=false;}
   }
   if(req.method==='POST'&&url.pathname==='/schedule'){
     const value=await requestJSON(req);assert(typeof value.enabled==='boolean'&&Number.isInteger(value.hours)&&value.hours>=1&&value.hours<=168&&Number.isInteger(value.keep)&&value.keep>=2&&value.keep<=100,'Invalid backup schedule.');
@@ -443,6 +464,16 @@ setInterval(async()=>{
     const job=await runJob('backup',{},'scheduled backup');
     while(['queued','running'].includes(job.state))await sleep(1000);
     schedule.lastRun=new Date().toISOString();await writeJSON(path.join(state,'schedule.json'),schedule);
-    if(job.state==='succeeded')for(const file of (await backupList()).filter(item=>item.relative.endsWith('-scheduled.zip')).slice(schedule.keep))await fs.unlink(await existingFile(backupDir,file.relative));
   }catch(error){console.error('Scheduled backup failed:',redact(error.message));}
+},60000).unref();
+
+// Retention only operates on backup archives under the same operation lock as
+// creation, restore and updates. It never saves, stops or restarts the game.
+let retentionPolling=false;
+setInterval(async()=>{
+  if(retentionPolling||!retention.due||active||updater.busy||updater.pendingRestore)return;
+  retentionPolling=true;
+  try{const job=await runJob('cleanup-backups',{},'automatic backup cleanup');while(['queued','running'].includes(job.state))await sleep(1000);}
+  catch(error){console.error('Automatic backup cleanup failed:',redact(error.message));}
+  finally{retentionPolling=false;}
 },60000).unref();

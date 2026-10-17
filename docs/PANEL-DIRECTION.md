@@ -61,12 +61,25 @@ Preferences display actual host configuration; the channel is not a fake editabl
 selector. Progress and recovery details persist across panel replacement.
 See [update behavior and recovery](UPDATES.md).
 
+## Guided diagnostics and saved setups
+
+Settings → Diagnostics offers expandable, read-only checks with next steps,
+explicit unknown/manual states and a sanitized JSON support report. Controller
+failure does not block this page. Setup and connection failures link to it.
+
+World creation retains the existing three stages and art direction. Account-owned
+drafts save automatically, including unfinished advanced edits, and resume from the
+library. Up to 20 custom presets reuse validated exact settings without a world
+name/seed. Switching remains unchecked on every resumed form or preset load.
+Conflicting tabs cannot silently replace newer work; a local draft copy preserves
+edits for manual recovery. Game image changes require review.
+
 ## Useful next additions
 
 | Priority | Addition | Acceptance boundary |
 | --- | --- | --- |
-| Next | Versioned play-style presets and saved custom presets | Exact engine values, preserved seed and a clear changed-settings review; Rail world is not just a decorative label. |
-| Next | Persisted drafts and a small seed shortlist | Store each seed with its exact configuration fingerprint/preview; bound background rendering. |
+| Next | Installed-engine play-style library | Custom presets are implemented; additional named engine presets must use exact engine values. |
+| Next | Seed shortlist and comparison | Persistent drafts are implemented; compare saved seeds with their exact configuration fingerprint and bound background rendering. |
 | Soon | Richer world metadata | Seed, playtime and last played must come from verified world data. |
 | Soon | Maintenance countdown and scheduled restart | Warn players, save/back up, persist timezone and cancellation. |
 | Soon | Game/mod compatibility planner | Check exact mod/client versions and explain upgrade/recovery limits; no silent game updates. |
@@ -81,8 +94,8 @@ maps are illustrative game art, not verified seed renders. Production continues
 to use the installed Factorio preview and existing sampled map renderer. The
 isolated UI fixture uses clearly synthetic imagery and has no Docker access.
 
-Generated mockup features such as saved drafts, seed comparison, an editable
-release-channel selector and elaborate presets are not claimed as implemented.
+Generated mockup features such as seed comparison, an editable release-channel
+selector and a complete engine preset library are not claimed as implemented.
 No achievement eligibility badge is inferred from an image. Base-game 2.0.x
 compatibility remains the alpha scope. Browser review and automated checks do
 not establish game execution on Mac/Linux/ARM or live deployment acceptance.

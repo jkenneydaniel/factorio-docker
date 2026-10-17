@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!LICENSE
+!config.ini
+!entrypoint.py
+!docker-entrypoint.sh
+!rcon.py

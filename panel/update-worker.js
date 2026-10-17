@@ -5,6 +5,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {assert,readJSON,writeJSON,sleep} from './common.js';
 import {sourceSnapshot,assertUnmodified,unpackRelease,setEnvironment,daemonPath} from './update-source.js';
+import {gameUpdate,gameSources} from './public/game-images.js';
 
 export function command(args,{cwd,timeout=15*60000}={}){
   return new Promise((resolve,reject)=>{
@@ -33,7 +34,24 @@ export function validateDeployment(before,after,job){
   }
   assert(after.services.factorio.platform==='linux/amd64','Updates must preserve the game architecture policy.');
   assert(job.kind!=='panel'||after.services.factorio.image===job.gameImage,'Panel updates cannot change the game image.');
+  if(job.kind==='game')assert(JSON.stringify({...before.services.factorio,image:null})===JSON.stringify({...after.services.factorio,image:null}),'Game image changes must preserve all existing settings, mounts, ports and startup options.');
   assert(Object.keys(after.services).every(s=>['factorio','panel-controller','panel','setup'].includes(s)),'Release introduces unsupported services. Use a reviewed host upgrade.');
+}
+export function reportsGameVersion(output,target){return output.trim()===target||new RegExp('^Version:\\s*'+target.replaceAll('.','\\.')+'(?:\\s|$)','m').test(output);}
+export function gameImageProbe(image){return ['run','--rm','--platform','linux/amd64','--pull','never','--network','none','--read-only','--tmpfs','/tmp:rw,nosuid,size=16m','--user','845:845','--entrypoint','/bin/sh',image,'-ec','test -x /docker-entrypoint.sh; command -v rcon >/dev/null; /opt/factorio/bin/x64/factorio --version'];}
+export function compatibleGameImage(item,selection){
+  assert(item?.Os==='linux'&&item.Architecture==='amd64'&&/^sha256:[a-f0-9]{64}$/.test(item.Id),'The selected image must support linux/amd64.');
+  const config=item.Config||{},labels=config.Labels||{},repository=gameSources[selection.source].repository;
+  assert(labels['factorio.version']===selection.target,'The image does not declare the reviewed Factorio version.');
+  assert(JSON.stringify(config.Entrypoint)===JSON.stringify(['/docker-entrypoint.sh']),'The image has an incompatible startup entrypoint.');
+  assert(config.Volumes&&Object.hasOwn(config.Volumes,'/factorio'),'The image must preserve /factorio storage.');
+  const env=new Set(config.Env||[]);
+  assert(['PUID=845','PGID=845','SAVES=/factorio/saves','CONFIG=/factorio/config','MODS=/factorio/mods','SCENARIOS=/factorio/scenarios','SCRIPTOUTPUT=/factorio/script-output','PORT=34197','RCON_PORT=27015'].every(v=>env.has(v)),'The image has incompatible data paths, permissions or ports.');
+  assert(Object.hasOwn(config.ExposedPorts||{},'34197/udp')&&Object.hasOwn(config.ExposedPorts||{},'27015/tcp'),'The image has incompatible exposed ports.');
+  if(selection.source==='factory')assert(labels['io.factory-control.compatibility']==='1'&&labels['io.factory-control.image-revision']===String(selection.imageRevision),'The Factory Control image compatibility or revision does not match the review.');
+  const digest=(item.RepoDigests||[]).find(value=>value.startsWith(repository+'@sha256:')&&/^[a-f0-9]{64}$/.test(value.slice((repository+'@sha256:').length)));
+  assert(digest,'The image has no verifiable repository digest.');
+  return selection.targetImage+'@'+digest.split('@')[1];
 }
 async function copyTree(from,to){
   async function safe(file){const stat=await fs.lstat(file);assert(!stat.isSymbolicLink(),'Recovery state contains a symlink.');if(stat.isDirectory())for(const name of await fs.readdir(file))await safe(path.join(file,name));else assert(stat.isFile(),'Recovery state contains a special file.');}
@@ -109,19 +127,26 @@ export async function runUpdate({root,state,id,run=command,fetcher=fetch,wait=sl
       const baseline=path.join(state,'baseline.json');await writeJSON(baseline,{format:1,files:await sourceSnapshot(root)});await own(baseline);
       await phase('Panel and controller updated. Sign in again; the game was not restarted.','succeeded');
     }else{
-      assert(job.kind==='game'&&/^2\.0\.\d+$/.test(job.target),'Unsupported update target.');
-      const image='factoriotools/factorio:'+job.target;
+      assert(job.kind==='game','Unsupported update target.');
+      const selection=gameUpdate(job.gameImage,job),image=selection.targetImage;
+      assert(!job.targetImage||job.targetImage===image,'The image does not match the reviewed source and revision.');
+      assert(configBefore.services.factorio.image===job.gameImage,'Configured game image changed after review. No containers were replaced.');
       await phase('Downloading the selected Factorio version…');await run(['pull','--platform','linux/amd64',image]);
+      const candidate=JSON.parse(await run(['image','inspect','--platform','linux/amd64',image]))[0],pinned=compatibleGameImage(candidate,selection);
+      // This disposable probe has no host mounts, network or existing world data.
+      const probe=await run(gameImageProbe(pinned),{timeout:30000});
+      assert(reportsGameVersion(probe,job.target),'The image binary does not report the reviewed Factorio version.');
+      job.resolvedImage=pinned;await save();
       assert(await fs.readFile(path.join(root,'.env'),'utf8')===oldEnv,'Installation settings changed while downloading. No containers were replaced.');
       changed=true;
-      await writeOwned('.env',setEnvironment(envPinned,'FACTORIO_IMAGE',image));
+      await writeOwned('.env',setEnvironment(envPinned,'FACTORIO_IMAGE',pinned));
       const after=JSON.parse(await compose('config','--format','json'));validateDeployment(configBefore,after,job);
       await phase('Replacing Factorio. Players will reconnect after readiness checks…');applied=true;
       await compose('up','-d','--no-deps','--no-build','--pull','never','factorio');
       let ready=false;const deadline=now()+120000;
-      while(now()<deadline){try{const value=await run(['exec',job.names.game,'rcon','/version'],{timeout:20000});if(value.includes('Version: '+job.target+' ' )||value.trim()==='Version: '+job.target){ready=true;break;}}catch{}await wait(2000);}
+      while(now()<deadline){try{const value=await run(['exec',job.names.game,'rcon','/version'],{timeout:20000});if(reportsGameVersion(value,job.target)){ready=true;break;}}catch{}await wait(2000);}
       assert(ready,'The selected game version did not become ready.');
-      await phase('Factorio upgraded and its reported version verified. Clients must match '+job.target+'.','succeeded');
+      await phase('Factorio image installed and its reported version verified. Clients must match '+job.target+'.','succeeded');
     }
   }catch(error){
     if(changed){

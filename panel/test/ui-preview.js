@@ -7,12 +7,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+import {emptySetups,changeSetups} from '../world-setups.js';
+import {diagnosticsReport,controllerDiagnostics} from '../diagnostics.js';
+import {defaultRetention,retentionPolicy,retentionSelection} from '../backup-retention.js';
+let setups=emptySetups();
 const defaults=JSON.parse(await fs.readFile(path.join(project,'world-defaults.json'),'utf8'));
 const snapshot={version:1,step:2,world:'Demo-factory.zip',seed:123456789,created:new Date().toISOString(),surface:'nauvis',chunks:[{x:0,y:0,tiles:[1,256],pollution:0}],palette:[{name:'grass-1',color:[80,110,55]}],entities:[],players:[{name:'Engineer',x:8,y:8,surface:'nauvis'}],tags:[],truncated:false};
+let retention={policy:{...defaultRetention},revision:0,lastRun:null};const cleanupPlans=new Map();
 const backups=[],schedule={enabled:false,hours:6,keep:12,lastRun:null};
 const {summarizeBackups}=await import('../backup-health.js');
 const status={version:'2.0.77',image:'factoriotools/factorio:2.0.77',currentWorld:snapshot.world,seed:String(snapshot.seed),running:true,ready:true,paused:true,players:[],playtime:'Demo snapshot',name:'Factory Control demo',schedule,autoPause:true,connection:'localhost:34197',autosaveMinutes:5,autosaveSlots:10,lastSaveAt:snapshot.created,saveVerified:true,memory:45000000,cpu:0};
-const data={session:{username:'Preview',role:process.env.UI_ROLE||'admin',csrf:'isolated-preview',onboarding:{completed:process.env.UI_ONBOARDING_TEST!=='1'}},status,map:{snapshot,pins:[],staleWorld:false},jobs:{jobs:[],active:null},backups:{backups,schedule,health:summarizeBackups(backups,schedule,[],null)},accounts:{users:[{username:'Preview',role:'admin'}],invitations:[]},sessions:{sessions:[{id:'preview-session',created:new Date().toISOString(),expires:Date.now()+3600000,current:true}]}};
+const data={session:{username:'Preview',role:process.env.UI_ROLE||'admin',csrf:'isolated-preview',onboarding:{completed:process.env.UI_ONBOARDING_TEST!=='1'}},status,map:{snapshot,pins:[],staleWorld:false},jobs:{jobs:[],active:null},backups:{backups,schedule,retention,health:summarizeBackups(backups,schedule,[],null)},accounts:{users:[{username:'Preview',role:'admin'}],invitations:[]},sessions:{sessions:[{id:'preview-session',created:new Date().toISOString(),expires:Date.now()+3600000,current:true}]}};
 data.settings={name:'Isolated preview fixture',description:'Synthetic settings; cannot manage a real server.',max_players:0,autosave_interval:5,autosave_slots:10,auto_pause:true,require_user_verification:false};
 data.updates={state:process.env.UI_RELEASE_TEST||'current',available:process.env.UI_RELEASE_TEST==='available',current:'0.1.0-alpha',channel:'preview',checkedAt:snapshot.created,installation:'manual',latest:process.env.UI_RELEASE_TEST==='available'?{tag:'v0.1.1-alpha',url:'https://github.com/jkenneydaniel/factorio-docker/releases/tag/v0.1.1-alpha'}:null};
 data['update-status']={busy:false,jobs:[]};
@@ -26,6 +31,10 @@ if(process.env.UI_POPULATED==='1'){
   data.logs={text:'Isolated UI fixture. No connection to a game server.\nFactorio 2.0.77 · Synthetic ready state.\nSaving finished (simulated).'};
   data.worlds.worlds=[{id:'demo-current',name:'Copper Coast',relative:'Copper Coast.zip',current:true,kind:'active',modified:snapshot.created,size:12400000},{id:'demo-archive',name:'Railway Island',relative:'panel-worlds/Railway Island.zip',current:false,kind:'archive',modified:snapshot.created,size:8900000},{id:'demo-autosave',name:'_autosave1',relative:'_autosave1.zip',current:false,kind:'autosave',modified:snapshot.created,size:12400000}];
 }
+if(process.env.UI_RETENTION_TEST==='1'){
+  for(const kind of ['scheduled','manual','safety'])for(let i=0;i<5;i++)backups.push({relative:`2026-09-${String(6-i).padStart(2,'0')}T18-30-00-000Z-${kind==='safety'?'before-world-switch':kind}.zip`,kind,modified:new Date(Date.now()-(40+i)*86400000).toISOString(),size:24500000+i*250000});
+  data.backups.health=summarizeBackups(backups,schedule,[],null);
+}
 if(process.env.UI_READY_TEST==='waiting'){status.ready=false;status.saveVerified=false;}
 
 const fixtureImage=Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#506e37"/><path d="M0 100Q250 350 512 100V220Q200 450 0 220Z" fill="#467889"/><text x="30" y="475" fill="white" font-size="20">Synthetic preview fixture</text></svg>');
@@ -34,10 +43,35 @@ let playerSample=0;
 function previewPlayers(){playerSample++;return process.env.UI_LIVE_PLAYERS_TEST==='1'?{enabled:true,state:'live',world:snapshot.world,seed:snapshot.seed,updatedAt:new Date().toISOString(),players:[{name:'Preview engineer',x:playerSample*3,y:0,surface:snapshot.surface,color:[90,200,220]}]}:{enabled:false,state:'disabled',players:[]};}
 if(process.env.UI_AUTO_REFRESH_TEST==='1')setTimeout(()=>{snapshot.created=new Date().toISOString();console.log('Preview-only snapshot advanced in memory.');},20000).unref();
 http.createServer(async(req,res)=>{
+  if(req.method==='POST'&&req.url==='/api/backup-retention'&&process.env.UI_RETENTION_TEST==='1'){
+    try{
+      let text='';for await(const chunk of req)text+=chunk;const body=JSON.parse(text),policy=retentionPolicy(body.policy);let result;
+      if(body.operation==='preview'){
+        const cutoff=new Date(Date.now()-policy.days*86400000).toISOString();
+        const items=backups.map(item=>({...item,kind:item.kind||'unknown'})).sort((a,b)=>b.modified.localeCompare(a.modified));
+        result={id:'synthetic-'+Date.now(),policy,cutoff,expires:new Date(Date.now()+600000).toISOString(),...retentionSelection(items,{policy,cutoff})};cleanupPlans.set(result.id,result);
+      }else if(body.operation==='save'){
+        if(body.revision!==retention.revision)throw new Error('Settings changed. Reload before saving.');
+        if(policy.enabled&&(!body.confirm||JSON.stringify(cleanupPlans.get(body.planId)?.policy)!==JSON.stringify(policy)))throw new Error('Confirm automatic cleanup first.');
+        retention={...retention,policy,revision:retention.revision+1};data.backups.retention=retention;cleanupPlans.clear();result=retention;
+      }else throw new Error('Unsupported fixture operation.');
+      res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(result));
+    }catch(error){res.writeHead(400,{'content-type':'application/json'});return res.end(JSON.stringify({error:error.message}));}
+  }
+  if(req.method==='POST'&&req.url==='/api/jobs'&&process.env.UI_RETENTION_TEST==='1'){
+    let text='';for await(const chunk of req)text+=chunk;const {action,params}=JSON.parse(text),plan=cleanupPlans.get(params?.planId);
+    if(action!=='cleanup-backups'||!params?.confirm||!plan){res.writeHead(403,{'content-type':'application/json'});return res.end('{"error":"Only reviewed, simulated backup cleanup is enabled."}');}
+    cleanupPlans.delete(plan.id);const job={id:'fixture-cleanup-'+Date.now(),action,state:'running',message:'Simulating cleanup of synthetic archives.',started:new Date().toISOString()};data.jobs.jobs.unshift(job);data.jobs.active=job;
+    setTimeout(()=>{for(const candidate of plan.candidates){const index=backups.findIndex(item=>item.relative===candidate.relative);if(index!==-1)backups.splice(index,1);}job.state='succeeded';job.message=`Deleted ${plan.candidates.length} old backups (memory-only simulation).`;job.finished=new Date().toISOString();data.jobs.active=null;data.backups.health=summarizeBackups(backups,schedule,[],null);},300).unref();
+    res.writeHead(202,{'content-type':'application/json'});return res.end(JSON.stringify(job));
+  }
+  if(req.url==='/api/world-setups'){try{if(req.method==='POST'){let body='';for await(const chunk of req)body+=chunk;setups=changeSetups(setups,JSON.parse(body));}res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(setups));}catch(error){res.writeHead(error.status||500,{'content-type':'application/json'});return res.end(JSON.stringify({error:error.message}));}}
+  if(req.method==='GET'&&req.url==='/api/diagnostics'){const report=process.env.UI_DIAGNOSTICS_TEST==='offline'?null:await controllerDiagnostics({version:'0.2.1-alpha',container:'fixture',docker:async(method,route)=>route==='/info'?{Architecture:'aarch64'}:{State:{Running:true}},locations:[{id:'saves',title:'World storage',path:'synthetic'}],access:async()=>{},statfs:async()=>({bavail:400000,bsize:4096}),recentStatus:status});res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(diagnosticsReport('0.2.1-alpha',report)));}
+
   if(req.method==='GET'&&req.url==='/api/session'&&process.env.UI_AUTH_TEST==='login'){res.writeHead(401,{'content-type':'application/json'});return res.end('{"error":"Sign in to this isolated fixture."}');}
   if(req.method==='POST'&&req.url==='/api/registration'&&process.env.UI_AUTH_TEST==='login'){res.writeHead(200,{'content-type':'application/json'});return res.end('{"owner":true,"role":"admin"}');}
   if(req.method==='POST'&&req.url==='/api/world-preview'){let body='';for await(const chunk of req)body+=chunk;const value=JSON.parse(body);draftPreview={id:'fixture-'+(++previewRequests),seed:value.seed,state:'rendering'};setTimeout(()=>{if(draftPreview?.id==='fixture-'+previewRequests)draftPreview.state='ready';},150).unref();console.log(JSON.stringify({previewRequests,seed:value.seed,water:value.configuration.map_gen_settings.autoplace_controls.water.size}));res.writeHead(202,{'content-type':'application/json'});return res.end(JSON.stringify(draftPreview));}
-  if(req.method==='POST'&&req.url==='/api/update-plan'&&process.env.UI_UPDATE_REVIEW_TEST==='1'){let body='';for await(const chunk of req)body+=chunk;const value=JSON.parse(body);res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({id:'synthetic-review-only',kind:value.kind,current:value.kind==='game'?'2.0.77':'0.1.0-alpha',target:value.target,impact:'SIMULATED REVIEW ONLY. No installation can run from this fixture.',backup:'A real installation would save and verify a backup.',notes:'Cancel this review to return.'}));}
+  if(req.method==='POST'&&req.url==='/api/update-plan'&&process.env.UI_UPDATE_REVIEW_TEST==='1'){let body='';for await(const chunk of req)body+=chunk;const value=JSON.parse(body);res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({id:'synthetic-review-only',kind:value.kind,current:value.kind==='game'?'2.0.77':'0.1.0-alpha',target:value.target,targetImage:value.source==='factory'?'ghcr.io/jkenneydaniel/factorio-server:'+value.target+'-fc.'+value.imageRevision:'factoriotools/factorio:'+value.target,operation:value.target==='2.0.77'?'image-change':'upgrade',impact:'SIMULATED REVIEW ONLY. No installation can run from this fixture.',backup:'A real installation would save and verify a backup.',notes:'Cancel this review to return.'}));}
   if(req.method==='POST'&&req.url==='/api/jobs'&&process.env.UI_CREATE_TEST==='1'){
     let body='';for await(const chunk of req)body+=chunk;const {action,params}=JSON.parse(body);
     if(action==='create'){
@@ -52,5 +86,5 @@ http.createServer(async(req,res)=>{
   const route=req.url.split('?')[0];if(route==='/api/world-preview-image'){res.writeHead(200,{'content-type':'image/svg+xml'});return res.end(fixtureImage);}
   if(route==='/api/world-preview'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(draftPreview||{state:'idle'}));}
   if(route.startsWith('/api/')){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(route==='/api/live-players'?previewPlayers():route==='/api/map-status'?{created:snapshot.created,automatic:data.map.automatic,active:null}:data[route.slice(5)]||{}));}
-  const files={'/':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/map.js':['map.js','text/javascript'],'/world-fields.js':['world-fields.js','text/javascript'],'/world-preview.js':['world-preview.js','text/javascript'],'/world-editor.js':['world-editor.js','text/javascript'],'/style.css':['style.css','text/css'],'/icons.js':['icons.js','text/javascript'],'/onboarding.js':['onboarding.js','text/javascript']};const file=files[route];if(!file){res.writeHead(404);return res.end();}res.writeHead(200,{'content-type':file[1]});res.end(await fs.readFile(path.join(project,'public',file[0])));
+  const files={'/game-images.js':['game-images.js','text/javascript'],'/game-update.js':['game-update.js','text/javascript'],'/backup-retention.js':['backup-retention.js','text/javascript'],'/diagnostics.js':['diagnostics.js','text/javascript'], '/':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/map.js':['map.js','text/javascript'],'/world-fields.js':['world-fields.js','text/javascript'],'/world-preview.js':['world-preview.js','text/javascript'],'/world-editor.js':['world-editor.js','text/javascript'],'/style.css':['style.css','text/css'],'/icons.js':['icons.js','text/javascript'],'/onboarding.js':['onboarding.js','text/javascript']};const file=files[route];if(!file){res.writeHead(404);return res.end();}res.writeHead(200,{'content-type':file[1]});res.end(await fs.readFile(path.join(project,'public',file[0])));
 }).listen(Number(process.env.UI_PREVIEW_PORT||8089),'127.0.0.1',()=>console.log('Isolated UI fixture listening (no server-management access).'));

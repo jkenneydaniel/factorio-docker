@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import {readJSON,writeJSON,assert} from './common.js';
 import {hashPassword,checkPassword} from './auth.js';
+import {emptySetups,changeSetups} from './world-setups.js';
 
 const digest=value=>crypto.createHash('sha256').update(value).digest('hex');
 export class Accounts {
@@ -52,6 +54,16 @@ export class Accounts {
   }
   revoke(id){return this.transaction(async(state,save)=>{assert(Object.hasOwn(state.invitations,id),'Invitation not found.',404);delete state.invitations[id];await save();return {ok:true};});}
   onboarding(username){return this.transaction(state=>state.users[username]?.onboarding||{completed:true});}
+  worldSetups(username,body){return this.transaction(async(state,save)=>{
+    assert(Object.hasOwn(state.users,username),'Account not found.',404);
+    const user=state.users[username];
+    const file=id=>path.join(path.dirname(this.file),'world-setups',id+'.json');
+    const current=user.worldSetupId?await readJSON(file(user.worldSetupId),emptySetups()):emptySetups();
+    if(body===undefined)return current;
+    const next=changeSetups(current,body);
+    if(!user.worldSetupId){user.worldSetupId=crypto.randomUUID();await save();}
+    await writeJSON(file(user.worldSetupId),next);return next;
+  });}
   completeOnboarding(username){return this.transaction(async(state,save)=>{
     assert(Object.hasOwn(state.users,username),'Account not found.',404);
     state.users[username].onboarding={completed:true,completedAt:new Date().toISOString()};await save();return state.users[username].onboarding;
@@ -67,7 +79,10 @@ export class Accounts {
     assert(['delete','role'].includes(operation),'Unsupported account action.');
     if(operation==='role')assert(['admin','viewer'].includes(role),'Choose administrator or read-only access.');
     if(state.users[username].role==='admin'&&(operation==='delete'||role!=='admin'))assert(Object.values(state.users).filter(user=>user.role==='admin').length>1,'Keep at least one administrator account.',409);
+    const setupId=state.users[username].worldSetupId;
     if(operation==='delete')delete state.users[username];else state.users[username].role=role;
-    await save();return {ok:true};
+    await save();
+    if(operation==='delete'&&setupId)await fs.rm(path.join(path.dirname(this.file),'world-setups',setupId+'.json'),{force:true});
+    return {ok:true};
   });}
 }

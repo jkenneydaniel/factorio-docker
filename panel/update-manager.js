@@ -2,8 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert,readJSON,writeJSON} from './common.js';
-import {ReleaseChecks,compareVersions,version} from './updates.js';
+import {ReleaseChecks} from './updates.js';
 import {daemonPath} from './update-source.js';
+import {gameUpdate} from './public/game-images.js';
 
 const busyStates=new Set(['preparing','running','recovering']);
 export class UpdateManager{
@@ -24,7 +25,7 @@ export class UpdateManager{
     }
     return this.status();
   }
-  status(){return {busy:this.busy,jobs:this.jobs.map(({id,kind,target,state,message,started,finished,backup,recovery})=>({id,kind,target,state,message,started,finished,backup,recovery}))};}
+  status(){return {busy:this.busy,jobs:this.jobs.map(({id,kind,target,state,message,started,finished,backup,recovery,targetImage,resolvedImage})=>({id,kind,target,state,message,started,finished,backup,recovery,targetImage,resolvedImage}))};}
   async installation(){
     const items={};for(const [key,name] of Object.entries(this.names))items[key]=await this.docker('GET',`/containers/${encodeURIComponent(name)}/json`);
     const labels=items.game.Config.Labels||{},project=labels['com.docker.compose.project'];
@@ -48,27 +49,27 @@ export class UpdateManager{
     await this.refresh();assert(!this.busy&&this.canInstall(),'Wait for the current operation before reviewing an update.',409);
     assert(!this.pendingRestore,'Restore the pre-update game backup before reviewing another update.',409);
     assert(['panel','game'].includes(input.kind),'Choose panel or Factorio.');
-    const install=await this.installation();let target,assets;
+    const install=await this.installation();let target,assets,game;
     if(input.kind==='panel'){
       await this.releases.check();const release=this.releases.releases.find(r=>r.tag_name===this.releases.result.latest?.tag);
       assert(this.releases.result.available&&release,'No newer eligible panel release is available.');
       target=release.tag_name.replace(/^v/,'');
       assert(!input.target||input.target===target,'Release changed. Review the available release again.');
       const prefix='factory-control-'+target;
+      // Old panels still use the legacy ZIP. New installers prefer the complete
+      // source bundle, whose paths the old worker does not understand.
+      const complete=['.zip','.sha256','.update.json'].every(suffix=>release.assets?.some(a=>a.name===prefix+'.source'+suffix&&a.state==='uploaded'));
       assets={};for(const suffix of ['.zip','.sha256','.update.json']){
-        const asset=release.assets?.find(a=>a.name===prefix+suffix&&a.state==='uploaded');
+        const asset=release.assets?.find(a=>a.name===prefix+(complete?'.source':'')+suffix&&a.state==='uploaded');
         assert(asset,'This release does not include an in-panel update package.');
-        assets[suffix]=`https://github.com/${this.repository}/releases/download/${encodeURIComponent(release.tag_name)}/${prefix+suffix}`;
+        assets[suffix]=`https://github.com/${this.repository}/releases/download/${encodeURIComponent(release.tag_name)}/${asset.name}`;
       }
     }else{
-      target=input.target;assert(typeof target==='string'&&/^2\.0\.(0|[1-9]\d*)$/.test(target)&&version(target),'Choose an exact supported Factorio 2.0.x version.');
-      const old=install.gameImage.match(/^factoriotools\/factorio:(2\.0\.\d+)$/)?.[1];
-      assert(old,'Game updates require a pinned official factoriotools/factorio:2.0.x image.');
-      assert(compareVersions(target,old)>0,'Choose a newer game version. Downgrades require a separate save recovery.');
+      game=gameUpdate(install.gameImage,input);target=game.target;
     }
-    const plan={id:crypto.randomUUID(),created:this.now(),kind:input.kind,target,assets,root:install.root,project:install.project,images:install.images,gameImage:install.gameImage,names:this.names};
+    const plan={id:crypto.randomUUID(),created:this.now(),kind:input.kind,target,assets,...game,root:install.root,project:install.project,images:install.images,gameImage:install.gameImage,names:this.names};
     await writeJSON(path.join(this.root,'plan-'+plan.id+'.json'),plan);
-    return {id:plan.id,kind:plan.kind,current:plan.kind==='panel'?this.current:install.gameImage,target,expires:new Date(plan.created+15*60000).toISOString(),impact:plan.kind==='panel'?'The panel and controller reconnect during installation. The game container is not restarted.':'Players disconnect while Factorio is replaced. Clients and mods must support the selected version. A failed upgrade leaves the game stopped for explicit backup recovery.',backup:'A verified pre-update world/config/mod backup and an installation recovery copy will be kept.',notes:plan.kind==='game'?'Clients must match the chosen game version. Mod upgrades are not included.':'Modified installation files block installation. Releases requiring unsupported state migrations are refused.'};
+    return {id:plan.id,kind:plan.kind,current:plan.kind==='panel'?this.current:install.gameImage,target,targetImage:game?.targetImage,operation:game?.operation,expires:new Date(plan.created+15*60000).toISOString(),impact:plan.kind==='panel'?'The panel and controller reconnect during installation. The game container is not restarted.':'Players disconnect while Factorio is replaced. Clients and mods must support the selected version. A failed replacement leaves the game stopped for explicit backup recovery.',backup:'A verified pre-update world/config/mod backup and an installation recovery copy will be kept.',notes:plan.kind==='game'?(game.operation==='image-change'?'The Factorio version stays the same. Saves, mods, settings, ports and startup options are preserved. ':'Clients must match the chosen game version. ')+ 'Mod upgrades and DLC changes are not included. The target image must be published and pass compatibility checks.':'Modified installation files block installation. Releases requiring unsupported state migrations are refused.'};
   }
   async install(input,actor){
     assert(input.confirm===true&&/^[0-9a-f-]{36}$/.test(input.planId),'Review and confirm the update first.');
@@ -79,7 +80,7 @@ export class UpdateManager{
       assert(!this.pendingRestore,'Restore the pre-update game backup before installing another update.',409);
       const plan=await readJSON(path.join(this.root,'plan-'+input.planId+'.json'),null);
       assert(plan&&this.now()-plan.created<15*60000,'Update review expired. Review the update again.');
-      const current=await this.installation();assert(JSON.stringify(current.images)===JSON.stringify(plan.images)&&current.root===plan.root&&current.project===plan.project,'Installed containers changed. Review the update again.',409);
+      const current=await this.installation();assert(JSON.stringify(current.images)===JSON.stringify(plan.images)&&current.gameImage===plan.gameImage&&current.root===plan.root&&current.project===plan.project,'Installed containers changed. Review the update again.',409);
       job={...plan,id:crypto.randomUUID(),actor,started:new Date(this.now()).toISOString(),state:'preparing',message:'Saving and verifying a pre-update backup…'};
       this.jobs.unshift(job);await writeJSON(path.join(this.root,job.id+'.json'),job);
       await this.waitIdle();job.backup=await this.backup('before-'+plan.kind+'-update');

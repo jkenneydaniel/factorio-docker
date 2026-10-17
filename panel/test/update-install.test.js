@@ -5,10 +5,24 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {UpdateManager} from '../update-manager.js';
-import {runUpdate,validateDeployment} from '../update-worker.js';
+import {runUpdate,validateDeployment,reportsGameVersion} from '../update-worker.js';
 import {sourceSnapshot,sha256,unpackRelease,initializeUpdateBaseline,daemonPath} from '../update-source.js';
 import {writeJSON,readJSON,HttpError} from '../common.js';
 import {makeZip} from '../zip.js';
+import {gameSources,parseGameImage} from '../public/game-images.js';
+
+function candidateImage(image){
+  const parsed=parseGameImage(image),digest='a'.repeat(64);
+  return {Id:'sha256:'+digest,Os:'linux',Architecture:'amd64',RepoDigests:[gameSources[parsed.source].repository+'@sha256:'+digest],Config:{Entrypoint:['/docker-entrypoint.sh'],Volumes:{'/factorio':{}},ExposedPorts:{'34197/udp':{},'27015/tcp':{}},Env:['PUID=845','PGID=845','SAVES=/factorio/saves','CONFIG=/factorio/config','MODS=/factorio/mods','SCENARIOS=/factorio/scenarios','SCRIPTOUTPUT=/factorio/script-output','PORT=34197','RCON_PORT=27015'],Labels:{'factorio.version':parsed.version,...(parsed.source==='factory'?{'io.factory-control.compatibility':'1','io.factory-control.image-revision':String(parsed.revision)}:{})}}};
+}
+function reviewManager(f){
+  const docker=async(method,route)=>{
+    assert.equal(method,'GET','Review must not mutate Docker');
+    const name=decodeURIComponent(route.split('/')[2]),key=Object.keys(f.names).find(k=>f.names[k]===name);
+    return {Image:f.images[key],Config:{Image:key==='game'?f.job.gameImage:'local/old',Labels:{'com.docker.compose.project':'fixture','com.docker.compose.service':{game:'factorio',controller:'panel-controller',panel:'panel'}[key],'com.docker.compose.project.working_dir':f.root,'com.docker.compose.project.config_files':f.root+'/compose.yaml'}},Mounts:[{Type:'bind',Source:f.root+'/data',Destination:'/factorio'}]};
+  };
+  return new UpdateManager({root:f.state,docker,backup:async()=>{throw Error('Review must not back up');},current:'0.2.1-alpha',names:f.names});
+}
 
 async function fixture(t){
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'fc-update-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
@@ -28,17 +42,27 @@ async function fixture(t){
   const calls=[];let failHealth=false,failBuild=false,failPull=false,ready=true,clock=0;
   async function run(args){
     calls.push(args);
+    if(args[0]==='image'&&args[1]==='inspect'){
+      assert.deepEqual(args.slice(2,4),['--platform','linux/amd64'],'Inspect the x86 image configuration on ARM hosts');
+      return JSON.stringify([candidateImage(args.at(-1))]);
+    }
+    if(args[0]==='run')return 'Version: '+job.target+' (build fixture)';
     if(args[0]==='inspect')return JSON.stringify([{Image:images[Object.keys(names).find(k=>names[k]===args[1])],State:{Health:{Status:failHealth?'unhealthy':'healthy'}}}]);
     if(args.includes('config')){const value=structuredClone(config),env=await fs.readFile(path.join(root,'.env'),'utf8');value.services.factorio.image=env.match(/^FACTORIO_IMAGE=(.*)$/m)[1];return JSON.stringify(value);}
     if(args[0]==='build'&&failBuild)throw Error('build failed');
     if(args[0]==='pull'&&failPull)throw Error('pull failed');
-    if(args[0]==='exec')return ready?'Version: 2.0.78':'unavailable';
+    if(args[0]==='exec')return ready?job.target+'\n':'unavailable';
     if(args.includes('up')&&args.includes('panel-controller')&&failHealth){failHealth=false;throw Error('health failed');}
     return '';
   }
   const fetcher=async url=>new Response(url.endsWith('.zip')?archive:url.endsWith('.sha256')?sha256(archive)+'  factory-control-0.1.1-alpha.zip\n':JSON.stringify(metadata));
   return {root,state,job,config,archive,metadata,calls,run,fetcher,names,images,async execute(changes={}){Object.assign(job,changes);await writeJSON(path.join(state,id+'.json'),job);return runUpdate({root,state,id,run,fetcher,own:async()=>{},now:()=>clock,wait:async()=>{clock+=60000;}});},failHealth(){failHealth=true;},failBuild(){failBuild=true;},failPull(){failPull=true;},notReady(){ready=false;}};
 }
+test('version readiness accepts real RCON and binary formats while rejecting different or embedded versions',()=>{
+  assert.equal(reportsGameVersion('2.0.77\n','2.0.77'),true);
+  assert.equal(reportsGameVersion('Version: 2.0.77 (build 84539, linux64, headless)\n','2.0.77'),true);
+  for(const value of ['2.0.76','2.0.770','unavailable 2.0.77','Version: 2.0.770'])assert.equal(reportsGameVersion(value,'2.0.77'),false);
+});
 test('verified panel update stages/builds before replacement and never restarts the game',async t=>{
   const f=await fixture(t),result=await f.execute();assert.equal(result.state,'succeeded',result.message);
   assert.match(await fs.readFile(path.join(f.root,'panel/server.js'),'utf8'),/new panel/);
@@ -47,6 +71,83 @@ test('verified panel update stages/builds before replacement and never restarts 
   const replacement=f.calls.find(args=>args.includes('up'));assert.deepEqual(replacement.slice(-2),['panel-controller','panel']);assert.ok(replacement.includes('--no-deps'));
   assert.ok(!f.calls.some(args=>args.includes('stop')&&args.includes('factorio')));
   assert.deepEqual((await readJSON(path.join(f.state,'baseline.json'))).files,await sourceSnapshot(f.root));
+});
+test('same-version source migration pins the reviewed image digest and preserves world, mods and configuration',async t=>{
+  for(const source of ['factory','upstream']){
+    const f=await fixture(t),owned=gameSources.factory.repository;
+    if(source==='upstream'){
+      f.job.gameImage=owned+':2.0.77-fc.1';f.config.services.factorio.image=f.job.gameImage;
+      await fs.writeFile(path.join(f.root,'.env'),(await fs.readFile(path.join(f.root,'.env'),'utf8')).replace('factoriotools/factorio:2.0.77',f.job.gameImage));
+    }
+    for(const file of ['config/server-settings.json','config/rconpw','config/server-id.json','mods/mod-list.json','mods/custom.zip']){await fs.mkdir(path.dirname(path.join(f.root,'data',file)),{recursive:true});await fs.writeFile(path.join(f.root,'data',file),'original-'+file);}
+    const result=await f.execute({kind:'game',target:'2.0.77',source,imageRevision:source==='factory'?1:null,targetImage:gameSources[source].repository+':2.0.77'+(source==='factory'?'-fc.1':'')});
+    assert.equal(result.state,'succeeded',result.message);
+    assert.match(result.resolvedImage,new RegExp('^'+gameSources[source].repository+':2.0.77'+(source==='factory'?'-fc.1':'')+'@sha256:'));
+    assert.ok(f.calls.some(a=>a[0]==='pull'&&a.at(-1)===result.targetImage));
+    const probe=f.calls.find(a=>a[0]==='run');assert.ok(probe.includes('--read-only'));assert.ok(probe.includes(result.resolvedImage));assert.deepEqual(probe.slice(2,6),['--platform','linux/amd64','--pull','never']);assert.ok(!probe.some(a=>a.includes(f.root)||a==='--mount'||a==='-v'));
+    for(const file of ['config/server-settings.json','config/rconpw','config/server-id.json','mods/mod-list.json','mods/custom.zip'])assert.equal(await fs.readFile(path.join(f.root,'data',file),'utf8'),'original-'+file);
+    assert.equal(await fs.readFile(path.join(f.root,'data/saves/World.zip'),'utf8'),'real-fixture-world');
+    const env=await fs.readFile(path.join(f.root,'.env'),'utf8');assert.ok(env.includes('FACTORIO_IMAGE='+result.resolvedImage));assert.ok(env.includes('PANEL_PORT=9080'));
+    assert.equal(f.calls.filter(a=>a.includes('up')).length,1);assert.equal(f.calls.find(a=>a.includes('up')).at(-1),'factorio');
+  }
+});
+test('incompatible candidate images and mismatched review targets fail before replacing any service',async t=>{
+  const cases=[
+    item=>{item.Architecture='arm64';},
+    item=>{item.Config.Labels['factorio.version']='2.0.76';},
+    item=>{item.Config.Labels['io.factory-control.compatibility']='2';},
+    item=>{item.Config.Env=item.Config.Env.filter(v=>v!=='PUID=845');},
+    item=>{item.Config.Entrypoint=['/incompatible'];},
+    item=>{item.RepoDigests=[];}
+  ];
+  for(const tamper of cases){
+    const f=await fixture(t),before=await fs.readFile(path.join(f.root,'.env'),'utf8');
+    Object.assign(f.job,{kind:'game',target:'2.0.77',source:'factory',imageRevision:1,targetImage:gameSources.factory.repository+':2.0.77-fc.1'});await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);
+    const run=async args=>{if(args[0]==='image'){const item=candidateImage(args.at(-1));tamper(item);return JSON.stringify([item]);}return f.run(args);};
+    const result=await runUpdate({root:f.root,state:f.state,id:f.job.id,run,own:async()=>{}});
+    assert.equal(result.state,'failed');assert.equal(await fs.readFile(path.join(f.root,'.env'),'utf8'),before);assert.ok(!f.calls.some(a=>a.includes('up')||a.includes('stop')));
+  }
+  const f=await fixture(t),result=await f.execute({kind:'game',target:'2.0.78',targetImage:'untrusted/factorio:2.0.78'});
+  assert.equal(result.state,'failed');assert.match(result.message,/reviewed/);assert.ok(!f.calls.some(a=>a[0]==='pull'));
+});
+test('failed same-version migration keeps failed saves and prepares the previous image stopped',async t=>{
+  const f=await fixture(t);f.notReady();const result=await f.execute({kind:'game',target:'2.0.77',source:'factory',imageRevision:1});
+  assert.equal(result.state,'failed');assert.equal(result.recovery.requiresWorldRestore,true);
+  assert.match(await fs.readFile(path.join(f.root,'.env'),'utf8'),/FACTORIO_IMAGE=factoriotools\/factorio:2.0.77/);
+  assert.equal(await fs.readFile(path.join(f.root,'data/saves/World.zip'),'utf8'),'real-fixture-world');
+});
+test('image replacement validation refuses changes to existing server settings',async t=>{
+  const f=await fixture(t),after=structuredClone(f.config);after.services.factorio.environment={DLC_SPACE_AGE:'true'};
+  assert.throws(()=>validateDeployment(f.config,after,{...f.job,kind:'game'}),/preserve all existing settings/);
+});
+test('administrator reviews persist exact provider and revision, retain old-client defaults, and never change data',async t=>{
+  const f=await fixture(t),manager=reviewManager(f);await manager.init();
+  const plan=await manager.plan({kind:'game',target:'2.0.77',source:'factory',imageRevision:1});
+  assert.equal(plan.operation,'image-change');assert.equal(plan.targetImage,gameSources.factory.repository+':2.0.77-fc.1');
+  assert.match(plan.notes,/version stays the same/);
+  const stored=await readJSON(path.join(f.state,'plan-'+plan.id+'.json'));assert.equal(stored.source,'factory');assert.equal(stored.imageRevision,1);
+  const oldClient=await manager.plan({kind:'game',target:'2.0.78'});assert.equal(oldClient.targetImage,'factoriotools/factorio:2.0.78');
+  f.job.gameImage=gameSources.factory.repository+':2.0.77-fc.2';
+  const upgrade=await manager.plan({kind:'game',target:'2.0.78',imageRevision:1});assert.equal(upgrade.targetImage,gameSources.factory.repository+':2.0.78-fc.1');
+  await assert.rejects(manager.plan({kind:'game',target:'2.0.76',source:'upstream'}),/Downgrades/);
+  assert.equal(await fs.readFile(path.join(f.root,'data/saves/World.zip'),'utf8'),'real-fixture-world');
+});
+test('wrong binary version fails the disposable preflight before configuration or containers change',async t=>{
+  const f=await fixture(t),before=await fs.readFile(path.join(f.root,'.env'),'utf8');
+  Object.assign(f.job,{kind:'game',target:'2.0.77',source:'factory',imageRevision:1});await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);
+  const run=async args=>args[0]==='run'?'Version: 2.0.76':f.run(args);
+  const result=await runUpdate({root:f.root,state:f.state,id:f.job.id,run,own:async()=>{}});
+  assert.equal(result.state,'failed');assert.match(result.message,/binary/);assert.equal(await fs.readFile(path.join(f.root,'.env'),'utf8'),before);assert.ok(!f.calls.some(a=>a.includes('up')||a.includes('stop')));
+});
+test('panel review prefers complete image sources and falls back to older compatible release assets',async t=>{
+  const f=await fixture(t),manager=reviewManager(f);await manager.init();
+  const prefix='factory-control-0.2.2-alpha',assets=suffix=>['.zip','.sha256','.update.json'].map(extension=>({name:prefix+suffix+extension,state:'uploaded'}));
+  const release={tag_name:'v0.2.2-alpha',assets:[...assets(''),...assets('.source')]};
+  manager.releases.check=async()=>{};manager.releases.result={available:true,latest:{tag:release.tag_name}};manager.releases.releases=[release];
+  let plan=await manager.plan({kind:'panel'}),stored=await readJSON(path.join(f.state,'plan-'+plan.id+'.json'));
+  assert.ok(stored.assets['.zip'].endsWith('.source.zip'));
+  release.assets=assets('');plan=await manager.plan({kind:'panel'});stored=await readJSON(path.join(f.state,'plan-'+plan.id+'.json'));
+  assert.ok(stored.assets['.zip'].endsWith(prefix+'.zip'));
 });
 test('failed panel health recovers source, environment and matching previous image without touching world data',async t=>{
   const f=await fixture(t),before=await fs.readFile(path.join(f.root,'.env'),'utf8');f.failHealth();const result=await f.execute();
@@ -84,6 +185,8 @@ test('release validation refuses bad checksums, private paths and incompatible s
   const f=await fixture(t),checksum=sha256(f.archive)+'  factory-control-0.1.1-alpha.zip\n';
   assert.throws(()=>unpackRelease(f.archive,'0'.repeat(64)+'  factory-control-0.1.1-alpha.zip\n',f.job.target,f.metadata),/checksum/);
   assert.throws(()=>unpackRelease(f.archive,checksum,f.job.target,{...f.metadata,stateVersion:2}),/migration/);
+  assert.ok(unpackRelease(f.archive,sha256(f.archive)+'  factory-control-0.1.1-alpha.source.zip',f.job.target,{...f.metadata,bundle:'source'}).size>0);
+  assert.throws(()=>unpackRelease(f.archive,checksum,f.job.target,{...f.metadata,bundle:'unknown'}),/migration/);
   const archive=makeZip([{name:'factory-control-0.1.1-alpha/.env',data:Buffer.from('private')}]);assert.throws(()=>unpackRelease(archive,sha256(archive)+'  factory-control-0.1.1-alpha.zip\n',f.job.target,f.metadata),/Unexpected release path/);
   const after=structuredClone(f.config);after.services.panel.ports=[];assert.throws(()=>validateDeployment(f.config,after,f.job),/ports/);
 });

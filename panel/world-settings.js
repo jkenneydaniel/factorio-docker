@@ -3,7 +3,7 @@ import {fields,getSetting,fieldError,pairError} from './public/world-fields.js';
 
 // JSON settings are passed to Factorio's generator, never interpolated into Lua
 // or a shell command. Only the two documented world-setting objects are accepted.
-export function validateConfiguration(value,{limits=true}={}){
+export function validateConfiguration(value,{limits=true,draft=false}={}){
   const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
   assert(object(value)&&Object.keys(value).every(k=>['map_gen_settings','map_settings'].includes(k)),'Choose valid world settings.');
   assert(object(value.map_gen_settings)&&object(value.map_settings),'World settings need terrain and gameplay objects.');
@@ -20,6 +20,7 @@ export function validateConfiguration(value,{limits=true}={}){
   }
   walk(value);
   for(const [root,keys] of Object.entries(roots))for(const key of Object.keys(value[root]))assert(keys.includes(key),`Unsupported ${root} option: ${key}.`);
+  if(draft)return structuredClone(value);
   const gen=value.map_gen_settings,game=value.map_settings;
   const number=(x,min,max,label,integer=false)=>assert(typeof x==='number'&&Number.isFinite(x)&&x>=min&&x<=max&&(!integer||Number.isInteger(x)),`Invalid ${label}.`);
   for(const key of ['width','height'])if(key in gen)number(gen[key],0,2000000,`map ${key}`,true);

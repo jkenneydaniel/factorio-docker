@@ -1,6 +1,6 @@
 # Panel features and architecture
 
-Factory Control v0.2.1-alpha runs as two containers built from the same image:
+Factory Control v0.2.2-alpha runs as two containers built from the same image:
 a browser-facing web service and an internal controller. A third container runs
 Factorio. See the [root setup guide](../README.md) before starting.
 
@@ -13,6 +13,42 @@ the game or download full backups. Passwords use salted scrypt hashes; invitatio
 tokens are stored hashed. Sessions expire after eight hours or a web restart.
 Users can change their password and revoke other sessions. Administrators can
 change roles and remove users, with protection for the last administrator.
+
+## Guided diagnostics
+
+Administrators can open **Settings → Diagnostics**, including when the controller
+is unavailable. Checks explain panel/controller reachability, Docker metadata,
+container state, recent game readiness, ARM emulation and storage permissions/free
+space. These probes only read metadata: no game commands, test-file writes,
+container creation or restarts. Game readiness uses a recent normal status sample;
+without one it stays unconfirmed. Open Overview then check again to refresh it.
+Joining from another device remains a manual check.
+
+The support report contains the displayed results and panel/controller versions.
+It excludes account records, credentials, addresses, paths, world names, settings
+and raw logs. Download it locally before choosing where to share it.
+
+## World presets and drafts
+
+World creation automatically saves one draft per administrator account after a
+short editing pause; **Save now** flushes it explicitly. Wait for **Draft saved**
+before closing. Unsaved or in-flight edits trigger the browser's leave warning.
+Name, seed, stage, settings, unfinished advanced JSON and invalid inputs resume
+across reloads, logins and panel restarts. The library offers **Resume draft**.
+
+**Saved presets & draft options** saves up to 20 named, private custom presets,
+loads a preset, removes one or starts a fresh draft. Presets retain exact validated
+terrain/gameplay settings and the game image reference, excluding the world name,
+seed and switching preference. Loading keeps the draft's current name and seed.
+A different game image prompts compatibility review; it is not a compatibility
+guarantee. Every resumed form and loaded preset leaves switching unchecked.
+
+Concurrent saves use revisions. A stale tab cannot overwrite newer work: download
+a draft copy from that tab, then reload to use the current saved state. Draft copies
+are JSON recovery records for manual recovery; importing them is not implemented.
+Successful creation clears only its submitted draft, preserving newer work.
+Drafts/presets live in private files under the existing auth volume, independent of
+game saves. Removing the account removes its saved setups.
 
 ## Server and worlds
 
@@ -52,8 +88,32 @@ for CRC integrity, nested save validity and required files. Verification confirm
 archive integrity; it does not prove that every backup has been test-restored.
 Restore creates a backup of the previous state and attempts rollback on failure.
 
-Scheduled backups are optional. Only backups marked as scheduled are deleted by
-their retention policy; manual and pre-change backups are retained. Health shows
+Scheduled backups are optional. Their count limit applies only to scheduled
+archives and can remove them before the age window expires. Count pruning runs
+inside the backup operation lock after a successful scheduled backup.
+
+The **Backups** page also offers age-based cleanup: choose a window of 1–3650
+days (30 by default), review the exact files and estimated space, then explicitly
+confirm deletion. Manual and pre-change archives are excluded by default and can
+be included separately. Both cleanup rules preserve the newest two backups of
+each type, the most recent archive with matching successful verification metadata,
+and any recorded backup required for update recovery. Unrecognized archives,
+symlinks, unfinished files, world libraries and game autosaves are excluded.
+Age is based on archive modification time; protected copies may exceed the window.
+
+Daily cleanup is **off by default**. Enabling it requires a current review and
+confirmation of future permanent deletions. The controller checks each minute,
+runs the first due cleanup when idle, then attempts cleanup at most once per
+24 hours while enabled. It shares the operation lock with backups, restores and
+updates, skips pending update recovery, and never sends game or Docker commands.
+Each automatic attempt appears in activity; failures wait until the next daily
+attempt. Manual cleanup is available even with daily cleanup off.
+
+Cleanup reviews expire after 10 minutes or a controller restart. Changed files,
+verification/protection changes or a saved policy invalidate a review. Settings
+persist in `state/backup-retention.json` with revision checks for concurrent
+administrators. Deletion also removes the matching validation records. Cleanup
+is permanent; download any additional copies before confirming. Health shows
 space, archive sizes, verification results, next run and warnings.
 
 ## Map
@@ -95,3 +155,11 @@ Setup is a separate, explicitly invoked profile. It has no Docker socket or
 network and writes only its mounted checkout. On Linux it assigns newly created
 game/controller files to UID 845 and auth files to UID 1000. It does not recursively
 change ownership of existing worlds or accounts.
+
+### Game image sources
+
+Settings → Updates retains the current source and supports both pinned Factorio
+Tools tags and Factory Control `<version>-fc.<revision>` tags. A same-version
+source/revision change uses the same reviewed backup, compatibility checks and
+explicit recovery path as game upgrades. Download/preflight failures do not
+replace containers. See [the independent image guide](../factorio-image/README.md).

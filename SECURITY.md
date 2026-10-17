@@ -1,6 +1,6 @@
 # Security and deployment scope
 
-v0.2.1-alpha is intended for a trusted LAN with trusted administrators. It has
+v0.2.2-alpha is intended for a trusted LAN with trusted administrators. It has
 not received an independent security audit. Internet exposure, public registration,
 multiple replicas and multi-tenant hosting are unsupported.
 

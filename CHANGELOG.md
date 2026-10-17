@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.2-alpha — 2026-10-16
+
+- Add an independently built x86-64 Factorio image from pinned Debian and the
+  checksum-verified official headless download, with first-party startup/RCON
+  tools. Keep existing worlds, settings, identity and mod selections intact.
+- Support Factorio Tools and Factory Control images in the panel, including
+  reviewed same-version source changes and separate image revisions. Validate
+  compatibility before replacement and pin the downloaded image digest.
+- Verify both image sources with read-only amd64/digest preflight checks and
+  recognize the actual RCON version response after replacement.
+- Add isolated runtime tests and an explicit build/test/publication workflow;
+  keep current installation defaults and running servers unchanged.
+
+- Add configurable backup cleanup windows, exact deletion reviews and optional
+  daily retention. Exclude manual/pre-change archives by default; protect newest
+  copies, verified recovery archives and required update backups. Keep cleanup
+  under the server operation lock without issuing game or Docker commands.
+
+- Add guided, read-only diagnostics for the panel/controller, Docker, game state,
+  host architecture, storage access and free space, with next steps and a
+  support report that excludes credentials, raw logs and private configuration.
+- Save world drafts to each administrator account, including unfinished JSON
+  and invalid input. Resume from the world library after reloading or signing in.
+- Save up to 20 private custom presets. Loading keeps the current world name
+  and seed; resumed drafts and presets never preselect switching the game.
+- Detect conflicting saves from another tab and offer a downloadable draft copy.
+
 ## 0.2.1-alpha — 2026-10-16
 
 - Combine the v0.2.0-alpha setup, interface, onboarding and updater work with

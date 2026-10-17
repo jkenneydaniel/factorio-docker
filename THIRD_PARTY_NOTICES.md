@@ -8,8 +8,11 @@ Software. Factorio names and trademarks belong to their respective owners.
   files are included in this source release. Users obtain the headless server
   separately through the game container image and need matching game clients.
 - [factoriotools/factorio-docker](https://github.com/factoriotools/factorio-docker)
-  supplies the external game image. Its Docker wrapper is MIT licensed; this
-  does not relicense the Factorio game. It is referenced, not vendored here.
+  supplies the existing supported external game image and legacy compatibility
+  test input. Its Docker wrapper is MIT licensed; this does not relicense the
+  Factorio game. It is referenced, not vendored here. Our optional image is built
+  independently from Debian and the official Wube headless download; its startup
+  and RCON tools are maintained in `factorio-image/`.
 - [Node.js](https://nodejs.org/) and the Debian base image are external runtime
   dependencies. Their licenses and component notices remain in their images.
 

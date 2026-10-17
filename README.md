@@ -1,6 +1,6 @@
 # Factory Control
 
-**v0.2.1-alpha** — a self-hosted Factorio server and LAN management panel, built
+**v0.2.2-alpha** — a self-hosted Factorio server and LAN management panel, built
 with Docker Compose. This is an early release for trusted home networks.
 
 Manage worlds, saves, backups, players, server settings and accounts from a
@@ -146,6 +146,12 @@ Keep `data/`, `backups/`, `.panel-data/` and `.env` private. Never upload the en
 working directory: those folders contain worlds, credentials, invitations and
 server configuration. `.gitignore` excludes them, and the release packaging tool
 uses an explicit source allowlist.
+
+The optional [Factory Control game image](factorio-image/README.md) builds
+independently from Debian and the official Factorio headless download. Settings
+→ Updates supports both image sources and reviewed same-version switching.
+Existing installations retain their current source; publishing or updating the
+panel does not migrate the game automatically.
 
 ## Alpha limits
 

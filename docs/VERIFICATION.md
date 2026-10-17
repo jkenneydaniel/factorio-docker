@@ -1,5 +1,131 @@
 # Release verification
 
+## Unreleased: isolated image build and container acceptance, October 16, 2026
+
+Built `ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1` locally with OrbStack
+on an ARM Mac, targeting `linux/amd64` and executing with x86 compatibility.
+The local repository digest is
+`sha256:c8056ca33a857406bd1f75521f237782faa810f4bf76e05d21d4d827e0dba990`;
+the amd64 manifest is
+`sha256:2d6a54133f18cd864bacbc56ffe052e141fab7dbac81660151d7692e3f43bcfb`.
+The Docker build verified the official archive checksum and the actual binary's
+2.0.77 version. No Factorio Tools layer was used to build the owned image.
+
+Real container acceptance passed:
+
+- Both image sources passed the panel's shared read-only, unprivileged binary
+  and tool preflight using verified repository digest references.
+- A save created by the legacy image loaded in the owned image, exposed RCON
+  and returned the expected version and a numeric game tick.
+- RCON save and SIGTERM shutdown completed with exit code zero. Settings, mod
+  selections and the RCON password retained their original SHA-256 checksums.
+- The legacy binary reloaded the save written by the owned image successfully.
+- Direct worker-style world creation produced a valid ZIP with `level.dat0`,
+  and map generation produced a verified 128 × 128 PNG.
+
+The real run identified and fixed explicit platform selection during image
+inspection, the plain RCON version response and use of a runnable repository
+digest instead of a platform-specific inspect identifier. Regression coverage
+also reflects the fresh-save Lua achievement prompt and actual save format.
+The full Node suite passed **119 of 120 tests with one platform-specific skip**;
+all **10 Python tests** passed. After the final preflight integration, all 21
+affected image/update tests and the real acceptance sequence passed again.
+
+Only UUID-named test resources and disposable data were used. There were no host
+bind mounts, published ports, Compose operations or container network access.
+All test containers and volumes were removed; all 13 pre-existing local
+containers retained their identities, images, start times and running states.
+The running Factorio installation, existing worlds and installation `.env` were
+not accessed. Local logs and image/cleanup evidence are retained under
+`output/implementation/game-images/container-acceptance.{log,json}`.
+
+The image remains local and unpublished. No deployment or live image migration
+was performed. This run does not establish native ARM support or acceptance on
+an independent x86 Linux host.
+
+## Unreleased: independent Factorio image and image-source selection
+
+Validated locally on macOS with Node 24.21.0 and Python 3.14.5: **119 Node
+tests, 118 passed and one Linux-root ownership test skipped; 10 Python tests
+passed**. Tests use temporary files, simulated Docker calls and fake RCON
+sockets. They cover same-version source changes, pinned image identities,
+architecture and compatibility rejection, recovery, existing settings/save
+preservation, fresh-install behavior and multipart RCON responses.
+
+The official 2.0.77 headless archive checksum and Debian amd64 base digest were
+verified against their public sources. The owned image uses these directly and
+does not derive from Factorio Tools. It targets Linux x86-64 only.
+
+A temporary release package was accepted by the existing HEAD updater using the
+compatibility ZIP, and by the new updater using the complete source ZIP. Panel
+update tests also passed from the extracted compatibility package. Packaging did
+not include private/runtime data or change existing release artifacts.
+
+Browser acceptance used only the synthetic loopback fixture on port 8097:
+selected the owned source, reviewed its exact same-version image tag, cancelled
+the review, checked downgrade rejection and inspected desktop and 390 × 844
+phone layouts. Screenshots are under `output/implementation/game-images/`.
+
+At this initial implementation stage, the separate image workflow was prepared
+to build and test disposable volumes,
+legacy-save loading, RCON, graceful save/stop, legacy reload, world creation and
+map preview before optional publication. The subsequent Docker build and container
+acceptance are recorded above. Nothing was published or deployed; during this
+initial implementation stage the
+real Docker socket, running server, worlds, settings and installation `.env`
+were not accessed or changed.
+
+## Unreleased: configurable backup cleanup
+
+Validated locally on macOS with Node 24.21.0: **106 tests, 105 passed and one
+Linux-root ownership test skipped**. Cleanup tests use temporary archives;
+integration tests use a mock Docker API and confirm cleanup sends zero Docker
+mutations while preserving the original save and running-state fixture.
+
+Coverage includes bounded age windows, cutoff equality, category opt-in, newest
+copies, current verified archives, pending update recovery, unknown archives,
+symlinks, file replacement, expired/replayed reviews, partial deletion failures,
+policy persistence, concurrent settings revisions and the daily due clock.
+Scheduled count pruning now shares the same protections and operation lock.
+
+Browser acceptance used only the loopback fixture on port 8096: reviewed exact
+candidates and protected reasons, changed the window to an empty review, opted
+manual/pre-change copies in, confirmed a simulated daily policy, saved a manual
+window using Enter, reloaded it, and completed a memory-only cleanup from 16 to
+7 synthetic archives. Reviewed the default desktop viewport and 390 × 844 phone
+layout, including 44px checkbox-label targets and no page overflow. Screenshots
+are under `output/implementation/backup-retention/` (local evidence only).
+
+No real backups, running server, world saves, Docker socket or deployed panel
+were accessed or changed. Automatic cleanup remains off by default. This is
+local implementation and isolated validation, not deployment or live acceptance.
+
+## Unreleased: guided diagnostics, saved presets and persistent drafts
+
+Validated locally with Node 24.21.0 on macOS. The complete suite has **92 tests:
+91 passed, one Linux-root ownership test skipped**. New coverage exercises:
+
+- Authenticated diagnostics with an unreachable controller; partial Docker,
+  storage, architecture and readiness failures; Windows-container guidance.
+- Read-only probes and a report allowlist excluding raw Docker details, error
+  messages, paths and credentials.
+- Private per-account setup persistence across restarts/password changes and
+  cleanup on account deletion; administrator-only API access and CSRF checks.
+- Revision conflicts, stale draft deletion, preset limits/validation and exact
+  preservation of unfinished input without restoring activation.
+
+Browser acceptance used only the synthetic loopback UI fixture. Confirmed preset
+save/load, draft recovery of unfinished JSON after reload, blocked review before
+applying it, cross-tab conflict rejection, switching unchecked after reload,
+simulated successful creation clearing its submitted draft, and support-report
+JSON download. Reviewed desktop (1486 × 1059) and phone (390 × 844) layouts.
+Screenshots are under `output/implementation/diagnostics-presets/` (local evidence,
+not included in releases). Fixture map artwork is synthetic.
+
+No real Docker socket, running game, world save, live account or deployed panel
+was accessed or changed for this feature work. This records local implementation
+and isolated validation, not deployment or live server acceptance.
+
 ## CI follow-up: wait for completed jobs to release their operation lock
 
 The first v0.2.1-alpha tag CI run failed when the integration fixture submitted

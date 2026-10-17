@@ -7,6 +7,7 @@ import {readBody,requestJSON,json,assert,HttpError,equalSecret} from './common.j
 import {checkOrigin,checkPassword,requireAdmin} from './auth.js';
 import {Accounts} from './accounts.js';
 import {ReleaseChecks} from './updates.js';
+import {diagnosticsReport} from './diagnostics.js';
 
 if(process.env.MODE==='controller'){await import('./controller.js');}
 else{
@@ -71,6 +72,19 @@ else{
       if(req.method!=='GET'){if(!['/api/logout','/api/password','/api/sessions'].includes(url.pathname))requireAdmin(user);assert(equalSecret(req.headers['x-csrf-token'],user.csrf),'Session verification failed. Reload the page.',403);}
       if(req.method!=='GET'&&['/api/password','/api/accounts','/api/invitations','/api/onboarding'].includes(url.pathname))await requireNoUpdate();
       if(req.method==='GET'&&url.pathname==='/api/session')return json(res,200,{username:user.username,role:user.role,csrf:user.csrf,onboarding:await accounts.onboarding(user.username)});
+      if(url.pathname==='/api/world-setups'){
+        requireAdmin(user);assert(['GET','POST'].includes(req.method),'Not found.',404);
+        if(req.method==='POST')await requireNoUpdate();
+        const body=req.method==='POST'?await requestJSON(req):undefined;
+        try{return json(res,200,await accounts.worldSetups(user.username,body));}
+        catch(error){if(error.status)throw error;throw new HttpError(503,'Saved setups could not be accessed. Check the panel account storage permissions on the host, then try again.');}
+      }
+      if(url.pathname==='/api/diagnostics'){
+        requireAdmin(user);assert(req.method==='GET','Not found.',404);
+        let result=null;
+        try{const response=await fetch(controller+'/diagnostics',{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(12000)});if(response.ok)result=await response.json();}catch{}
+        return json(res,200,diagnosticsReport(panelVersion,result));
+      }
       if(url.pathname==='/api/onboarding'){
         requireAdmin(user);
         if(req.method==='GET')return json(res,200,await accounts.onboarding(user.username));
@@ -106,7 +120,7 @@ else{
         return json(res,201,await accounts.invite(body.role,user.username));
       }
       const route=url.pathname.slice(4);
-      assert(['status','worlds','backups','jobs','settings','logs','download','preview','schedule','upload','map','map-status','live-players','pins','world-options','world-preview','world-preview-image','update-status','update-plan','update-install'].includes(route.slice(1)),'Not found.',404);
+      assert(['status','worlds','backups','jobs','settings','logs','download','preview','schedule','backup-retention','upload','map','map-status','live-players','pins','world-options','world-preview','world-preview-image','update-status','update-plan','update-install'].includes(route.slice(1)),'Not found.',404);
       if(route.startsWith('/update-'))requireAdmin(user);
       if(['/download','/world-options','/world-preview','/world-preview-image'].includes(route))requireAdmin(user);
       let body;if(req.method==='POST'){
@@ -118,7 +132,7 @@ else{
       res.setHeader('cache-control','no-store');res.writeHead(response.status);
       if(response.body)for await(const chunk of response.body)res.write(chunk);return res.end();
     }
-    const files={'/':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/map.js':['map.js','text/javascript; charset=utf-8'],'/world-fields.js':['world-fields.js','text/javascript; charset=utf-8'],'/world-preview.js':['world-preview.js','text/javascript; charset=utf-8'],'/world-editor.js':['world-editor.js','text/javascript; charset=utf-8'],'/style.css':['style.css','text/css; charset=utf-8'],'/icons.js':['icons.js','text/javascript; charset=utf-8'],'/onboarding.js':['onboarding.js','text/javascript; charset=utf-8']};
+    const files={'/game-images.js':['game-images.js','text/javascript'],'/game-update.js':['game-update.js','text/javascript'],'/backup-retention.js':['backup-retention.js','text/javascript'],'/diagnostics.js':['diagnostics.js','text/javascript'], '/':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/map.js':['map.js','text/javascript; charset=utf-8'],'/world-fields.js':['world-fields.js','text/javascript; charset=utf-8'],'/world-preview.js':['world-preview.js','text/javascript; charset=utf-8'],'/world-editor.js':['world-editor.js','text/javascript; charset=utf-8'],'/style.css':['style.css','text/css; charset=utf-8'],'/icons.js':['icons.js','text/javascript; charset=utf-8'],'/onboarding.js':['onboarding.js','text/javascript; charset=utf-8']};
     assert(req.method==='GET'&&Object.hasOwn(files,url.pathname),'Not found.',404);
     const [filename,type]=files[url.pathname];res.writeHead(200,{'content-type':type,'cache-control':'no-cache'});res.end(await fs.readFile(path.join(publicRoot,filename)));
   }

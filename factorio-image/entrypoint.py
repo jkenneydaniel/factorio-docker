@@ -1,0 +1,127 @@
+"""Factory Control startup; preserve existing files and exec the game as PID 1."""
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import sys
+
+
+def enabled(env, key, default=False):
+    value = env.get(key, "true" if default else "false").lower()
+    if value not in ("true", "false"):
+        raise ValueError(key + " must be true or false")
+    return value == "true"
+
+
+def create_once(file, data):
+    try:
+        with file.open("x") as stream:
+            stream.write(data)
+        file.chmod(0o600)
+    except FileExistsError:
+        if file.is_symlink() or not file.is_file():
+            raise ValueError("Configuration must use ordinary files")
+
+
+def prepare(env, data=Path("/factorio"), game=Path("/opt/factorio")):
+    if enabled(env, "UPDATE_MODS_ON_START"):
+        raise ValueError("Automatic mod updates are unsupported; set UPDATE_MODS_ON_START=false")
+    paths = {key: Path(env.get(key, str(data / folder))) for key, folder in (
+        ("SAVES", "saves"), ("CONFIG", "config"), ("MODS", "mods"),
+        ("SCENARIOS", "scenarios"), ("SCRIPTOUTPUT", "script-output"))}
+    for directory in (data, *paths.values()):
+        if directory.is_symlink():
+            raise ValueError("Data directories must not be symlinks")
+        directory.mkdir(parents=True, exist_ok=True)
+    config, saves, mods = paths["CONFIG"], paths["SAVES"], paths["MODS"]
+    existing = [file for file in saves.glob("*.zip") if file.is_file() and not file.name.endswith(".tmp.zip")]
+    previous = (config / "rconpw").exists() or (config / "server-id.json").exists()
+    generate = enabled(env, "GENERATE_NEW_SAVE")
+    if not existing and previous and not generate:
+        raise ValueError("Existing server identity has no saves. Restore its data; no replacement world was generated")
+    for name in ("server-settings", "map-gen-settings", "map-settings"):
+        target = config / (name + ".json")
+        if not target.exists():
+            create_once(target, (game / "data" / (name + ".example.json")).read_text())
+        elif target.is_symlink() or not target.is_file():
+            raise ValueError("Configuration must use ordinary files")
+    for name in ("server-adminlist", "server-banlist", "server-whitelist"):
+        create_once(config / (name + ".json"), "[]\n")
+    create_once(config / "rconpw", secrets.token_hex(32))
+    password = (config / "rconpw").read_text().strip()
+    if not password or "\n" in password or "\x00" in password:
+        raise ValueError("The existing RCON password is invalid; it was not replaced")
+    # Existing mod selections, including DLC choices, remain byte-for-byte intact.
+    dlc = enabled(env, "DLC_SPACE_AGE", True)
+    create_once(mods / "mod-list.json", json.dumps({"mods": [
+        {"name": name, "enabled": name == "base" or dlc}
+        for name in ("base", "quality", "elevated-rails", "space-age")
+    ]}, indent=2) + "\n")
+    binary = str(game / "bin/x64/factorio")
+    common = ["--config", str(game / "config/config.ini"), "--mod-directory", str(mods)]
+    creation = None
+    if generate or not existing:
+        name = env.get("SAVE_NAME", "World")
+        if not name or name in (".", "..") or any(char in name for char in "/\\\n\r\x00"):
+            raise ValueError("SAVE_NAME must be a filename")
+        destination = saves / (name if name.endswith(".zip") else name + ".zip")
+        if destination.is_symlink():
+            raise ValueError("Save destination must not be a symlink")
+        if not destination.exists():
+            creation = [binary, *common, "--create", str(destination), "--map-gen-settings", str(config / "map-gen-settings.json"), "--map-settings", str(config / "map-settings.json")]
+            if env.get("PRESET"):
+                creation.extend(["--preset", env["PRESET"]])
+    args = [binary, *common, "--port", str(int(env.get("PORT", "34197"))),
+            "--rcon-port", str(int(env.get("RCON_PORT", "27015"))), "--rcon-password", password,
+            "--server-settings", str(config / "server-settings.json"),
+            "--server-adminlist", str(config / "server-adminlist.json"),
+            "--server-banlist", str(config / "server-banlist.json"),
+            "--server-whitelist", str(config / "server-whitelist.json"),
+            "--server-id", str(config / "server-id.json")]
+    # Match the existing wrapper's enabled-whitelist startup behavior.
+    args.append("--use-server-whitelist" if enabled(env, "USE_SERVER_WHITELIST", True) else "--use-server-whitelist=false")
+    for key, option in (("BIND", "--bind"), ("CONSOLE_LOG_LOCATION", "--console-log")):
+        if env.get(key):
+            args.extend([option, env[key]])
+    if enabled(env, "LOAD_LATEST_SAVE", True):
+        args.append("--start-server-load-latest")
+    else:
+        name = env.get("SAVE_NAME", "World")
+        if not name or name in (".", "..") or any(char in name for char in "/\\\n\r\x00"):
+            raise ValueError("SAVE_NAME must be a filename")
+        selected = saves / (name if name.endswith(".zip") else name + ".zip")
+        if not selected.is_file() and not creation:
+            raise ValueError("Selected save is missing; no replacement world was generated")
+        args.extend(["--start-server", str(selected)])
+    return args, creation, paths
+
+
+def main():
+    args, creation, paths = prepare(os.environ)
+    uid, gid = int(os.getenv("PUID", "845")), int(os.getenv("PGID", "845"))
+    if uid <= 0 or gid <= 0:
+        raise ValueError("PUID and PGID must be positive")
+    if os.geteuid() == 0:
+        # Change only mismatched ownership, never file contents or permissions.
+        for directory in set(paths.values()) | {Path("/factorio")}:
+            for parent, directories, files in os.walk(directory, followlinks=False):
+                for file in (Path(parent), *(Path(parent) / name for name in directories + files)):
+                    stat = file.lstat()
+                    if (stat.st_uid, stat.st_gid) != (uid, gid):
+                        os.chown(file, uid, gid, follow_symlinks=False)
+        os.setgroups([])
+        os.setgid(gid)
+        os.setuid(uid)
+    if creation:
+        subprocess.run(creation, check=True)
+    os.execv(args[0], args + sys.argv[1:])
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ValueError, OSError, subprocess.CalledProcessError):
+        # Never print the generated command: it includes the RCON password.
+        print("Factorio startup refused. Check data mounts, existing saves, configuration and permissions. Existing files were preserved.", file=sys.stderr)
+        sys.exit(1)

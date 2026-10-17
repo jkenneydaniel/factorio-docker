@@ -2,7 +2,7 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 let cleanup=()=>{};
 export function cleanWorldPreview(){cleanup();cleanup=()=>{};}
 export const previewHTML=`<aside class="world-draft-preview" aria-label="World map preview"><div class="draft-preview-picture"><img id="draft-preview-image" alt="Map preview for your new world settings" role="button" tabindex="0" aria-label="Expand map preview" hidden><p id="draft-preview-empty">Your map preview will appear here. It uses the installed Factorio generator.</p></div><div class="preview-controls"><div class="world-preview-heading"><h3>Map preview</h3><button type="button" class="button small" id="refresh-draft-preview">Refresh now</button></div><label>Seed<span class="world-seed-choice"><input name="seed" aria-label="Seed" type="number" min="1" max="4294967295" step="1" placeholder="Random seed"><button type="button" class="button small" id="roll-world-seed">New seed</button></span></label><div class="preview-auto"><label class="check-label"><input type="checkbox" id="auto-draft-preview" checked>Update as I change settings</label></div><p id="draft-preview-state" class="hint" role="status">Preparing your preview…</p><p class="hint">Terrain, resources and enemy bases. Gameplay rules may not change the image.</p></div></aside>`;
-export function mountWorldPreview(form,{api,getDraft,isValid}){
+export function mountWorldPreview(form,{api,getDraft,isValid,onSeed=()=>{}}){
   cleanWorldPreview();let timer=null,poll=null,stopped=false,version=0,controller=null,lastId=null;
   const automatic=form.querySelector('#auto-draft-preview'),label=form.querySelector('#draft-preview-state'),image=form.querySelector('#draft-preview-image'),empty=form.querySelector('#draft-preview-empty'),outer=form.closest('details');
   form.elements.seed.value=getDraft().seed||'';
@@ -10,7 +10,7 @@ export function mountWorldPreview(form,{api,getDraft,isValid}){
   function text(value){label.textContent=value;}
   function stale(){image.classList.add('preview-stale');}
   function cancel(){clearTimeout(timer);clearTimeout(poll);controller?.abort();version++;}
-  function seed(){const input=form.elements.seed;if(input.value===''){const values=new Uint32Array(1);do{crypto.getRandomValues(values);}while(values[0]===0);input.value=String(values[0]);getDraft().seed=input.value;}return Number(input.value);}
+  function seed(){const input=form.elements.seed;if(input.value===''){const values=new Uint32Array(1);do{crypto.getRandomValues(values);}while(values[0]===0);input.value=String(values[0]);getDraft().seed=input.value;onSeed();}return Number(input.value);}
   function valid(){return isValid()&&(!form.elements.seed.value||form.elements.seed.validity.valid)&&!form.querySelector('[data-world-setting]:invalid');}
   function paint(result,current){
     if(stopped||current!==version)return;
@@ -38,7 +38,7 @@ export function mountWorldPreview(form,{api,getDraft,isValid}){
     if(!valid()){text('Fix the highlighted settings or apply your advanced edits to update the preview.');return;}
     text('Settings changed · updating preview shortly…');timer=setTimeout(request,force?0:900);
   }
-  const input=event=>{if(event.target===automatic)return;if(event.target.name==='name'||['preview','activate'].includes(event.target.name))return;schedule();};
+  const input=event=>{if(event.target===automatic)return;if(!event.target.matches('[name=seed],[name=base],[data-world-setting],[data-world-range],#world-settings-json'))return;schedule();};
   const toggle=()=>{if(visible())schedule();else cancel();};
   const visibility=()=>{if(document.hidden)cancel();else if(visible()&&automatic.checked)schedule();};
   form.addEventListener('input',input);form.addEventListener('change',input);outer?.addEventListener('toggle',toggle);document.addEventListener('visibilitychange',visibility);

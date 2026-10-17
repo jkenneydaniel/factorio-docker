@@ -26,10 +26,11 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
   const log=path.join(data,'factorio-current.log');await fs.writeFile(log,'0.000 Loading map /factorio/saves/Original.zip: 100 bytes.\n');
   await fs.writeFile(path.join(auth,'users.json'),JSON.stringify({admin:{...hashPassword('test-admin-password'),role:'admin'},viewer:{...hashPassword('test-viewer-password'),role:'viewer'}}));
   const tokenFile=path.join(root,'controller-token');await fs.writeFile(tokenFile,'test-controller-token');
-  let running=true,current='Original.zip';const executions=new Map(),execTargets=new Map(),helpers=new Map();let generatedConfiguration=null,activeScripts=0;
+  let running=true,current='Original.zip';const executions=new Map(),execTargets=new Map(),helpers=new Map();let generatedConfiguration=null,activeScripts=0,engineMutations=0;
   const worldDefaults=JSON.parse(await fs.readFile(path.join(project,'world-defaults.json'),'utf8'));
   const socket=process.platform==='win32'?`\\\\.\\pipe\\factorio-panel-test-${crypto.randomUUID()}`:path.join(root,'docker.sock');
   const engine=http.createServer(async(req,res)=>{
+    if(req.method!=='GET')engineMutations++;
     let body='';for await(const chunk of req)body+=chunk;
     const value=body?JSON.parse(body):{},url=new URL(req.url,'http://docker');const reply=(status,data)=>{res.writeHead(status,{'content-type':'application/json'});res.end(data===undefined?'':JSON.stringify(data));};
     if(url.pathname==='/containers/json')return reply(200,[]);
@@ -91,6 +92,46 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     assert.equal((await request('/jobs',{method:'POST',body:{action:'switch',params:{}}})).status,400);
   });
   await t.test('dashboard reports real controller data',async()=>{const result=await request('/status');assert.equal(result.status,200);const value=await result.json();assert.deepEqual(value.players,['TestEngineer']);assert.equal(value.currentWorld,'Original.zip');assert.equal(value.seed,'12345');});
+  await t.test('diagnostics and saved setups require admin, isolate accounts, and enforce CSRF and revisions',async()=>{
+    for(const route of ['/diagnostics','/world-setups']){
+      assert.equal((await fetch(origin+'/api'+route)).status,401);
+      assert.equal((await request(route,{user:viewer})).status,403);
+    }
+    const report=await (await request('/diagnostics')).json();assert.equal(report.checks.find(c=>c.id==='panel').state,'pass');assert.equal(report.checks.find(c=>c.id==='controller').state,'pass');assert.ok(!JSON.stringify(report).includes(root));
+    const initial=await (await request('/world-setups')).json();assert.equal(initial.revision,0);
+    const body={operation:'save-preset',revision:0,name:'A quiet evening',configuration:worldDefaults,image:'fixture:2.0.77'};
+    assert.equal((await request('/world-setups',{method:'POST',body,csrf:false})).status,403);
+    assert.equal((await request('/world-setups',{method:'POST',body,user:viewer})).status,403);
+    const saved=await request('/world-setups',{method:'POST',body});assert.equal(saved.status,200);assert.equal((await saved.json()).presets[0].name,body.name);
+    assert.equal((await request('/world-setups',{method:'POST',body})).status,409);
+    const secondSession=await login('admin','test-admin-password');assert.equal((await (await request('/world-setups',{user:secondSession})).json()).presets.length,1);
+  });
+  await t.test('backup cleanup enforces review, age window, authorization and persistence without game commands',async()=>{
+    const initial=await (await request('/backups')).json();assert.equal(initial.retention.policy.enabled,false);
+    const policy={enabled:false,days:30,includeManual:false,includeSafety:false},body={operation:'preview',policy};
+    assert.equal((await fetch(origin+'/api/backup-retention',{method:'POST',headers:{origin},body:JSON.stringify(body)})).status,401);
+    assert.equal((await request('/backup-retention',{method:'POST',body,user:viewer})).status,403);
+    assert.equal((await request('/backup-retention',{method:'POST',body,csrf:false})).status,403);
+    assert.equal((await request('/backup-retention',{method:'POST',body:{...body,policy:{...policy,days:0}}})).status,400);
+    assert.equal((await request('/jobs',{method:'POST',body:{action:'cleanup-backups',params:{planId:'invented'}}})).status,400);
+    const directory=path.join(backups,'panel-backups'),names=Array.from({length:5},(_,i)=>`fixture-${i}-scheduled.zip`),before=engineMutations,original=await fs.readFile(path.join(data,'saves/Original.zip'));
+    try{
+      for(const [i,name] of names.entries()){await fs.writeFile(path.join(directory,name),'synthetic backup');const old=new Date(Date.now()-(40+i)*86400000);await fs.utimes(path.join(directory,name),old,old);}
+      const plan=await (await request('/backup-retention',{method:'POST',body})).json();assert.equal(plan.candidates.length,3);
+      assert.equal((await request('/jobs',{method:'POST',body:{action:'cleanup-backups',params:{planId:plan.id,confirm:true}},user:viewer})).status,403);
+      const enabled={...policy,enabled:true};assert.equal((await request('/backup-retention',{method:'POST',body:{operation:'save',policy:enabled,revision:0}})).status,400);
+      const enabledPlan=await (await request('/backup-retention',{method:'POST',body:{...body,policy:enabled}})).json();
+      const configured=await request('/backup-retention',{method:'POST',body:{operation:'save',policy:enabled,revision:0,planId:enabledPlan.id,confirm:true}});assert.equal(configured.status,200);
+      assert.equal((await fs.readdir(directory)).length,5,'saving policy does not clean up inline');
+      assert.equal((await request('/backup-retention',{method:'POST',body:{operation:'save',policy,revision:0}})).status,409);
+      await request('/backup-retention',{method:'POST',body:{operation:'save',policy,revision:1}});
+      const stored=JSON.parse(await fs.readFile(path.join(state,'backup-retention.json'),'utf8'));assert.equal(stored.policy.enabled,false);assert.equal(stored.revision,2);
+      const stale=await action('cleanup-backups',{planId:plan.id,confirm:true});assert.equal(stale.state,'failed');assert.match(stale.message,/expired/);
+      const fresh=await (await request('/backup-retention',{method:'POST',body})).json();
+      const cleanup=await action('cleanup-backups',{planId:fresh.id,confirm:true});assert.equal(cleanup.state,'succeeded',cleanup.message);assert.match(cleanup.message,/Deleted 3/);assert.equal(cleanup.result.deleted.length,3);
+      assert.deepEqual((await fs.readdir(directory)).sort(),names.slice(0,2));assert.equal(engineMutations,before);assert.equal(running,true);assert.equal(current,'Original.zip');assert.deepEqual(await fs.readFile(path.join(data,'saves/Original.zip')),original);
+    }finally{for(const name of names)await fs.rm(path.join(directory,name),{force:true});}
+  });
   await t.test('onboarding requires admin, CSRF and real readiness before completion',async()=>{
     assert.equal((await fetch(origin+'/api/onboarding')).status,401);
     assert.equal((await request('/onboarding',{user:viewer})).status,403);
@@ -98,7 +139,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     assert.equal((await request('/onboarding',{method:'POST',body:{complete:false}})).status,400);
     assert.equal((await request('/onboarding',{method:'POST',body:{complete:true}})).status,409);
     assert.equal((await (await request('/onboarding')).json()).completed,true,'legacy admin is not automatically onboarded');
-    for(const asset of ['/icons.js','/onboarding.js']){const result=await fetch(origin+asset);assert.equal(result.status,200);assert.match(result.headers.get('content-type'),/javascript/);}
+    for(const asset of ['/icons.js','/onboarding.js','/backup-retention.js']){const result=await fetch(origin+asset);assert.equal(result.status,200);assert.match(result.headers.get('content-type'),/javascript/);}
   });
   await t.test('release metadata requires administrator access and cannot install updates',async()=>{
     assert.equal((await fetch(origin+'/api/updates')).status,401);
