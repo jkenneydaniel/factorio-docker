@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.5-alpha — 2026-10-17
+
+- Speed up world-creation previews by matching Factorio preview threading to the
+  existing one-CPU worker limit. Keep the full 1024-pixel image and map coverage.
+- Start the first draft preview immediately and show completed renders sooner;
+  retain the slider debounce and slower polling while previews are queued.
+
 ## 0.2.4-alpha — 2026-10-17
 
 - Fail setup before creating private data if the image lacks a valid CA bundle

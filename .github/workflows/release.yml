@@ -22,7 +22,7 @@ jobs:
         run: node --input-type=module -e "import fs from 'node:fs'; if(process.env.RELEASE_TAG!=='v'+JSON.parse(fs.readFileSync('panel/package.json')).version) process.exit(1)"
       - run: npm test --prefix panel
       - run: docker compose --env-file .env.example config --quiet
-      - run: docker build -t local/factory-control:0.2.4-alpha panel
+      - run: docker build -t local/factory-control:0.2.5-alpha panel
       - name: Verify updater registry TLS and a build inside its restricted container
         run: |
           docker run --rm --user 0:0 --read-only --cap-drop ALL \
@@ -31,7 +31,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
             --mount "type=bind,source=$PWD/panel,target=/source,readonly" \
-            --entrypoint /bin/sh local/factory-control:0.2.4-alpha -ec '
+            --entrypoint /bin/sh local/factory-control:0.2.5-alpha -ec '
               export DOCKER_HOST=unix:///var/run/docker.sock DOCKER_CONFIG=/tmp/factory-control-docker
               docker manifest inspect docker:29.9.0-cli >/dev/null
               docker build --pull --progress=plain --tag local/factory-control:updater-smoke /source
@@ -43,7 +43,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount "type=bind,source=$PWD/dist,target=/release,readonly" \
             --mount "type=bind,source=$PWD/panel/test/installer-image-smoke.js,target=/installer-image-smoke.mjs,readonly" \
-            --entrypoint node local/factory-control:0.2.4-alpha /installer-image-smoke.mjs
+            --entrypoint node local/factory-control:0.2.5-alpha /installer-image-smoke.mjs
       - name: Attach source and checksums
         env:
           GH_TOKEN: ${{ github.token }}

@@ -23,7 +23,7 @@ export function mountWorldPreview(form,{api,getDraft,isValid,onSeed=()=>{}}){
     }
     if(result.state==='error'){stale();text(result.error||'Preview could not be generated. Change a setting or refresh to retry.');return;}
     text(result.state==='rendering'?'Rendering your latest settings…':'Preview queued while another operation finishes…');
-    poll=setTimeout(async()=>{try{const next=await api('/world-preview',{signal:controller.signal});if(next.id!==result.id){if(current===version)text('A newer preview was requested in another tab. Refresh to show this draft.');return;}paint(next,current);}catch(error){if(!stopped&&current===version&&error.name!=='AbortError')text(error.message);}},900);
+    poll=setTimeout(async()=>{try{const next=await api('/world-preview',{signal:controller.signal});if(next.id!==result.id){if(current===version)text('A newer preview was requested in another tab. Refresh to show this draft.');return;}paint(next,current);}catch(error){if(!stopped&&current===version&&error.name!=='AbortError')text(error.message);}},result.state==='rendering'?250:900);
   }
   async function request(){
     if(stopped||!visible()||document.hidden)return;
@@ -45,5 +45,6 @@ export function mountWorldPreview(form,{api,getDraft,isValid,onSeed=()=>{}}){
   form.querySelector('#refresh-draft-preview').addEventListener('click',()=>schedule(true));automatic.addEventListener('change',()=>schedule());
   const expand=()=>{if(lastId&&!image.classList.contains('preview-stale')){const dialog=document.querySelector('#preview-dialog'),target=document.querySelector('#preview-image');target.src=image.src;dialog.showModal();}};image.addEventListener('click',expand);image.addEventListener('keydown',event=>{if(['Enter',' '].includes(event.key)){event.preventDefault();expand();}});
   cleanup=()=>{stopped=true;cancel();form.removeEventListener('input',input);form.removeEventListener('change',input);outer?.removeEventListener('toggle',toggle);document.removeEventListener('visibilitychange',visibility);};
-  schedule();return ()=>schedule();
+  // Render the initial draft immediately; debounce subsequent slider edits.
+  schedule(true);return ()=>schedule();
 }

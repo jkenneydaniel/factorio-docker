@@ -26,7 +26,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
   const log=path.join(data,'factorio-current.log');await fs.writeFile(log,'0.000 Loading map /factorio/saves/Original.zip: 100 bytes.\n');
   await fs.writeFile(path.join(auth,'users.json'),JSON.stringify({admin:{...hashPassword('test-admin-password'),role:'admin'},viewer:{...hashPassword('test-viewer-password'),role:'viewer'}}));
   const tokenFile=path.join(root,'controller-token');await fs.writeFile(tokenFile,'test-controller-token');
-  let running=true,current='Original.zip';const executions=new Map(),execTargets=new Map(),helpers=new Map();let generatedConfiguration=null,activeScripts=0,engineMutations=0;
+  let running=true,current='Original.zip';const executions=new Map(),execTargets=new Map(),helpers=new Map();let generatedConfiguration=null,previewHelper=null,activeScripts=0,engineMutations=0;
   const worldDefaults=JSON.parse(await fs.readFile(path.join(project,'world-defaults.json'),'utf8'));
   const socket=process.platform==='win32'?`\\\\.\\pipe\\factorio-panel-test-${crypto.randomUUID()}`:path.join(root,'docker.sock');
   const engine=http.createServer(async(req,res)=>{
@@ -37,7 +37,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     if(url.pathname==='/containers/factorio-server/archive'){res.writeHead(200,{'content-type':'application/x-tar'});return res.end(settingsTar(worldDefaults.map_settings));}
     if(url.pathname==='/containers/factorio-server/json')return reply(200,{Image:'sha256:installed-game',State:{Running:running,Status:running?'running':'exited',StartedAt:new Date(Date.now()-20000).toISOString()},Config:{Image:'factoriotools/factorio:2.0.77'},Mounts:[{Type:'bind',Source:data,Destination:'/factorio'}]});
     if(url.pathname.endsWith('/stats'))return reply(200,{cpu_stats:{cpu_usage:{total_usage:20},system_cpu_usage:100,online_cpus:2},precpu_stats:{cpu_usage:{total_usage:10},system_cpu_usage:50},memory_stats:{usage:123456}});
-    if(url.pathname==='/containers/create'){assert.equal(url.searchParams.get('platform'),'linux/amd64');assert.equal(value.Image,'sha256:installed-game');helpers.set(url.searchParams.get('name'),value);return reply(201,{Id:url.searchParams.get('name')});}
+    if(url.pathname==='/containers/create'){assert.equal(url.searchParams.get('platform'),'linux/amd64');assert.equal(value.Image,'sha256:installed-game');if(value.Labels?.['factorio-panel.preview']==='true')previewHelper=value;helpers.set(url.searchParams.get('name'),value);return reply(201,{Id:url.searchParams.get('name')});}
     const helperName=url.pathname.split('/')[2],helper=helpers.get(helperName);
     if(helper&&url.pathname.endsWith('/start')){const work=helper.HostConfig.Mounts[0].Source;if(helper.Cmd?.includes('--create')){generatedConfiguration={map_gen_settings:JSON.parse(await fs.readFile(path.join(work,'config/new-map-gen-settings.json'),'utf8')),map_settings:JSON.parse(await fs.readFile(path.join(work,'config/new-map-settings.json'),'utf8'))};await fs.writeFile(path.join(work,'saves/generated.zip'),save);}else if(helper.Cmd?.includes('--generate-map-preview'))await fs.writeFile(path.join(work,'preview.png'),Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),Buffer.alloc(24)]));return reply(204);}
     if(helper&&url.pathname.endsWith('/wait'))return reply(200,{StatusCode:0});
@@ -172,6 +172,8 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     let preview;for(let i=0;i<100;i++){preview=await (await request('/world-preview')).json();if(preview.state==='ready'||preview.state==='error')break;await delay(20);}assert.equal(preview.state,'ready',preview.error);
     const image=await request('/world-preview-image?id='+first.id);assert.equal(image.status,200);assert.match(image.headers.get('content-type'),/image\/png/);assert.ok((await image.arrayBuffer()).byteLength>=24);
     assert.equal((await request('/world-preview-image?id=not-current')).status,404);
+    assert.ok(previewHelper);assert.equal(previewHelper.Cmd[previewHelper.Cmd.indexOf('--threads')+1],'1');assert.equal(previewHelper.Cmd[previewHelper.Cmd.indexOf('--map-preview-size')+1],'1024');
+    assert.equal(previewHelper.HostConfig.NanoCpus,1000000000);assert.equal(previewHelper.HostConfig.Memory,1073741824);assert.equal(previewHelper.HostConfig.NetworkMode,'none');
     const repeat=await (await request('/world-preview',{method:'POST',body})).json();assert.equal(repeat.id,first.id);assert.equal(repeat.state,'ready');
     assert.equal(activeScripts,scripts);assert.equal(current,'Original.zip');assert.deepEqual(await fs.readdir(path.join(backups,'panel-worlds')),files);assert.deepEqual(await fs.readdir(path.join(data,'saves')),savesBefore);assert.equal(helpers.size,0);
   });

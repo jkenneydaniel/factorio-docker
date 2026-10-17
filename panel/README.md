@@ -1,6 +1,6 @@
 # Panel features and architecture
 
-Factory Control v0.2.4-alpha runs as two containers built from the same image:
+Factory Control v0.2.5-alpha runs as two containers built from the same image:
 a browser-facing web service and an internal controller. A third container runs
 Factorio. See the [root setup guide](../README.md) before starting.
 
@@ -74,10 +74,13 @@ game image through Docker's read-only archive API, including while it is stopped
 Settings exports execute Lua only in a disposable copy. Fresh worlds are never
 scripted; individual generation choices can still affect achievement eligibility.
 
-Automatic 1024-pixel previews use the visible seed and update 900 ms after an
-edit. Invalid fields and unapplied JSON pause updates. Gameplay-only changes
+Automatic 1024-pixel previews use the visible seed, start immediately when the
+editor opens, and update 900 ms after an edit. While rendering, the browser checks
+for completion every 250 ms; queued previews use a slower 900 ms check. Invalid
+fields and unapplied JSON pause updates. Gameplay-only changes
 reuse the terrain preview. One isolated worker renders at a time with no network,
-a one-CPU/1-GB limit and a 60-second wait. There is one pending draft per account,
+one generator thread matching its one-CPU/1-GB limit and a 60-second wait. There
+is one pending draft per account,
 up to eight queued accounts and eight cached images for ten minutes. Workers
 are removed afterward; previews do not modify the active game or create saves.
 

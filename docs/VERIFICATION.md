@@ -1,5 +1,35 @@
 # Release verification
 
+## v0.2.5-alpha: world-creation preview performance, October 17, 2026
+
+- Matched Factorio's preview generator to the existing one-CPU quota with
+  `--threads 1`. Kept 1024 pixels, one meter per pixel, the installed image,
+  isolated mod copy, network isolation, one-GB cap and render queue unchanged.
+- Started the initial preview immediately; later edits still debounce for
+  900 ms. Rendering polls now run every 250 ms; queued polls stay at 900 ms.
+- Compared the existing default threading and one explicit thread using two
+  disposable container runs each, with the same seed 123456789, default terrain,
+  image 2.0.77-fc.1 and one-CPU cap on this ARM Mac's amd64 compatibility runtime.
+  Average Factorio process time was 4.788 s versus 3.555 s
+  (25.7% lower). All PNG SHA-256 hashes were identical. These are local
+  unmodded measurements, excluding Docker launch/mod-copy/browser overhead, not
+  a timing guarantee for another host or mod pack.
+- A two-CPU/two-thread experiment averaged 2.496 s with identical PNGs;
+  the product continues to use one CPU to retain its existing resource budget.
+- In separate loopback-only browser fixtures with a synthetic 150 ms renderer,
+  the initial POST arrived at 978 ms before and 73 ms after; image requests
+  arrived at 2412 ms and 334 ms respectively. These verify browser waiting only,
+  not the speed of real map generation. Fixtures had no Docker/controller access.
+- The 23 focused preview/integration tests passed, including cache/queue behavior,
+  account isolation, expiry, validation, unchanged save-library contents, no
+  active-game Lua and worker cleanup. The helper regression assertions verify
+  one thread, the original 1024 pixels, one CPU, one GB and no network.
+- Release preparation passed the full local suite: 128 tests passed, with one
+  Linux-only ownership check skipped on macOS. Default Compose validation and
+  source packaging passed; 112 allowlisted files were included without runtime data.
+- No running server, existing worlds, deployment or image publication was used.
+
+
 ## v0.2.4-alpha: first-install acceptance checks
 
 - Setup now verifies a parseable system CA bundle and functioning Docker, Compose

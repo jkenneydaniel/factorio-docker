@@ -1,6 +1,6 @@
 FROM docker:29.9.0-cli AS docker-cli
 FROM node:24.22.0-bookworm-slim
-LABEL org.opencontainers.image.title="Factory Control" org.opencontainers.image.version="0.2.4-alpha" org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.title="Factory Control" org.opencontainers.image.version="0.2.5-alpha" org.opencontainers.image.licenses="MIT"
 WORKDIR /app
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/

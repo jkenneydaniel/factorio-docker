@@ -33,7 +33,7 @@ simulations only; real lifecycle, account writes and installations stay blocked.
 ## Build without deploying
 
 ```sh
-docker build -t local/factory-control:0.2.4-alpha panel
+docker build -t local/factory-control:0.2.5-alpha panel
 docker compose --env-file .env.example config --quiet
 ```
 
@@ -57,7 +57,7 @@ node tools/release.mjs
 ```
 
 This packages only explicitly allowed source roots into
-`dist/factory-control-0.2.4-alpha/`, plus compatible update and complete source ZIPs, each with a SHA-256 checksum,
+`dist/factory-control-0.2.5-alpha/`, plus compatible update and complete source ZIPs, each with a SHA-256 checksum,
 file manifest and installer metadata.
 It rejects symbolic links, unexpected file types and common credential/private
 deployment patterns. It never copies `.env`, state, saves, backups, captures or
@@ -71,7 +71,7 @@ Git here and review every staged path against the generated manifest. Do not dra
 the full working directory into GitHub. The public source is MIT licensed.
 
 CI runs tests, validates default Compose configuration and builds the image.
-Publishing a GitHub Release tagged `v0.2.4-alpha` runs the release packaging
+Publishing a GitHub Release tagged `v0.2.5-alpha` runs the release packaging
 workflow and attaches both source bundles, checksums, manifests and installer
 metadata. The separate Compatible Factorio image workflow builds and accepts
 the game image before optional GHCR publication; it never deploys installations.
