@@ -1,5 +1,28 @@
 # Release verification
 
+## CI follow-up: wait for completed jobs to release their operation lock
+
+The first v0.2.1-alpha tag CI run failed when the integration fixture submitted
+restore and console actions while the controller was still finishing a prior
+job. `setJob` exposes the terminal result before its asynchronous persistence
+finishes; the operation lock is released in `finally`. The fixture incorrectly
+treated the terminal result alone as permission to submit its next operation.
+The controller's HTTP 409 refusal during this interval is expected serialization.
+
+Sequential fixture actions now require both a terminal result and an idle
+controller. Requests still assert HTTP 202 immediately; the fixture does not retry
+rejected mutations or relax controller protections. Three deterministic tests
+cover terminal-state persistence, another active operation, failure completion
+and bounded timeout. All three fail with the original terminal-only predicate.
+
+On macOS with Node 24.21.0, the full suite passed 81 tests with one Linux-only
+ownership skip (82 total), and 20 consecutive integration runs passed. All
+operations used temporary files and simulated Docker. The original tag CI rerun
+also passed. That rerun uses the original tagged source; it confirms the earlier
+failure was intermittent, while the durable fixture fix lives in the subsequent
+main-branch commit. The published tag and release assets were not changed, and
+no running server, container or save was touched.
+
 ## v0.2.1-alpha: combined release and controller CPU fix
 
 On October 16, 2026, the published v0.2.0-alpha source was merged with the local

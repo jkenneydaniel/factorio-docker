@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url';
 import {makeZip,zipEntries} from '../zip.js';
 import {hashPassword} from '../auth.js';
 import {PLAYER_QUERY} from '../live-players.js';
-import {settingsTar} from './fixtures.js';
+import {settingsTar,waitForIdleJob} from './fixtures.js';
 
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -75,7 +75,14 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
   async function login(username,password){const result=await fetch(origin+'/api/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({username,password})});assert.equal(result.status,200);const data=await result.json();return {cookie:result.headers.get('set-cookie').split(';')[0],csrf:data.csrf};}
   const admin=await login('admin','test-admin-password'),viewer=await login('viewer','test-viewer-password');
   async function request(route,{method='GET',body,user=admin,csrf=true}={}){return fetch(origin+'/api'+route,{method,headers:{origin,cookie:user.cookie,...(csrf?{'x-csrf-token':user.csrf}:{}),'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});}
-  async function action(name,params={}){const response=await request('/jobs',{method:'POST',body:{action:name,params}});assert.equal(response.status,202,await response.clone().text());const job=await response.json();for(let i=0;i<100;i++){const list=await (await request('/jobs')).json();const result=list.jobs.find(item=>item.id===job.id);if(result&&!['queued','running'].includes(result.state))return result;await delay(30);}throw new Error('Job timed out.');}
+  async function action(name,params={}){
+    const response=await request('/jobs',{method:'POST',body:{action:name,params}});
+    assert.equal(response.status,202,await response.clone().text());
+    const job=await response.json();
+    return waitForIdleJob(async()=>{
+      const result=await request('/jobs');assert.equal(result.status,200,await result.clone().text());return result.json();
+    },job.id);
+  }
   await t.test('unauthenticated access, cross-site requests, and viewer mutations are rejected',async()=>{
     assert.equal((await fetch(origin+'/api/status')).status,401);
     assert.equal((await request('/jobs',{method:'POST',body:{action:'save'},csrf:false})).status,403);
