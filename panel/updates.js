@@ -28,10 +28,10 @@ export class ReleaseChecks{
     this.checked=0;this.pending=null;this.etag=null;this.releases=[];
     this.result={state:enabled?'unchecked':'disabled',current,channel,repository,available:false,installation:'manual',checkedAt:null};
   }
-  async check(){
+  async check({force=false}={}){
     if(!this.enabled)return this.result;
     if(this.pending)return this.pending;
-    if(this.checked&&this.now()-this.checked<this.interval)return this.result;
+    if(this.checked&&this.now()-this.checked<(force?Math.min(this.interval,60000):this.interval))return this.result;
     this.pending=this.run();try{return await this.pending;}finally{this.pending=null;}
   }
   async run(){

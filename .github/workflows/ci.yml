@@ -29,7 +29,7 @@ jobs:
       - name: Validate default deployment
         run: docker compose --env-file .env.example config --quiet
       - name: Build alpha image
-        run: docker build -t local/factory-control:0.2.2-alpha panel
+        run: docker build -t local/factory-control:0.2.3-alpha panel
       - name: Check public source artifact
         run: node tools/release.mjs
       - uses: actions/upload-artifact@v4

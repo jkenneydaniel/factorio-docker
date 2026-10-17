@@ -222,3 +222,12 @@ test('source and host path checks reject symlink escapes and preserve Windows Do
   const f=await fixture(t);await fs.symlink(os.tmpdir(),path.join(f.root,'panel/escape'));await assert.rejects(sourceSnapshot(f.root),/symlink/);
   assert.equal(daemonPath('C:\\Factory\\data'),'/run/desktop/mnt/host/c/Factory/data');assert.throws(()=>daemonPath('/host/../escape'),/path/);
 });
+
+test('panel review rechecks an old controller release cache after a newly detected release',async t=>{
+  const f=await fixture(t),manager=reviewManager(f),prefix='factory-control-0.2.2-alpha';
+  manager.releases.checked=Date.now()-60001;
+  manager.releases.result={state:'current',available:false,latest:{tag:'v0.2.1-alpha'}};
+  manager.releases.fetcher=async()=>new Response(JSON.stringify([{tag_name:'v0.2.2-alpha',prerelease:true,published_at:'2026-10-16T23:59:00Z',assets:['.zip','.sha256','.update.json'].map(suffix=>({name:prefix+suffix,state:'uploaded'}))}]));
+  const plan=await manager.plan({kind:'panel',target:'0.2.2-alpha'});
+  assert.equal(plan.target,'0.2.2-alpha');assert.equal(manager.status().jobs.length,0);
+});

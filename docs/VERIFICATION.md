@@ -1,5 +1,22 @@
 # Release verification
 
+## v0.2.3-alpha: manual release checks
+
+- Reproduced the missing review action on a panel with a cached current-release
+  result. Verified that the released 0.2.1-alpha checker detects 0.2.2-alpha on a
+  fresh public GitHub request; automatic results remain cached for six hours.
+- In an isolated loopback preview with installation disabled and no Docker
+  access, Check for updates fetched the published release and revealed Review
+  panel update without navigation. Opened and cancelled both the panel review
+  and the same-version Factory Control image review; no install jobs were made.
+- Retrieved the published 2.0.77-fc.1 image manifest/configuration anonymously and
+  validated its amd64 metadata with the panel compatibility validator. No image
+  was pulled or installed, and no game binary was started.
+- Regression coverage checks manual-cache bypass, one-minute limiting, request
+  coalescing, disabled checks, administrator/CSRF requirements and a stale
+  controller cache during panel review.
+
+
 ## v0.2.2-alpha release compatibility follow-up
 
 The initial hosted image check found that the Linux runner's classic Docker CLI

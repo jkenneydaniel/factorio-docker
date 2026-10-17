@@ -1,6 +1,6 @@
 {
   "name": "factorio-lan-panel",
-  "version": "0.2.2-alpha",
+  "version": "0.2.3-alpha",
   "private": true,
   "type": "module",
   "scripts": {"start": "node server.js", "test": "node --test test/*.test.js"},

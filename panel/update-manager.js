@@ -51,7 +51,7 @@ export class UpdateManager{
     assert(['panel','game'].includes(input.kind),'Choose panel or Factorio.');
     const install=await this.installation();let target,assets,game;
     if(input.kind==='panel'){
-      await this.releases.check();const release=this.releases.releases.find(r=>r.tag_name===this.releases.result.latest?.tag);
+      await this.releases.check({force:true});const release=this.releases.releases.find(r=>r.tag_name===this.releases.result.latest?.tag);
       assert(this.releases.result.available&&release,'No newer eligible panel release is available.');
       target=release.tag_name.replace(/^v/,'');
       assert(!input.target||input.target===target,'Release changed. Review the available release again.');

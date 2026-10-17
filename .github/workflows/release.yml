@@ -22,7 +22,7 @@ jobs:
         run: node --input-type=module -e "import fs from 'node:fs'; if(process.env.RELEASE_TAG!=='v'+JSON.parse(fs.readFileSync('panel/package.json')).version) process.exit(1)"
       - run: npm test --prefix panel
       - run: docker compose --env-file .env.example config --quiet
-      - run: docker build -t local/factory-control:0.2.2-alpha panel
+      - run: docker build -t local/factory-control:0.2.3-alpha panel
       - run: node tools/release.mjs
       - name: Attach source and checksums
         env:

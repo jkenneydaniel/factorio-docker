@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.3-alpha — 2026-10-17
+
+- Add an administrator-only Check for updates action that bypasses the six-hour
+  cache, with a one-minute request limit and visible checking state. Reveal the
+  panel update review action when release detection changes on the open page.
+- Refresh the controller release check during panel review so a stale controller
+  cache cannot block a newly detected release.
+
 ## 0.2.2-alpha — 2026-10-16
 
 - Add an independently built x86-64 Factorio image from pinned Debian and the

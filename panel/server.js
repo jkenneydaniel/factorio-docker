@@ -94,6 +94,7 @@ else{
         const value=await response.json();assert(value.ready&&value.currentWorld&&value.saveVerified&&!value.activeJob,'Wait for a ready game and a confirmed completed save before finishing setup.',409);
         return json(res,200,await accounts.completeOnboarding(user.username));
       }
+      if(url.pathname==='/api/updates/check'){requireAdmin(user);assert(req.method==='POST','Not found.',404);return json(res,200,await releases.check({force:true}),{'cache-control':'no-store'});}
       if(url.pathname==='/api/updates'){requireAdmin(user);assert(req.method==='GET','Not found.',404);void releases.check();return json(res,200,releases.result,{'cache-control':'no-store'});}
       if(req.method==='POST'&&url.pathname==='/api/logout'){sessions.delete(user.id);return json(res,200,{ok:true},{'set-cookie':'factorio_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0'});}
       if(req.method==='POST'&&url.pathname==='/api/password'){

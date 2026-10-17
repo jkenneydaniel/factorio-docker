@@ -147,6 +147,11 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     const result=await request('/updates');assert.equal(result.status,200);
     const value=await result.json();assert.equal(value.state,'disabled');assert.equal(value.installation,'manual');
     assert.equal((await request('/updates',{method:'POST',body:{install:true}})).status,404);
+    assert.equal((await fetch(origin+'/api/updates/check',{method:'POST',headers:{origin}})).status,401);
+    assert.equal((await request('/updates/check',{method:'POST',body:{},user:viewer})).status,403);
+    assert.equal((await request('/updates/check',{method:'POST',body:{},csrf:false})).status,403);
+    assert.equal((await request('/updates/check')).status,404);
+    const checked=await request('/updates/check',{method:'POST',body:{}});assert.equal(checked.status,200);assert.equal((await checked.json()).state,'disabled');
   });
   await t.test('update review, installation and history require an administrator and CSRF verification',async()=>{
     for(const route of ['/update-status','/update-plan','/update-install'])assert.equal((await request(route,{user:viewer})).status,403);

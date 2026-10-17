@@ -37,3 +37,19 @@ test('offline, rate limits and unavailable repositories stay explicit; disabled 
   assert.match((await offline.check()).error,/Cannot reach GitHub/);
   const disabled=new ReleaseChecks({current:'0.1.0-alpha',enabled:false,fetcher:()=>assert.fail('Must not fetch')});assert.equal((await disabled.check()).state,'disabled');
 });
+
+test('manual checks bypass the automatic cache with a one-minute limit and coalesce requests',async()=>{
+  let now=1000,calls=0;
+  const checks=new ReleaseChecks({current:'0.2.1-alpha',now:()=>now,fetcher:async()=>{
+    calls++;await new Promise(resolve=>setImmediate(resolve));
+    return new Response(JSON.stringify([release(calls===1?'v0.2.1-alpha':'v0.2.2-alpha')]));
+  }});
+  assert.equal((await checks.check()).available,false);
+  now+=60001;
+  assert.equal((await checks.check()).available,false);assert.equal(calls,1);
+  const results=await Promise.all([checks.check({force:true}),checks.check({force:true})]);
+  assert.equal(calls,2);assert.ok(results.every(result=>result.available&&result.latest.tag==='v0.2.2-alpha'));
+  await checks.check({force:true});assert.equal(calls,2);
+  const disabled=new ReleaseChecks({current:'0.2.1-alpha',enabled:false,fetcher:()=>assert.fail('Disabled checks must stay disabled')});
+  assert.equal((await disabled.check({force:true})).state,'disabled');
+});

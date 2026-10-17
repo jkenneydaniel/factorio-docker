@@ -124,7 +124,11 @@ upgrade described above before future in-panel updates are available.
 ## Checks, permissions and recovery
 
 Automatic public GitHub checks run at startup and every six hours. Administrators
-see installed/available versions, channel, last check and release notes. Checks use
+see installed/available versions, channel, last check and release notes. Use
+**Check for updates** to bypass the automatic cache without installing anything;
+repeated checks within one minute reuse the latest result. The review action
+appears when a newer eligible release is detected. Disabled checks stay disabled.
+Checks use
 an eight-second timeout, bounded responses, ETags and semantic version ordering;
 they exclude drafts and never offer a downgrade. They consider at most the 100
 most recent releases. Offline/rate-limit errors mean unavailable, not up to date.

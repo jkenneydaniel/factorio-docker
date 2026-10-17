@@ -1,6 +1,6 @@
 # Factory Control
 
-**v0.2.2-alpha** — a self-hosted Factorio server and LAN management panel, built
+**v0.2.3-alpha** — a self-hosted Factorio server and LAN management panel, built
 with Docker Compose. This is an early release for trusted home networks.
 
 Manage worlds, saves, backups, players, server settings and accounts from a
@@ -136,7 +136,9 @@ Editing source files alone does not update the running app. Do not upgrade the
 Factorio image independently of the clients. No automatic game/mod updates occur.
 
 The panel checks public GitHub releases every six hours and notifies administrators
-in Settings and the sidebar. Settings → Updates lets an administrator review and
+in Settings and the sidebar. Administrators can also use **Check for updates** in
+Settings → Updates for a fresh check, limited to once per minute. This checks only
+public release information. Settings → Updates lets an administrator review and
 install supported panel/controller releases or separately upgrade Factorio to a
 chosen newer 2.0.x version, with pre-update backups, persistent progress and recovery.
 See [in-panel updates and one-time enablement](docs/UPDATES.md). Preview releases
