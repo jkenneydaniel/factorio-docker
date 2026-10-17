@@ -172,6 +172,23 @@ test('local edits and failed downloads/builds never replace running services',as
   const f=await fixture(t);await fs.writeFile(path.join(f.root,'README.md'),'local edit');let result=await f.execute();assert.equal(result.state,'failed');assert.match(result.message,/local changes/);assert.equal(f.calls.length,0);
   const g=await fixture(t);g.failBuild();result=await g.execute();assert.equal(result.state,'failed');assert.ok(!g.calls.some(a=>a.includes('up')||a.includes('stop')));assert.match(await fs.readFile(path.join(g.root,'panel/server.js'),'utf8'),/old panel/);
 });
+
+test('failed builds preserve diagnostics in the update record without changing source or services',async t=>{
+  const f=await fixture(t),run=async args=>{
+    if(args[0]==='build'){
+      const error=new Error('Docker build could not verify the registry HTTPS certificate.');
+      error.diagnostic={operation:'Docker build',exitCode:1,output:'x509: certificate signed by unknown authority'};
+      throw error;
+    }
+    return f.run(args);
+  };
+  await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);
+  const result=await runUpdate({root:f.root,state:f.state,id:f.job.id,run,fetcher:f.fetcher,own:async()=>{}});
+  assert.equal(result.state,'failed');assert.equal(result.failure.exitCode,1);
+  assert.match((await readJSON(path.join(f.state,f.job.id+'.json'))).failure.output,/unknown authority/);
+  assert.match(await fs.readFile(path.join(f.root,'panel/server.js'),'utf8'),/old panel/);
+  assert.ok(!f.calls.some(args=>args.includes('up')||args.includes('stop')));
+});
 test('an edit arriving during a build is preserved when the final baseline check refuses promotion',async t=>{
   const f=await fixture(t),run=async args=>{const result=await f.run(args);if(args[0]==='build')await fs.writeFile(path.join(f.root,'README.md'),'edited while building');return result;};
   await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);

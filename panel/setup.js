@@ -4,6 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {initializePanel} from './init.js';
 import {validateWorld} from './zip.js';
 import {initializeUpdateBaseline} from './update-source.js';
+import {verifyUpdaterRuntime} from './image-readiness.js';
 
 export async function setup(root,args=[],{url='http://localhost:8080',ownership=false,log=console.log}={}){
   root=path.resolve(root);
@@ -75,6 +76,10 @@ export async function setup(root,args=[],{url='http://localhost:8080',ownership=
 }
 
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  try{await setup(process.env.SETUP_ROOT||path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),process.argv.slice(2),{url:process.env.PANEL_URL||'http://localhost:8080',ownership:process.getuid?.()===0});}
+  try{
+    await verifyUpdaterRuntime();
+    console.log('Updater prerequisites verified.');
+    await setup(process.env.SETUP_ROOT||path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),process.argv.slice(2),{url:process.env.PANEL_URL||'http://localhost:8080',ownership:process.getuid?.()===0});
+  }
   catch(error){console.error('Setup: '+error.message);process.exitCode=1;}
 }

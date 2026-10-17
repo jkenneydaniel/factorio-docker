@@ -3,20 +3,34 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {assert,readJSON,writeJSON,sleep} from './common.js';
+import {assert,readJSON,writeJSON,sleep,redact} from './common.js';
 import {sourceSnapshot,assertUnmodified,unpackRelease,setEnvironment,daemonPath} from './update-source.js';
 import {gameUpdate,gameSources} from './public/game-images.js';
 
-export function command(args,{cwd,timeout=15*60000}={}){
+export function commandFailure(args,{output='',code=null,signal=null,timedOut=false,exceeded=false}={}){
+  const operation=args[0]==='compose'?'Docker Compose':'Docker '+args[0];
+  const details=redact(output).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'')
+    .replace(/https?:\/\/[^\s/]+@/gi,'https://[redacted]@')
+    .replace(/\bBearer\s+[^\s"']+/gi,'Bearer [redacted]')
+    .replace(/([?&](?:token|key|password|secret|signature)=)[^&\s"']+/gi,'$1[redacted]')
+    .replace(/\b((?:password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*)[^\s,"']+/gi,'$1[redacted]')
+    .slice(-8192);
+  const cause=timedOut?'timed out':exceeded?'exceeded its output limit':/x509:|failed to verify certificate/i.test(details)?'could not verify the registry HTTPS certificate; check the updater image CA certificate bundle':'failed'+(code===null?'':` (exit ${code})`);
+  const error=new Error(`${operation} ${cause}. Details are retained in the update failure record.`);
+  error.diagnostic={operation,exitCode:code,signal,timedOut,outputLimit:exceeded,output:details};
+  return error;
+}
+
+export function command(args,{cwd,timeout=15*60000,spawnProcess=spawn}={}){
   return new Promise((resolve,reject)=>{
     const grouped=process.platform!=='win32';
-    const child=spawn('docker',args,{cwd,detached:grouped,env:{...process.env,DOCKER_HOST:'unix:///var/run/docker.sock',DOCKER_CONFIG:'/tmp/factory-control-docker'},stdio:['ignore','pipe','pipe']});
+    const child=spawnProcess('docker',args,{cwd,detached:grouped,env:{...process.env,DOCKER_HOST:'unix:///var/run/docker.sock',DOCKER_CONFIG:'/tmp/factory-control-docker'},stdio:['ignore','pipe','pipe']});
     const stop=()=>{try{if(grouped&&child.pid)process.kill(-child.pid,'SIGKILL');else child.kill('SIGKILL');}catch{}};
-    let output='',exceeded=false;
-    for(const stream of [child.stdout,child.stderr])stream.on('data',chunk=>{output+=chunk.toString();if(output.length>8*1024*1024){exceeded=true;stop();}});
-    const timer=setTimeout(stop,timeout);
-    child.on('error',error=>{clearTimeout(timer);reject(error);});
-    child.on('close',code=>{clearTimeout(timer);code===0&&!exceeded?resolve(output):reject(new Error('Docker update step failed. Recovery details are retained; inspect the worker logs locally if needed.'));});
+    let output='',exceeded=false,timedOut=false,received=0;
+    for(const stream of [child.stdout,child.stderr])stream.on('data',chunk=>{received+=chunk.length;output=(output+chunk.toString()).slice(-8*1024*1024);if(received>8*1024*1024&&!exceeded){exceeded=true;stop();}});
+    const timer=setTimeout(()=>{timedOut=true;stop();},timeout);
+    child.on('error',error=>{clearTimeout(timer);reject(commandFailure(args,{output:error.code||'Could not start the Docker client.'}));});
+    child.on('close',(code,signal)=>{clearTimeout(timer);code===0&&!exceeded&&!timedOut?resolve(output):reject(commandFailure(args,{output,code,signal,timedOut,exceeded}));});
   });
 }
 export async function download(url,limit,fetcher=fetch){
@@ -121,7 +135,7 @@ export async function runUpdate({root,state,id,run=command,fetcher=fetch,wait=sl
       for(const [name,data] of files){const target=path.join(stage,name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,data);}
       await phase('Building the verified release. Your game keeps running…');
       const image='local/factory-control:update-'+id;
-      await run(['build','--tag',image,path.join(stage,'panel')],{cwd:root});
+      await run(['build','--progress=plain','--tag',image,path.join(stage,'panel')],{cwd:root});
       // Local edits that arrive while the image builds must also block promotion.
       await assertUnmodified(root,{format:1,files:oldFiles});
       assert(await fs.readFile(path.join(root,'.env'),'utf8')===oldEnv,'Installation settings changed while building. No source was replaced.');
@@ -161,6 +175,7 @@ export async function runUpdate({root,state,id,run=command,fetcher=fetch,wait=sl
       await phase('Factorio image installed and its reported version verified. Clients must match '+job.target+'.','succeeded');
     }
   }catch(error){
+    if(error.diagnostic){job.failure=error.diagnostic;console.error(JSON.stringify({update:job.id,...error.diagnostic}));}
     if(changed){
       try{
         if(job.kind==='panel'){

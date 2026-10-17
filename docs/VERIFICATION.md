@@ -1,5 +1,48 @@
 # Release verification
 
+## v0.2.4-alpha: first-install acceptance checks
+
+- Setup now verifies a parseable system CA bundle and functioning Docker, Compose
+  and Buildx clients before creating private installation data. These checks run
+  without network or a Docker socket; unit tests cover absent/corrupt bundles and
+  missing plugins with actionable setup failures.
+- Built a separate image and packaged 100 allowlisted source files. The image
+  smoke test validates the actual ZIP/checksum/installer metadata, compares its
+  application files to the image, performs first-time setup, then reruns setup.
+  Configuration, account state, controller credentials and the original invitation
+  stayed byte-for-byte unchanged. The source baseline verified and no world or game
+  container was created.
+- Injected an empty CA bundle into the otherwise working image. The real setup
+  command refused it before writing any installation directory.
+- 123 application tests passed in isolated Linux fixtures. The running game and
+  panel services were not replaced for these acceptance checks.
+- Both CI and release packaging now include the smoke test; release packaging
+  also repeats the fresh-registry/restricted-build check before attaching ZIPs.
+  These workflow additions are locally verified and await a GitHub run. They
+  protect new installers once included in a newly published release.
+
+## v0.2.4-alpha: updater build certificates and diagnostics
+
+- Docker Desktop's retained engine logs identified the failed v0.2.1-to-v0.2.3
+  build: Docker Hub token requests failed with an unknown certificate authority.
+  The released panel image had no `/etc/ssl/certs/ca-certificates.crt`.
+- A fresh `docker manifest inspect` reproduced the TLS failure from the released
+  image. The fixed image includes the Docker CLI stage's 181,724-byte CA bundle;
+  the same request succeeds with certificate verification enabled.
+- A real `docker build --pull` succeeded through the Docker socket using the
+  worker's read-only root, dropped capabilities, restricted additions, memory
+  limit and temporary filesystem. A normal cached build also succeeded without
+  the fix, confirming that cached metadata alone is not a useful TLS check.
+- 120 application tests passed in an isolated Linux container, including new
+  timeout, output-limit, redaction and persisted-build-failure regressions.
+  Windows host-launcher checks passed separately (5 passed, 1 Linux-only skip).
+  The fixture suite uses no production Docker socket, saves or accounts.
+- CI now repeats a fresh registry request and nested build from the restricted
+  image. This new CI step is locally verified; it has not run on GitHub yet.
+- The local fixed panel/controller image was deployed after a verified world
+  backup. Both services became healthy; the Factorio container was not replaced
+  or restarted. This local fix has not been published as a new GitHub release.
+
 ## v0.2.3-alpha: manual release checks
 
 - Reproduced the missing review action on a panel with a cached current-release
@@ -33,7 +76,7 @@ store types and the existing rejection cases. The complete local Node suite
 passed 120 of 121 tests with one platform-specific skip, and the revised real
 container acceptance sequence passed again with disposable resources.
 
-## Unreleased: isolated image build and container acceptance, October 16, 2026
+## v0.2.4-alpha: isolated image build and container acceptance, October 16, 2026
 
 Built `ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1` locally with OrbStack
 on an ARM Mac, targeting `linux/amd64` and executing with x86 compatibility.
@@ -76,7 +119,7 @@ The image remains local and unpublished. No deployment or live image migration
 was performed. This run does not establish native ARM support or acceptance on
 an independent x86 Linux host.
 
-## Unreleased: independent Factorio image and image-source selection
+## v0.2.4-alpha: independent Factorio image and image-source selection
 
 Validated locally on macOS with Node 24.21.0 and Python 3.14.5: **119 Node
 tests, 118 passed and one Linux-root ownership test skipped; 10 Python tests
@@ -108,7 +151,7 @@ initial implementation stage the
 real Docker socket, running server, worlds, settings and installation `.env`
 were not accessed or changed.
 
-## Unreleased: configurable backup cleanup
+## v0.2.4-alpha: configurable backup cleanup
 
 Validated locally on macOS with Node 24.21.0: **106 tests, 105 passed and one
 Linux-root ownership test skipped**. Cleanup tests use temporary archives;
@@ -133,7 +176,7 @@ No real backups, running server, world saves, Docker socket or deployed panel
 were accessed or changed. Automatic cleanup remains off by default. This is
 local implementation and isolated validation, not deployment or live acceptance.
 
-## Unreleased: guided diagnostics, saved presets and persistent drafts
+## v0.2.4-alpha: guided diagnostics, saved presets and persistent drafts
 
 Validated locally with Node 24.21.0 on macOS. The complete suite has **92 tests:
 91 passed, one Linux-root ownership test skipped**. New coverage exercises:

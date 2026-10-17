@@ -1,6 +1,6 @@
 # Panel features and architecture
 
-Factory Control v0.2.3-alpha runs as two containers built from the same image:
+Factory Control v0.2.4-alpha runs as two containers built from the same image:
 a browser-facing web service and an internal controller. A third container runs
 Factorio. See the [root setup guide](../README.md) before starting.
 

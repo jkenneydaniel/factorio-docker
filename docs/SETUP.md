@@ -6,6 +6,14 @@ Linux container mode and architecture, validate configuration, prepare data and
 print the private administrator registration link. They do not install Docker,
 change firewalls, install emulators or configure host startup automatically.
 
+Before preparing private data, the setup container checks that its trusted CA
+bundle parses correctly and that Docker, Compose and Buildx can run. An incomplete
+image fails with a rebuild instruction instead of reporting successful setup.
+These are local checks: setup still has no network or Docker socket, and offline
+preparation works when its image is already available. They do not prove registry
+access, Docker socket permissions or LAN reachability; the release build separately
+tests a fresh registry request and a real restricted-worker build.
+
 ## Platform choices
 
 | Host | Panel/controller | Factorio 2.0.77 and map workers | Prerequisite |

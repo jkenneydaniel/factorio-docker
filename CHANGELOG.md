@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.4-alpha — 2026-10-17
+
+- Fail setup before creating private data if the image lacks a valid CA bundle
+  or working Docker/Compose/Buildx clients. Test the actual release ZIP against
+  the built image, first-time preparation and a rerun that preserves private data.
+- Gate installer asset attachment on the same fresh-registry, restricted-build
+  and packaged-setup smoke checks used in CI.
+
+- Include the Docker CLI's trusted CA certificate bundle in the panel image so
+  detached update builds can authenticate to Docker Hub from a fresh client.
+- Retain bounded, redacted Docker failure diagnostics in update records and worker
+  logs, with distinct certificate, timeout and output-limit errors. Exercise a
+  real restricted-container registry request and build in CI.
+
 ## 0.2.3-alpha — 2026-10-17
 
 - Add an administrator-only Check for updates action that bypasses the six-hour

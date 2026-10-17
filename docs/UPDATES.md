@@ -29,6 +29,40 @@ host upgrade. Existing customized ports, address and configured names are retain
 
 ## Install a panel release
 
+### Recover an older updater with missing CA certificates
+
+Some v0.2.0–v0.2.3 images lack the system certificate bundle. Their update build
+can fail with `x509: certificate signed by unknown authority`, even when the host
+can build successfully. Those installations need one host upgrade to v0.2.4 or
+later; the new setup checks cannot repair an already-running older worker.
+
+Back up the world and private installation state. Verify the new release checksum,
+then extract its complete `.source.zip` over the reviewed public source files,
+preserving `.env`, `data/`, `backups/` and `.panel-data/`. Set only `PANEL_IMAGE` in
+the existing `.env` to `local/factory-control:0.2.4-alpha`; retain the game image,
+addresses and ports. From that installation directory run:
+
+```sh
+docker compose build panel-controller panel
+docker compose run --rm --no-deps setup
+docker compose up -d --no-deps --no-build --pull never --wait panel-controller panel
+```
+
+This replaces only the panel services. Once they are healthy, deliberately record
+the reviewed new source baseline below. This is a manual-upgrade action: it accepts
+the current public source as installed, so first reconcile any local source edits.
+Ordinary setup reruns never reset that baseline automatically.
+
+```sh
+docker compose run --rm --no-deps --entrypoint node setup --input-type=module -e 'import {sourceSnapshot} from "/app/update-source.js"; import {writeJSON} from "/app/common.js"; import fs from "node:fs/promises"; const file="/workspace/.panel-data/updates/baseline.json"; await writeJSON(file,{format:1,files:await sourceSnapshot("/workspace")}); await fs.chown(file,845,845);'
+```
+
+Future releases can then use the panel installer. The registry certificate bundle
+must also be present in the release being installed, so keep the fix in later
+images. Do not disable HTTPS verification to work around this error.
+
+### Normal panel installation
+
 1. Open Settings → Updates and read the linked release notes.
 2. Choose Review panel update. The server checks the eligible release, package
    availability, current container identities and a review expiry of 15 minutes.
@@ -122,6 +156,19 @@ these installer assets. Installations on v0.1.0-alpha need the one-time host
 upgrade described above before future in-panel updates are available.
 
 ## Checks, permissions and recovery
+
+The updater image must include a system CA certificate bundle for Docker and
+Buildx. Node's built-in certificate roots do not provide the Go Docker client's
+OS trust store. The image copies the bundle from the same Docker CLI build stage;
+HTTPS verification remains enabled. A cached base image can hide this omission,
+so CI also makes a fresh registry manifest request from the restricted worker
+environment before testing a real build through the Docker socket.
+
+Failed Docker steps retain an 8 KiB diagnostic tail with the operation, exit code,
+signal, timeout and output-limit state in the private update job JSON's `failure`
+field and in the worker logs. Common credential forms are redacted. Successful
+machine-readable Docker output is not logged. Preserve these private records when
+investigating an interrupted update.
 
 Automatic public GitHub checks run at startup and every six hours. Administrators
 see installed/available versions, channel, last check and release notes. Use
