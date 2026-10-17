@@ -54,7 +54,10 @@ node tools/factorio-image.mjs test
 ```
 
 The container acceptance test first runs the panel's read-only image preflight
-against both sources using explicit amd64 selection and verified digest references.
+against both sources, selecting amd64 metadata as needed. Published images use
+verified repository digest references; a freshly built image without a registry
+digest in a classic Docker store is tested by its immutable local image ID. The
+panel still requires a repository digest for every installed image.
 It uses Factorio Tools solely as legacy test input: it creates a world in a unique
 disposable volume, loads it with our independently built image, checks RCON and
 settings/mod/password checksums, saves, stops gracefully, then reloads the save

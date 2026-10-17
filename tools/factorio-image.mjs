@@ -8,7 +8,7 @@ import {promisify} from 'node:util';
 import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
 import {parseGameImage,gameSources} from '../panel/public/game-images.js';
-import {compatibleGameImage,gameImageProbe,reportsGameVersion} from '../panel/update-worker.js';
+import {compatibleGameImage,validateGameImage,inspectGameImage,gameImageProbe,reportsGameVersion} from '../panel/update-worker.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const exec=promisify(execFile);
 export async function imageDefinition(directory=root){
@@ -31,7 +31,7 @@ export async function testImage(definition,run=docker){
   // Test input only, never a build/runtime dependency of our image.
   const legacy='factoriotools/factorio:'+definition.version;
   await run(['pull','--platform',definition.platform,legacy]);
-  const inspect=async image=>JSON.parse(await run(['image','inspect','--platform',definition.platform,image]))[0];
+  const inspect=image=>inspectGameImage(image,run);
   const base=await inspect(legacy),owned=await inspect(definition.image);
   assert.equal(owned.Architecture,'amd64');assert.equal(owned.Os,'linux');
   for(const key of ['Entrypoint','Cmd','User','Volumes','ExposedPorts','WorkingDir'])assert.deepEqual(owned.Config[key]||null,base.Config[key]||null,'Changed compatibility '+key);
@@ -43,7 +43,12 @@ export async function testImage(definition,run=docker){
   // references: platform-specific inspect IDs are not runnable on every engine.
   for(const [image,item] of [[legacy,base],[definition.image,owned]]){
     const parsed=parseGameImage(image),selection={target:parsed.version,source:parsed.source,imageRevision:parsed.revision,targetImage:image};
-    const output=await run(gameImageProbe(compatibleGameImage(item,selection)));
+    validateGameImage(item,selection);
+    // A just-built image has no registry digest in classic Docker stores.
+    // Only this unpublished local build may use its immutable local image ID;
+    // the panel always requires a registry digest before installing an image.
+    const probeImage=parsed.source==='factory'&&!item.RepoDigests?.length?item.Id:compatibleGameImage(item,selection);
+    const output=await run(gameImageProbe(probeImage));
     assert.ok(reportsGameVersion(output,definition.version),'Panel image preflight did not report the expected version');
   }
   const id='fc-image-test-'+crypto.randomUUID(),volume=id+'-data',name=id+'-server';

@@ -19,13 +19,15 @@ test('the independent image definition pins Debian, the official archive and the
 });
 test('container acceptance commands use only unique disposable resources and clean up a failed start',async()=>{
   const definition=await imageDefinition(),config={Entrypoint:['/docker-entrypoint.sh'],Volumes:{'/factorio':{}},ExposedPorts:{'34197/udp':{},'27015/tcp':{}},Env:['SAVES=/factorio/saves','CONFIG=/factorio/config','MODS=/factorio/mods','SCENARIOS=/factorio/scenarios','SCRIPTOUTPUT=/factorio/script-output','PUID=845','PGID=845','PORT=34197','RCON_PORT=27015'],Labels:{'factorio.version':definition.version,'io.factory-control.compatibility':'1','io.factory-control.image-revision':'1'}};
-  for(const fail of [false,true]){
+  for(const [fail,classic] of [[false,false],[true,false],[false,true]]){
     let ticks=0;const calls=[],run=async args=>{
       calls.push(args);
       if(args[0]==='image'){
-        assert.deepEqual(args.slice(2,4),['--platform','linux/amd64']);
+        if(!classic&&args[2]!=='--platform')return JSON.stringify([{Config:{}}]);
+        if(classic)assert.equal(args.includes('--platform'),false,'Classic Docker clients do not need platform-specific inspect');
+        else assert.deepEqual(args.slice(2,4),['--platform','linux/amd64']);
         const parsed=parseGameImage(args.at(-1));
-        return JSON.stringify([{Id:'sha256:'+'a'.repeat(64),RepoDigests:[gameSources[parsed.source].repository+'@sha256:'+'b'.repeat(64)],Architecture:'amd64',Os:'linux',Config:config}]);
+        return JSON.stringify([{Id:'sha256:'+'a'.repeat(64),RepoDigests:classic&&parsed.source==='factory'?[]:[gameSources[parsed.source].repository+'@sha256:'+'b'.repeat(64)],Architecture:'amd64',Os:'linux',Config:config}]);
       }
       if(args[0]==='inspect')return JSON.stringify([{State:{ExitCode:0}}]);
       if(args[0]==='start'&&fail)throw Error('simulated start failure');

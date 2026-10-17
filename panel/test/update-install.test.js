@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {UpdateManager} from '../update-manager.js';
-import {runUpdate,validateDeployment,reportsGameVersion} from '../update-worker.js';
+import {runUpdate,validateDeployment,reportsGameVersion,inspectGameImage} from '../update-worker.js';
 import {sourceSnapshot,sha256,unpackRelease,initializeUpdateBaseline,daemonPath} from '../update-source.js';
 import {writeJSON,readJSON,HttpError} from '../common.js';
 import {makeZip} from '../zip.js';
@@ -43,6 +43,7 @@ async function fixture(t){
   async function run(args){
     calls.push(args);
     if(args[0]==='image'&&args[1]==='inspect'){
+      if(args[2]!=='--platform')return JSON.stringify([{Config:{}}]);
       assert.deepEqual(args.slice(2,4),['--platform','linux/amd64'],'Inspect the x86 image configuration on ARM hosts');
       return JSON.stringify([candidateImage(args.at(-1))]);
     }
@@ -58,6 +59,17 @@ async function fixture(t){
   const fetcher=async url=>new Response(url.endsWith('.zip')?archive:url.endsWith('.sha256')?sha256(archive)+'  factory-control-0.1.1-alpha.zip\n':JSON.stringify(metadata));
   return {root,state,job,config,archive,metadata,calls,run,fetcher,names,images,async execute(changes={}){Object.assign(job,changes);await writeJSON(path.join(state,id+'.json'),job);return runUpdate({root,state,id,run,fetcher,own:async()=>{},now:()=>clock,wait:async()=>{clock+=60000;}});},failHealth(){failHealth=true;},failBuild(){failBuild=true;},failPull(){failPull=true;},notReady(){ready=false;}};
 }
+test('image inspection supports classic Docker and selects amd64 metadata from multi-platform stores',async()=>{
+  const image='factoriotools/factorio:2.0.77',candidate=candidateImage(image);
+  for(const initial of [candidate,{Config:{}},{...candidate,Architecture:'arm64'}]){
+    const calls=[],run=async args=>{calls.push(args);return JSON.stringify([args.includes('--platform')?candidate:initial]);};
+    assert.deepEqual(await inspectGameImage(image,run),candidate);
+    assert.deepEqual(calls[0],['image','inspect',image]);
+    assert.equal(calls.length,initial===candidate?1:2);
+    if(calls.length===2)assert.deepEqual(calls[1],['image','inspect','--platform','linux/amd64',image]);
+  }
+  await assert.rejects(inspectGameImage(image,async()=>JSON.stringify([{...candidate,Architecture:'arm64'}])),/linux\/amd64/);
+});
 test('version readiness accepts real RCON and binary formats while rejecting different or embedded versions',()=>{
   assert.equal(reportsGameVersion('2.0.77\n','2.0.77'),true);
   assert.equal(reportsGameVersion('Version: 2.0.77 (build 84539, linux64, headless)\n','2.0.77'),true);

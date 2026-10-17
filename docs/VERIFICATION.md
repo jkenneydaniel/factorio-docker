@@ -1,5 +1,21 @@
 # Release verification
 
+## v0.2.2-alpha release compatibility follow-up
+
+The initial hosted image check found that the Linux runner's classic Docker CLI
+has no `image inspect --platform` option. Inspection now accepts an already
+resolved amd64 configuration from the normal inspect result, requesting explicit
+platform selection only for multi-platform/index results. The panel continues to
+reject mismatched architecture, compatibility metadata and missing registry digests.
+
+Classic stores also omit registry digests for an unpublished local build. The
+image acceptance runner validates that build's metadata and probes its immutable
+local ID; this exception is confined to build-time testing. Installing through the
+panel always requires a verified repository digest. Regression tests cover both
+store types and the existing rejection cases. The complete local Node suite
+passed 120 of 121 tests with one platform-specific skip, and the revised real
+container acceptance sequence passed again with disposable resources.
+
 ## Unreleased: isolated image build and container acceptance, October 16, 2026
 
 Built `ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1` locally with OrbStack

@@ -39,7 +39,15 @@ export function validateDeployment(before,after,job){
 }
 export function reportsGameVersion(output,target){return output.trim()===target||new RegExp('^Version:\\s*'+target.replaceAll('.','\\.')+'(?:\\s|$)','m').test(output);}
 export function gameImageProbe(image){return ['run','--rm','--platform','linux/amd64','--pull','never','--network','none','--read-only','--tmpfs','/tmp:rw,nosuid,size=16m','--user','845:845','--entrypoint','/bin/sh',image,'-ec','test -x /docker-entrypoint.sh; command -v rcon >/dev/null; /opt/factorio/bin/x64/factorio --version'];}
-export function compatibleGameImage(item,selection){
+export async function inspectGameImage(image,run=command){
+  let item=JSON.parse(await run(['image','inspect',image]))[0];
+  // Classic Docker stores already return the pulled amd64 config. Newer
+  // multi-platform stores may return an index or the host's native variant.
+  if(item?.Os!=='linux'||item.Architecture!=='amd64'||!item.Config?.Entrypoint)item=JSON.parse(await run(['image','inspect','--platform','linux/amd64',image]))[0];
+  assert(item?.Os==='linux'&&item.Architecture==='amd64','The selected image must support linux/amd64.');
+  return item;
+}
+export function validateGameImage(item,selection){
   assert(item?.Os==='linux'&&item.Architecture==='amd64'&&/^sha256:[a-f0-9]{64}$/.test(item.Id),'The selected image must support linux/amd64.');
   const config=item.Config||{},labels=config.Labels||{},repository=gameSources[selection.source].repository;
   assert(labels['factorio.version']===selection.target,'The image does not declare the reviewed Factorio version.');
@@ -49,6 +57,10 @@ export function compatibleGameImage(item,selection){
   assert(['PUID=845','PGID=845','SAVES=/factorio/saves','CONFIG=/factorio/config','MODS=/factorio/mods','SCENARIOS=/factorio/scenarios','SCRIPTOUTPUT=/factorio/script-output','PORT=34197','RCON_PORT=27015'].every(v=>env.has(v)),'The image has incompatible data paths, permissions or ports.');
   assert(Object.hasOwn(config.ExposedPorts||{},'34197/udp')&&Object.hasOwn(config.ExposedPorts||{},'27015/tcp'),'The image has incompatible exposed ports.');
   if(selection.source==='factory')assert(labels['io.factory-control.compatibility']==='1'&&labels['io.factory-control.image-revision']===String(selection.imageRevision),'The Factory Control image compatibility or revision does not match the review.');
+  return repository;
+}
+export function compatibleGameImage(item,selection){
+  const repository=validateGameImage(item,selection);
   const digest=(item.RepoDigests||[]).find(value=>value.startsWith(repository+'@sha256:')&&/^[a-f0-9]{64}$/.test(value.slice((repository+'@sha256:').length)));
   assert(digest,'The image has no verifiable repository digest.');
   return selection.targetImage+'@'+digest.split('@')[1];
@@ -132,7 +144,7 @@ export async function runUpdate({root,state,id,run=command,fetcher=fetch,wait=sl
       assert(!job.targetImage||job.targetImage===image,'The image does not match the reviewed source and revision.');
       assert(configBefore.services.factorio.image===job.gameImage,'Configured game image changed after review. No containers were replaced.');
       await phase('Downloading the selected Factorio version…');await run(['pull','--platform','linux/amd64',image]);
-      const candidate=JSON.parse(await run(['image','inspect','--platform','linux/amd64',image]))[0],pinned=compatibleGameImage(candidate,selection);
+      const candidate=await inspectGameImage(image,run),pinned=compatibleGameImage(candidate,selection);
       // This disposable probe has no host mounts, network or existing world data.
       const probe=await run(gameImageProbe(pinned),{timeout:30000});
       assert(reportsGameVersion(probe,job.target),'The image binary does not report the reviewed Factorio version.');
