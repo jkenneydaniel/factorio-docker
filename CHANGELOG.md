@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.6-alpha — 2026-10-19
 
 - Include saved enemy units alongside spawners and worms on the map. Preserve
   enemies when the object cap is full, prioritizing bases over unit swarms;

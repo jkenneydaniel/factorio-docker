@@ -1,5 +1,18 @@
 # Release verification
 
+## v0.2.6-alpha: release preparation, October 19, 2026
+
+- Packages the enemy-map fix and measured panel/image-source performance work
+  described below. Panel versions, Compose defaults, build labels and release
+  workflows are aligned to `0.2.6-alpha`. The game image selection and Factorio
+  version remain unchanged; revision `2.0.77-fc.2` is source-only and unpublished.
+- The release-version Node suite passed 137 tests with one Linux-only ownership
+  check skipped on macOS. All 12 Python runtime tests passed, default Compose
+  configuration validated, and both source/update bundles passed packaging checks.
+  Hosted build/package results are verified separately during publication.
+- Release preparation and publication do not deploy the panel, publish the game
+  image, refresh an installed map or access existing worlds.
+
 ## Unreleased: enemies on saved maps, October 19, 2026
 
 - Confirmed the previous exporter included spawners/worms but omitted enemy

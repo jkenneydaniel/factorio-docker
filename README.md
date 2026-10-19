@@ -1,6 +1,6 @@
 # Factory Control
 
-**v0.2.5-alpha** — a self-hosted Factorio server and LAN management panel, built
+**v0.2.6-alpha** — a self-hosted Factorio server and LAN management panel, built
 with Docker Compose. This is an early release for trusted home networks.
 
 Manage worlds, saves, backups, players, server settings and accounts from a
