@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import {docker,rcon,demultiplex,gameContainerRoute} from './docker.js';
+import {StatusMetadata} from './status-metadata.js';
 import {assert,HttpError,sleep,stamp,readJSON,writeJSON,json,readBody,requestJSON,safeName,existingFile,inside,equalSecret,redact} from './common.js';
 import {makeZip,zipEntries,validateWorld} from './zip.js';
 import {validateBackup,summarizeBackups} from './backup-health.js';
@@ -152,7 +153,7 @@ async function runJob(action,params,actor){
     catch(error){await setJob(job,{state:'failed',message:redact(error.message),finished:new Date().toISOString()});}
     finally{
       if(action==='refresh-map'&&params.automatic){autoMap.finish(params.automatic,job.state==='succeeded',job.state==='failed'?job.message:null);await persistAutoMap().catch(error=>console.error('Map queue persistence failed:',redact(error.message)));}
-      active=null;statusCache=null;statusAt=0;
+      active=null;statusCache=null;statusAt=0;statusMetadata.clear();
     }
   })();return job;
 }
@@ -324,14 +325,16 @@ const actions={
   console:async params=>{assert(['/players','/time','/seed','/version','/evolution','/admins','/bans','/whitelist get','/help'].includes(params.command),'Choose one of the supported administrative commands.');return await rcon(params.command);},
 };
 let statusCache=null,statusAt=0,previousCpu=null;
+const statusMetadata=new StatusMetadata();
 async function status(){
   if(statusCache&&Date.now()-statusAt<3000)return statusCache;
-  const server=await info(),settings=await readJSON(settingsFile,{}),running=server.State.Running;
+  const server=await info(),settings=await readJSON(settingsFile,{}),running=server.State.Running,currentWorld=await activeSave();
   let players=[],playtime='',seed='',version='',rconReady=false;
   if(running)try{
     const output=await rcon('/players online');players=output.split('\n').filter(line=>/^\s+\S/.test(line)).map(line=>line.trim().replace(/ \(online\)$/,''));
-    playtime=await rcon('/time');seed=await rcon('/seed');version=await rcon('/version');rconReady=true;
-  }catch{}
+    playtime=await rcon('/time');({seed,version}=await statusMetadata.get(server,currentWorld,rcon));rconReady=true;
+  }catch{statusMetadata.clear();}
+  if(!running)statusMetadata.clear();
   let cpu=null,memory=null;
   try{if(running){const stats=await docker('GET',`/containers/${container}/stats?stream=false&one-shot=true`);
     const sample={total:stats.cpu_stats?.cpu_usage?.total_usage,system:stats.cpu_stats?.system_cpu_usage};
@@ -344,7 +347,7 @@ async function status(){
   const lastSave=latestEvent?new Date(started+Number(latestEvent[1])*1000).toISOString():null;
   const saveFiles=await listFiles(saves,0),latestFile=saveFiles.filter(x=>x.relative.endsWith('.zip')).sort((a,b)=>b.modified.localeCompare(a.modified))[0];
   const lastSaveAt=lastSave||latestFile?.modified||null;
-  statusCache={state:server.State.Status,running,ready:rconReady,paused:running&&rconReady&&players.length===0&&settings.auto_pause,players,playtime,seed,version:version||server.Config.Image.split(':').at(-1),image:server.Config.Image,currentWorld:await activeSave(),lastSaveAt,saveVerified:!!lastSave,cpu,memory,autosaveMinutes:settings.autosave_interval,autosaveSlots:settings.autosave_slots,autoPause:settings.auto_pause,connection:process.env.GAME_ADDRESS||'localhost:34197',name:settings.name,activeJob:active,schedule};statusAt=Date.now();return statusCache;
+  statusCache={state:server.State.Status,running,ready:rconReady,paused:running&&rconReady&&players.length===0&&settings.auto_pause,players,playtime,seed,version:version||server.Config.Image.split(':').at(-1),image:server.Config.Image,currentWorld,lastSaveAt,saveVerified:!!lastSave,cpu,memory,autosaveMinutes:settings.autosave_interval,autosaveSlots:settings.autosave_slots,autoPause:settings.auto_pause,connection:process.env.GAME_ADDRESS||'localhost:34197',name:settings.name,activeJob:active,schedule};statusAt=Date.now();return statusCache;
 }
 async function handle(req,res){
   if(req.url==='/health')return json(res,200,{ok:true});

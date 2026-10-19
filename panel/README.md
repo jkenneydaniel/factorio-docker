@@ -56,6 +56,9 @@ The dashboard shows players, running/paused status, game version, world, seed,
 playtime, recent saves and resource usage. Administrators can save, start, stop
 and restart; edit server settings; manage players, bans and whitelists; send
 announcements; and use a restricted set of administrative console commands.
+Fresh status samples query players and playtime each time. Seed and binary
+version are cached for up to 30 seconds, scoped to the container, image, process
+start and world, and invalidated after operations or RCON errors.
 
 Worlds contains save uploads/downloads, the world library, world switching and
 new-world creation. Switching saves and backs up the active game before loading
@@ -127,11 +130,22 @@ completed autosaves, manual saves, last-player disconnect saves and shutdown sav
 it does not recursively request another save. Pending exports are coalesced and
 persist across controller restarts. Open maps check for updates every five seconds
 and preserve pan, zoom and enabled layers.
+Export helpers use lower CPU priority (`CpuShares: 128`) so the active game takes
+precedence when CPU is contested. They can use idle CPU without a hard quota;
+exports may take longer under load. The existing one-GB memory limit remains.
 
 Maps support resources, buildings, railways, power, pollution, saved player
 positions, chart tags and shared pins. Sampling and export limits appear in the
 root README. Pins are scoped by world name and seed. Historical snapshots and
 other-surface maps are not included.
+
+The Enemies & bases layer shows saved enemy spawners (red diamonds), worms
+(circles), and biters/spitters (small dots). These are snapshot positions, not
+live tracking, and only cover the exported explored chunks. Markers stay visible
+at overview zoom and can be selected for details. At the 80,000-object cap,
+enemies replace resource entries first, then other objects; bases and worms can
+also replace units. The cap and incomplete-map warning remain. Refresh old
+snapshots after updating to include enemy units.
 
 Optional live positions update on demand every two seconds while a signed-in
 browser views the map. They require per-world achievement consent and a backup.

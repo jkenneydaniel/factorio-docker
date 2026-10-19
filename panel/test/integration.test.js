@@ -27,6 +27,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
   await fs.writeFile(path.join(auth,'users.json'),JSON.stringify({admin:{...hashPassword('test-admin-password'),role:'admin'},viewer:{...hashPassword('test-viewer-password'),role:'viewer'}}));
   const tokenFile=path.join(root,'controller-token');await fs.writeFile(tokenFile,'test-controller-token');
   let running=true,current='Original.zip';const executions=new Map(),execTargets=new Map(),helpers=new Map();let generatedConfiguration=null,previewHelper=null,activeScripts=0,engineMutations=0;
+  let startedAt=new Date(Date.now()-20000).toISOString();const gameQueries=[];
   const worldDefaults=JSON.parse(await fs.readFile(path.join(project,'world-defaults.json'),'utf8'));
   const socket=process.platform==='win32'?`\\\\.\\pipe\\factorio-panel-test-${crypto.randomUUID()}`:path.join(root,'docker.sock');
   const engine=http.createServer(async(req,res)=>{
@@ -35,7 +36,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     const value=body?JSON.parse(body):{},url=new URL(req.url,'http://docker');const reply=(status,data)=>{res.writeHead(status,{'content-type':'application/json'});res.end(data===undefined?'':JSON.stringify(data));};
     if(url.pathname==='/containers/json')return reply(200,[]);
     if(url.pathname==='/containers/factorio-server/archive'){res.writeHead(200,{'content-type':'application/x-tar'});return res.end(settingsTar(worldDefaults.map_settings));}
-    if(url.pathname==='/containers/factorio-server/json')return reply(200,{Image:'sha256:installed-game',State:{Running:running,Status:running?'running':'exited',StartedAt:new Date(Date.now()-20000).toISOString()},Config:{Image:'factoriotools/factorio:2.0.77'},Mounts:[{Type:'bind',Source:data,Destination:'/factorio'}]});
+    if(url.pathname==='/containers/factorio-server/json')return reply(200,{Image:'sha256:installed-game',State:{Running:running,Status:running?'running':'exited',StartedAt:startedAt},Config:{Image:'factoriotools/factorio:2.0.77'},Mounts:[{Type:'bind',Source:data,Destination:'/factorio'}]});
     if(url.pathname.endsWith('/stats'))return reply(200,{cpu_stats:{cpu_usage:{total_usage:20},system_cpu_usage:100,online_cpus:2},precpu_stats:{cpu_usage:{total_usage:10},system_cpu_usage:50},memory_stats:{usage:123456}});
     if(url.pathname==='/containers/create'){assert.equal(url.searchParams.get('platform'),'linux/amd64');assert.equal(value.Image,'sha256:installed-game');if(value.Labels?.['factorio-panel.preview']==='true')previewHelper=value;helpers.set(url.searchParams.get('name'),value);return reply(201,{Id:url.searchParams.get('name')});}
     const helperName=url.pathname.split('/')[2],helper=helpers.get(helperName);
@@ -46,6 +47,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     if(/^\/containers\/[^/]+\/exec$/.test(url.pathname)){const id=crypto.randomUUID();executions.set(id,value.Cmd[1]);execTargets.set(id,helperName);return reply(201,{Id:id});}
     if(/^\/exec\/[^/]+\/start$/.test(url.pathname)){
       const execId=url.pathname.split('/')[2],command=executions.get(execId),target=execTargets.get(execId);let output='';
+      if(target==='factorio-server')gameQueries.push(command);
       if(command?.startsWith('/silent-command')&&target==='factorio-server')activeScripts++;
       if(command?.includes('export-settings.json')&&helpers.has(target)){const work=helpers.get(target).HostConfig.Mounts[0].Source;await fs.mkdir(path.join(work,'script-output'),{recursive:true});await fs.writeFile(path.join(work,'script-output/export-settings.json'),JSON.stringify(worldDefaults));}
       if(command==='/version'&&(!running||current==='Broken.zip'))output='unavailable';
@@ -59,7 +61,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     if(/^\/exec\/[^/]+\/json$/.test(url.pathname))return reply(200,{ExitCode:0});
     if(url.pathname.endsWith('/stop')){running=false;return reply(204);}
     if(url.pathname.endsWith('/start')||url.pathname.endsWith('/restart')){
-      running=true;const entries=(await fs.readdir(path.join(data,'saves'))).filter(name=>name.endsWith('.zip'));current=entries.find(name=>!name.startsWith('_'))||entries[0];await fs.writeFile(log,`0.000 Loading map /factorio/saves/${current}: 100 bytes.\n`);return reply(204);
+      running=true;startedAt=new Date().toISOString();const entries=(await fs.readdir(path.join(data,'saves'))).filter(name=>name.endsWith('.zip'));current=entries.find(name=>!name.startsWith('_'))||entries[0];await fs.writeFile(log,`0.000 Loading map /factorio/saves/${current}: 100 bytes.\n`);return reply(204);
     }
     return reply(404,{message:'Unexpected mock Docker request '+url.pathname});
   });
@@ -92,6 +94,14 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     assert.equal((await request('/jobs',{method:'POST',body:{action:'switch',params:{}}})).status,400);
   });
   await t.test('dashboard reports real controller data',async()=>{const result=await request('/status');assert.equal(result.status,200);const value=await result.json();assert.deepEqual(value.players,['TestEngineer']);assert.equal(value.currentWorld,'Original.zip');assert.equal(value.seed,'12345');});
+  await t.test('fresh dashboard samples retain live player/time checks and reuse stable metadata',async()=>{
+    await delay(3100);let before=gameQueries.length;
+    assert.equal((await (await request('/status')).json()).ready,true);
+    assert.deepEqual(gameQueries.slice(before),['/players online','/time']);
+    startedAt=new Date().toISOString();await delay(3100);before=gameQueries.length;
+    assert.equal((await (await request('/status')).json()).ready,true);
+    assert.deepEqual(gameQueries.slice(before),['/players online','/time','/seed','/version']);
+  });
   await t.test('diagnostics and saved setups require admin, isolate accounts, and enforce CSRF and revisions',async()=>{
     for(const route of ['/diagnostics','/world-setups']){
       assert.equal((await fetch(origin+'/api'+route)).status,401);

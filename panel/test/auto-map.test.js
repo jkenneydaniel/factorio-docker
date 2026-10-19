@@ -29,6 +29,8 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
     if(url.pathname==='/containers/factorio-server/json')return reply(200,{State:{Running:true,Status:'running'},Config:{Image:'test-factorio:2.0.77'},Mounts:[{Type:'bind',Destination:'/factorio',Source:data}]});
     if(url.pathname==='/containers/create'){
       assert.equal(url.searchParams.get('platform'),'linux/amd64');
+      assert.equal(body.HostConfig.CpuShares,128);assert.equal(body.HostConfig.Memory,1073741824);
+      assert.equal(body.HostConfig.NanoCpus,undefined,'Background priority must not impose a hard CPU quota.');
       assert.equal(body.HostConfig.NetworkMode,'none');const name=url.searchParams.get('name');helpers.set(name,{work:path.join(data,'.panel-work',name.slice('factorio-panel-map-'.length))});return reply(201,{Id:name});
     }
     const execMatch=url.pathname.match(/^\/containers\/([^/]+)\/exec$/);

@@ -1,5 +1,84 @@
 # Release verification
 
+## Unreleased: enemies on saved maps, October 19, 2026
+
+- Confirmed the previous exporter included spawners/worms but omitted enemy
+  units. Its first-come 80,000-object cap could omit later bases after resources
+  filled the array. The renderer gave zoomed-out bases only two-pixel markers.
+  This source investigation did not inspect the user's active snapshot, so it
+  does not establish which condition affected that particular map.
+- Added enemy units, cap priority for enemies and additional priority for bases
+  and worms over unit swarms. Kept the existing object/chunk/size limits and
+  explored-area filter. Added red diamond/circle/dot markers above other objects,
+  a minimum marker size, enemy inspection and saved-position guidance. Existing
+  format-1 snapshots remain readable; new exports mark support for enemy units.
+- Lua fixtures run the production scripts against charted/uncharted chunks,
+  boundary overlap, neutral units, full resource/building/unit arrays and an
+  all-base array. They verify deduplication, preservation priority and the hard
+  cap. Node renderer tests verify marker geometry, draw order, selection above
+  resources and the layer toggle. Lua fixtures require a local Lua interpreter;
+  that test explicitly skips when the interpreter is unavailable.
+- A disposable Factorio 2.0.77 container created a new world and five real enemy
+  entities: biter/spitter spawners, a worm, a biter and a spitter. Production batch
+  export retained all five both normally and with 80,000 prefilled resource
+  entries. This runtime check used an explicitly queued fixture chunk; it did
+  not claim that the generated world had player exploration. The chart filter
+  is covered separately by the Lua fixture and is unchanged.
+- The runtime report is under ignored
+  `output/implementation/map-enemies/fc-map-enemies-2985143b-cea2-4e9b-b877-11cb9da4539c/`.
+  The image was the existing owned `2.0.77-fc.1` through this Mac's amd64
+  compatibility runtime. The report confirms private container/volume cleanup.
+- Playwright checked a loopback-only synthetic panel fixture with no controller
+  or Docker access, including an overlapping base/resource, marker pixels,
+  checkbox removal, inspection and desktop/mobile screenshots. Evidence is in
+  ignored `output/playwright/map-enemies/`. The only failed resource was the
+  preview fixture's missing favicon; no application exception was observed.
+- Full Node suite: 137 passed, one Linux-only ownership check skipped on macOS.
+  No deployment, commit, publication, active-server commands, existing-world
+  access or installed-map refresh was performed.
+
+## Unreleased: normal-startup saving comparison, October 17, 2026
+
+- Ran 12 disposable trials through the normal image entrypoints: three ordinary
+  and three non-blocking-save trials each for Factory Control `2.0.77-fc.1` and
+  Factorio Tools `2.0.77`, using the same generated save and identical RCON client.
+- Each image completed nine ordinary saves and stayed responsive. Both images
+  crashed in all three non-blocking-save trials after the first child save, with
+  the same `poll failed: Interrupted system call` error and exit status 1.
+- Confirmed identical Factorio executable hashes. Normal Factory Control ran
+  Factorio as PID 1; Factorio Tools used its normal `runuser` wrapper. The failure
+  is not unique to our image or dependent on the previous Python-parent layout.
+- All runs used local amd64 images through OrbStack compatibility on this Mac.
+  Native x86 behavior and the precise underlying cause remain unverified.
+- Captured full trial logs, fixture/client hashes, state and cleanup in the
+  [performance report](PERFORMANCE.md#normal-startup-saving-follow-up). All private
+  containers and volumes were removed. No running server, installation data or
+  existing worlds were accessed, and no runtime configuration was changed.
+
+## Unreleased: isolated server performance, October 17, 2026
+
+- Benchmarked the existing amd64 image with private generated data. The
+  confirmation run and measurement limits are recorded in
+  [PERFORMANCE.md](PERFORMANCE.md): ownership scans were 62.8% faster on the
+  volume and 59.1% faster on the bind mount; warm status command cycles were
+  49.4% shorter; lower-priority exports reduced game update time by 17.4% under
+  forced CPU contention. These are component timings on this host, not live
+  multiplayer or whole-application performance claims.
+- Implemented the measured ownership, metadata cache and export-priority changes.
+  Left storage and saving configuration unchanged. Non-blocking saves crashed
+  the disposable parent process on this runtime; the completed child save did
+  not establish a usable performance result.
+- Built image revision `2.0.77-fc.2` locally and passed the full isolated container
+  acceptance suite, including preservation of legacy fixture data, save/stop,
+  old-binary reload, direct creation and PNG preview. Its local image ID is
+  `sha256:ff99fd13512ae77fa88cb8bd0a5d455f6d2c6e124cf1139bc9dda3f0156174a6`.
+- The full Node suite passed 135 tests with one Linux-only ownership check
+  skipped on macOS. All 12 Python runtime tests passed. Controller integration
+  verifies live player/time queries, cached seed/version and restart invalidation.
+- All benchmark containers and volumes were removed. No installed stack,
+  existing worlds, live-server commands, ARM tuning, publication or deployment
+  were used. The new image revision and panel changes remain local.
+
 ## v0.2.5-alpha: world-creation preview performance, October 17, 2026
 
 - Matched Factorio's preview generator to the existing one-CPU quota with

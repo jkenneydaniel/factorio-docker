@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Include saved enemy units alongside spawners and worms on the map. Preserve
+  enemies when the object cap is full, prioritizing bases over unit swarms;
+  render visible red markers above other objects and support enemy inspection.
+  Existing snapshots need a fresh export to include units.
+
+- Avoid repeated ownership scans of overlapping Factorio data directories while
+  retaining checks for every file and custom data path. Prepare image revision
+  `2.0.77-fc.2`; installed image selections remain unchanged.
+- Cache seed/version metadata for 30 seconds, refreshing after process/world
+  changes and operations. Keep player and playtime queries live.
+- Give background map exports lower CPU priority under contention, without a
+  hard CPU quota. Add an isolated, generated-world benchmark and record results
+  and rejected candidates in `docs/PERFORMANCE.md`.
+
 ## 0.2.5-alpha — 2026-10-17
 
 - Speed up world-creation previews by matching Factorio preview threading to the

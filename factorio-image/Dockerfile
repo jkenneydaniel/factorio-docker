@@ -3,7 +3,7 @@ FROM ${BASE_IMAGE}
 ARG TARGETARCH
 ARG FACTORIO_VERSION=2.0.77
 ARG HEADLESS_SHA256=c4efc11529f74d37c96933e291e0db73fd9f5aa4738913d9301b24680b3e947f
-ARG IMAGE_REVISION=1
+ARG IMAGE_REVISION=2
 LABEL org.opencontainers.image.title="Factory Control Factorio Server" \
       org.opencontainers.image.source="https://github.com/jkenneydaniel/factorio-docker" \
       org.opencontainers.image.version="${FACTORIO_VERSION}-fc.${IMAGE_REVISION}" \

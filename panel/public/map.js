@@ -14,15 +14,26 @@ export function mountMap(payload,view=null){
     return {...chunk,image};
   });
   const entities=map.entities;
+  const enemies=entities.filter(entity=>entity.category==='enemies');
   const pos=(x,y)=>[(x-cx)*scale+width/2,(y-cy)*scale+height/2];
   const world=(x,y)=>[(x-width/2)/scale+cx,(y-height/2)/scale+cy];
   const visible=entity=>(layers.has(entity.category)||entity.power&&layers.has('power'));
+  const enemyRadius=entity=>Math.max(entity.type==='unit'?1.5:entity.type==='unit-spawner'?4:3,Math.max(entity.w,entity.h)*scale/2);
   function draw(){
     frame=null;context.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);context.fillStyle='#151f20';context.fillRect(0,0,width,height);context.imageSmoothingEnabled=false;
     for(const chunk of chunks){const [x,y]=pos(chunk.x*32,chunk.y*32),size=32*scale;if(x+size<0||y+size<0||x>width||y>height)continue;context.drawImage(chunk.image,x,y,size+.5,size+.5);
       if(layers.has('pollution')&&chunk.pollution>0){context.fillStyle=`rgba(224,64,42,${Math.min(.65,Math.log1p(chunk.pollution)/12)})`;context.fillRect(x,y,size,size);}}
-    for(const entity of entities){if(!visible(entity))continue;const [x,y]=pos(entity.x,entity.y),w=Math.max(entity.w*scale,entity.category==='resources'?1:2),h=Math.max(entity.h*scale,2);if(x+w<0||y+h<0||x-w>width||y-h>height)continue;
+    for(const entity of entities){if(entity.category==='enemies'||!visible(entity))continue;const [x,y]=pos(entity.x,entity.y),w=Math.max(entity.w*scale,entity.category==='resources'?1:2),h=Math.max(entity.h*scale,2);if(x+w<0||y+h<0||x-w>width||y-h>height)continue;
       context.fillStyle=entity.power&&layers.has('power')?colors.power:entity.category==='resources'?rgb(entity.color):colors[entity.category];context.fillRect(x-w/2,y-h/2,w,h);}
+    // Keep threats legible above resources/buildings, including at overview zoom.
+    if(layers.has('enemies'))for(const entity of enemies){
+      const [x,y]=pos(entity.x,entity.y),unit=entity.type==='unit',base=entity.type==='unit-spawner',radius=enemyRadius(entity);
+      if(x+radius<0||y+radius<0||x-radius>width||y-radius>height)continue;
+      context.fillStyle=colors.enemies;context.strokeStyle='#291d1b';context.lineWidth=1.5;context.beginPath();
+      if(base){context.moveTo(x,y-radius);context.lineTo(x+radius,y);context.lineTo(x,y+radius);context.lineTo(x-radius,y);context.closePath();}
+      else context.arc(x,y,radius,0,Math.PI*2);
+      context.fill();if(!unit)context.stroke();
+    }
     function marker(item,color,label){const [x,y]=pos(item.x,item.y);if(x<0||y<0||x>width||y>height)return;context.fillStyle=color;context.beginPath();context.arc(x,y,4,0,Math.PI*2);context.fill();context.font='11px Segoe UI, sans-serif';context.lineWidth=3;context.strokeStyle='#17211e';context.strokeText(label,x+8,y-7);context.fillText(label,x+8,y-7);}
     if(layers.has('players'))for(const player of currentPlayers())marker(player,livePositions?.enabled?rgb(player.color):'#d4c994',player.name+(livePositions?.enabled?'':' (saved)'));
     if(layers.has('pins')){for(const pin of map.tags)marker(pin,'#98ded4',pin.label);for(const pin of payload.pins)marker(pin,'#f4bc62',pin.label);}
@@ -38,10 +49,12 @@ export function mountMap(payload,view=null){
       const player=currentPlayers().find(item=>Math.hypot(item.x-wx,item.y-wy)<10/scale);
       if(player){document.querySelector('#map-selection-title').textContent=player.name;document.querySelector('#map-selection-detail').textContent=`${livePositions?.enabled?'Live player':'Saved player position'} · X ${player.x.toFixed(1)} · Y ${player.y.toFixed(1)} · ${player.surface||map.surface}`;return;}
     }
-    let nearest=null,distance=Infinity;for(const item of entities){if(!visible(item))continue;const d=Math.hypot(item.x-wx,item.y-wy);if(d<Math.max(item.w,item.h,8/scale)&&d<distance){nearest=item;distance=d;}}
+    let nearest=null,distance=Infinity;
+    if(layers.has('enemies'))for(const item of enemies){const d=Math.hypot(item.x-wx,item.y-wy);if(d*scale<=enemyRadius(item)+2&&d<distance){nearest=item;distance=d;}}
+    if(!nearest)for(const item of entities){if(!visible(item))continue;const d=Math.hypot(item.x-wx,item.y-wy);if(d<Math.max(item.w,item.h,8/scale)&&d<distance){nearest=item;distance=d;}}
     const title=document.querySelector('#map-selection-title'),detail=document.querySelector('#map-selection-detail');
     title.textContent=nearest?nearest.name.replaceAll('-',' '):'Selected location';
-    detail.textContent=nearest?[`X ${nearest.x.toFixed(1)} · Y ${nearest.y.toFixed(1)}`,nearest.recipe?'Recipe: '+nearest.recipe.replaceAll('-',' '):'',nearest.amount!=null?'Remaining resource: '+nearest.amount.toLocaleString():'',nearest.power?'Power equipment':''].filter(Boolean).join(' · '):`X ${Math.round(wx)} · Y ${Math.round(wy)}. Select a building or resource for details.`;
+    detail.textContent=nearest?[`X ${nearest.x.toFixed(1)} · Y ${nearest.y.toFixed(1)}`,nearest.category==='enemies'?'Enemy '+(nearest.type==='unit-spawner'?'base':nearest.type==='unit'?'unit':'worm')+' · Saved position':'',nearest.recipe?'Recipe: '+nearest.recipe.replaceAll('-',' '):'',nearest.amount!=null?'Remaining resource: '+nearest.amount.toLocaleString():'',nearest.power?'Power equipment':''].filter(Boolean).join(' · '):`X ${Math.round(wx)} · Y ${Math.round(wy)}. Select an object for details.`;
   }
   function point(event){const rect=canvas.getBoundingClientRect();return [event.clientX-rect.left,event.clientY-rect.top];}
   canvas.addEventListener('wheel',event=>{event.preventDefault();zoom(Math.exp(-event.deltaY*.0015),...point(event));},{passive:false});

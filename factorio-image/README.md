@@ -1,6 +1,10 @@
 # Factory Control Factorio image
 
-`ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1` is the initial image target.
+`ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1` is the initial published image.
+The current source builds `2.0.77-fc.2`, a locally verified, unpublished revision
+that avoids duplicate ownership scans at startup. Existing image selections and
+installation defaults still use their previous image. See
+[performance measurements](../docs/PERFORMANCE.md).
 It is built independently from digest-pinned Debian and the official Wube
 headless download, verified against the SHA-256 in `image.json`. The image does
 not use or copy from `factoriotools/factorio`. Publishing is a separate step;
@@ -73,6 +77,10 @@ Local build and container acceptance passed on October 16, 2026, using OrbStack
 on an ARM Mac with amd64 compatibility support. See `docs/VERIFICATION.md` for
 the exact image identity and scope. This does not establish native ARM support,
 an independent x86 Linux-host test or GHCR publication.
+
+Revision 2 passed the same isolated build and container acceptance checks on
+October 17, 2026. It retains Factorio 2.0.77 and the compatibility contract above;
+these checks did not publish or install the new revision.
 
 ## Publish deliberately
 

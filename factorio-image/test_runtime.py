@@ -112,6 +112,50 @@ class StartupTests(unittest.TestCase):
         self.assertFalse(self.data.exists())
 
 
+class OwnershipTests(unittest.TestCase):
+    def test_overlapping_trees_and_external_config_paths_are_visited_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data, external = root / "data", root / "external-mods"
+            nested = data / "mods/unpacked-mod"
+            nested.mkdir(parents=True)
+            external.mkdir()
+            (nested / "control.lua").write_text("preserve")
+            (external / "mod.zip").write_bytes(b"preserve")
+            paths = [nested, external, data / "mods", data]
+            entries = list(startup.ownership_entries(paths))
+            self.assertEqual(len(entries), len(set(entries)))
+            self.assertEqual(set(entries), {data, data / "mods", nested,
+                                           nested / "control.lua", external, external / "mod.zip"})
+            with patch.object(startup.os, "chown") as change:
+                startup.ensure_ownership(paths, data.stat().st_uid, data.stat().st_gid)
+                change.assert_not_called()
+                startup.ensure_ownership(paths, 123456, 123456)
+                self.assertEqual(change.call_count, len(entries))
+                self.assertTrue(all(call.kwargs == {"follow_symlinks": False}
+                                    for call in change.call_args_list))
+            self.assertEqual((nested / "control.lua").read_text(), "preserve")
+
+    def test_directory_links_are_processed_without_following_them(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data, external = root / "data", root / "outside"
+            data.mkdir()
+            (external / "nested").mkdir(parents=True)
+            (external / "nested/keep").write_bytes(b"preserve")
+            link = data / "linked"
+            link.symlink_to(external, target_is_directory=True)
+            (data / "broken").symlink_to(root / "missing")
+            self.assertEqual(set(startup.ownership_entries([data])),
+                             {data, link, data / "broken"})
+            # A separately configured directory beneath a link must still be
+            # visited: the parent walk deliberately never followed that link.
+            entries = list(startup.ownership_entries([data, link / "nested"]))
+            self.assertEqual(len(entries), len(set(entries)))
+            self.assertIn(link / "nested/keep", entries)
+            self.assertEqual((external / "nested/keep").read_bytes(), b"preserve")
+
+
 class FakeSocket:
     def __init__(self, data):
         self.data, self.sent = bytearray(data), []

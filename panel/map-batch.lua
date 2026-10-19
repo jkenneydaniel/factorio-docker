@@ -19,19 +19,30 @@ for index=MAP_START,math.min(MAP_START+15,#state.queue) do
     local category=nil
     if e.type=='resource' then category='resources'
     elseif string.find(e.type,'rail') and e.force.name=='player' then category='railways'
-    elseif e.force.name=='enemy' and (e.type=='unit-spawner' or e.type=='turret') then category='enemies'
+    elseif e.force.name=='enemy' and (e.type=='unit-spawner' or e.type=='turret' or e.type=='unit') then category='enemies'
     elseif e.force.name=='player' and e.type~='character' and e.type~='entity-ghost' and e.type~='tile-ghost' then category='buildings' end
     local key=e.name..':'..e.position.x..':'..e.position.y
     if category and not state.seen[key] and e.position.x>=c.x*32 and e.position.x<c.x*32+32 and e.position.y>=c.y*32 and e.position.y<c.y*32+32 then
       state.seen[key]=true
-      if #m.entities<80000 then
+      local slot=#m.entities+1
+      if slot>80000 then
+        m.entitiesLimited=true
+        if category=='enemies' then
+          slot=table.remove(state.resource_slots) or table.remove(state.object_slots)
+          if not slot and e.type~='unit' then slot=table.remove(state.unit_slots) end
+        end
+      end
+      if slot and slot<=80000 then
         local b=e.bounding_box
         local power=e.type=='electric-pole' or e.type=='generator' or e.type=='solar-panel' or e.type=='accumulator' or e.type=='power-switch'
         local item={name=e.name,type=e.type,x=e.position.x,y=e.position.y,w=math.min(128,b.right_bottom.x-b.left_top.x),h=math.min(128,b.right_bottom.y-b.left_top.y),category=category,power=power,color=rgb(e.prototype.map_color or e.prototype.friendly_map_color)}
         if category=='resources' then item.amount=e.amount end
         if e.type=='assembling-machine' or e.type=='furnace' then local ok,recipe=pcall(function() return e.get_recipe() end);if ok and recipe then item.recipe=recipe.name end end
-        m.entities[#m.entities+1]=item
-      else m.entitiesLimited=true end
+        m.entities[slot]=item
+        if category=='resources' then state.resource_slots[#state.resource_slots+1]=slot
+        elseif category~='enemies' then state.object_slots[#state.object_slots+1]=slot
+        elseif e.type=='unit' then state.unit_slots[#state.unit_slots+1]=slot end
+      end
     end
   end
 end

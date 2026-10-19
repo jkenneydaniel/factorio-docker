@@ -13,6 +13,15 @@ import {defaultRetention,retentionPolicy,retentionSelection} from '../backup-ret
 let setups=emptySetups();
 const defaults=JSON.parse(await fs.readFile(path.join(project,'world-defaults.json'),'utf8'));
 const snapshot={version:1,step:2,world:'Demo-factory.zip',seed:123456789,created:new Date().toISOString(),surface:'nauvis',chunks:[{x:0,y:0,tiles:[1,256],pollution:0}],palette:[{name:'grass-1',color:[80,110,55]}],entities:[],players:[{name:'Engineer',x:8,y:8,surface:'nauvis'}],tags:[],truncated:false};
+if(process.env.UI_MAP_ENEMIES_TEST==='1'){
+  snapshot.enemyUnits=true;snapshot.chunks=[];snapshot.players=[];
+  for(let y=-12;y<=12;y++)for(let x=-20;x<=20;x++)snapshot.chunks.push({x,y,tiles:[1,256],pollution:0});
+  const add=(name,type,category,x,y,w=2)=>snapshot.entities.push({name,type,category,x,y,w,h:w,color:[95,126,180]});
+  add('biter-spawner','unit-spawner','enemies',-200,-100,7);add('spitter-spawner','unit-spawner','enemies',200,120,7);
+  add('small-worm-turret','turret','enemies',-180,-85,2);add('small-worm-turret','turret','enemies',215,105,2);
+  for(let i=0;i<6;i++)add('small-biter','unit','enemies',-160+i*8,-70+i*3,1);
+  add('iron-ore','resource','resources',-200,-100,12);add('assembling-machine-1','assembling-machine','buildings',0,0,3);
+}
 let retention={policy:{...defaultRetention},revision:0,lastRun:null};const cleanupPlans=new Map();
 const backups=[],schedule={enabled:false,hours:6,keep:12,lastRun:null};
 const {summarizeBackups}=await import('../backup-health.js');

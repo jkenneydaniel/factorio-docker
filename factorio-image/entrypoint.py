@@ -97,6 +97,36 @@ def prepare(env, data=Path("/factorio"), game=Path("/opt/factorio")):
     return args, creation, paths
 
 
+def ownership_entries(paths):
+    """Visit overlapping roots once; do not follow links encountered inside them."""
+    visited = set()
+    roots = {Path(os.path.abspath(directory)) for directory in paths}
+    for directory in sorted(roots, key=lambda item: (len(item.parts), str(item))):
+        if directory in visited:
+            continue
+        for parent, directories, files in os.walk(directory, followlinks=False):
+            parent = Path(parent)
+            if parent in visited:
+                directories.clear()
+                continue
+            visited.add(parent)
+            yield parent
+            for name in files:
+                yield parent / name
+            # Ordinary directories are visited as parents on the next walk step.
+            for name in directories:
+                link = parent / name
+                if link.is_symlink():
+                    yield link
+
+
+def ensure_ownership(paths, uid, gid):
+    for file in ownership_entries(paths):
+        info = file.lstat()
+        if (info.st_uid, info.st_gid) != (uid, gid):
+            os.chown(file, uid, gid, follow_symlinks=False)
+
+
 def main():
     args, creation, paths = prepare(os.environ)
     uid, gid = int(os.getenv("PUID", "845")), int(os.getenv("PGID", "845"))
@@ -104,12 +134,7 @@ def main():
         raise ValueError("PUID and PGID must be positive")
     if os.geteuid() == 0:
         # Change only mismatched ownership, never file contents or permissions.
-        for directory in set(paths.values()) | {Path("/factorio")}:
-            for parent, directories, files in os.walk(directory, followlinks=False):
-                for file in (Path(parent), *(Path(parent) / name for name in directories + files)):
-                    stat = file.lstat()
-                    if (stat.st_uid, stat.st_gid) != (uid, gid):
-                        os.chown(file, uid, gid, follow_symlinks=False)
+        ensure_ownership([Path("/factorio"), *paths.values()], uid, gid)
         os.setgroups([])
         os.setgid(gid)
         os.setuid(uid)
