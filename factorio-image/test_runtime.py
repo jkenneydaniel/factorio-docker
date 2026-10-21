@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -63,10 +64,84 @@ class StartupTests(unittest.TestCase):
     def test_fresh_install_generates_one_world_and_configures_vanilla_defaults(self):
         args, creation, _ = self.prepare()
         self.assertIn("--create", creation)
-        self.assertTrue(creation[creation.index("--create") + 1].endswith("World.zip"))
+        self.assertTrue(creation[creation.index("--create") + 1].endswith("World.tmp.zip"))
         mods = json.loads((self.data / "mods/mod-list.json").read_text())["mods"]
         self.assertEqual([mod["name"] for mod in mods if mod["enabled"]], ["base"])
         self.assertIn("--start-server-load-latest", args)
+
+    def test_interrupted_first_generation_retries_without_replacing_configuration(self):
+        self.env["GENERATE_NEW_SAVE"] = "false"
+        _, creation, paths = self.prepare()
+        password = (self.data / "config/rconpw").read_bytes()
+        settings = (self.data / "config/map-gen-settings.json").read_bytes()
+        # Simulate a generator killed before it can produce a complete save.
+        with patch.object(startup.subprocess, "run", side_effect=subprocess.CalledProcessError(1, "factorio")):
+            with self.assertRaises(subprocess.CalledProcessError):
+                startup.generate_save(creation, paths)
+        _, retry, paths = self.prepare()
+        self.assertEqual(retry, creation)
+        self.assertEqual((self.data / "config/rconpw").read_bytes(), password)
+        self.assertEqual((self.data / "config/map-gen-settings.json").read_bytes(), settings)
+        def complete(command, **kwargs):
+            Path(command[command.index("--create") + 1]).write_bytes(b"completed world")
+        with patch.object(startup.subprocess, "run", side_effect=complete):
+            startup.generate_save(retry, paths)
+        self.assertIsNone(self.prepare()[1])
+        self.assertEqual((self.data / "saves/World.zip").read_bytes(), b"completed world")
+        # Successful first generation retires permission to create a new world.
+        (self.data / "saves/World.zip").unlink()
+        with self.assertRaisesRegex(ValueError, "no saves"):
+            self.prepare()
+
+    def test_interrupted_prepare_retries_and_partial_generation_is_not_loaded(self):
+        self.env["GENERATE_NEW_SAVE"] = "false"
+        _, creation, _ = self.prepare()
+        temporary = Path(creation[creation.index("--create") + 1])
+        self.assertTrue(temporary.name.endswith(".tmp.zip"))
+        temporary.write_bytes(b"unfinished world")
+        _, retry, _ = self.prepare()
+        self.assertEqual(retry, creation)
+        self.assertFalse((self.data / "saves/World.zip").exists())
+
+    def test_pending_marker_cannot_override_an_established_identity(self):
+        self.prepare()
+        (self.data / "config/server-id.json").write_text('"existing identity"')
+        with self.assertRaisesRegex(ValueError, "no saves"):
+            self.prepare()
+
+    def test_completed_save_retires_a_marker_left_by_an_interrupted_publication(self):
+        _, creation, paths = self.prepare()
+        (self.data / "saves/World.zip").write_bytes(b"complete")
+        self.assertIsNone(self.prepare()[1])
+        self.assertFalse((self.data / "config/.initial-world-pending").exists())
+        (self.data / "saves/World.zip").unlink()
+        with self.assertRaisesRegex(ValueError, "no saves"):
+            self.prepare()
+
+    def test_generation_cannot_overwrite_a_save_that_appears_while_creating(self):
+        _, creation, paths = self.prepare()
+        def complete(command, **kwargs):
+            Path(command[command.index("--create") + 1]).write_bytes(b"generated")
+            (self.data / "saves/World.zip").write_bytes(b"preserve")
+        with patch.object(startup.subprocess, "run", side_effect=complete):
+            with self.assertRaises(FileExistsError):
+                startup.generate_save(creation, paths)
+        self.assertEqual((self.data / "saves/World.zip").read_bytes(), b"preserve")
+
+    def test_temporary_save_links_and_invalid_pending_markers_are_refused(self):
+        _, creation, _ = self.prepare()
+        external = self.root / "outside.zip"
+        external.write_bytes(b"preserve")
+        temporary = Path(creation[creation.index("--create") + 1])
+        temporary.symlink_to(external)
+        with self.assertRaisesRegex(ValueError, "ordinary file"):
+            self.prepare()
+        self.assertEqual(external.read_bytes(), b"preserve")
+        temporary.unlink()
+        (self.data / "config/.initial-world-pending").unlink()
+        (self.data / "config/.initial-world-pending").mkdir()
+        with self.assertRaisesRegex(ValueError, "marker"):
+            self.prepare()
 
     def test_missing_saves_with_existing_identity_refuses_before_creating_files(self):
         (self.data / "config").mkdir(parents=True)

@@ -36,10 +36,20 @@ def prepare(env, data=Path("/factorio"), game=Path("/opt/factorio")):
         directory.mkdir(parents=True, exist_ok=True)
     config, saves, mods = paths["CONFIG"], paths["SAVES"], paths["MODS"]
     existing = [file for file in saves.glob("*.zip") if file.is_file() and not file.name.endswith(".tmp.zip")]
-    previous = (config / "rconpw").exists() or (config / "server-id.json").exists()
+    identity = (config / "server-id.json").exists()
+    previous = (config / "rconpw").exists() or identity
+    pending = config / ".initial-world-pending"
+    if pending.is_symlink() or pending.exists() and not pending.is_file():
+        raise ValueError("Invalid first-world generation marker")
     generate = enabled(env, "GENERATE_NEW_SAVE")
-    if not existing and previous and not generate:
+    if not existing and previous and not generate and not (pending.exists() and not identity):
         raise ValueError("Existing server identity has no saves. Restore its data; no replacement world was generated")
+    # Record fresh-install intent before creating the RCON identity. A restart
+    # can retry only this first world; established identities remain protected.
+    if not existing and not previous:
+        create_once(pending, "")
+    if existing:
+        pending.unlink(missing_ok=True)
     for name in ("server-settings", "map-gen-settings", "map-settings"):
         target = config / (name + ".json")
         if not target.exists():
@@ -69,7 +79,10 @@ def prepare(env, data=Path("/factorio"), game=Path("/opt/factorio")):
         if destination.is_symlink():
             raise ValueError("Save destination must not be a symlink")
         if not destination.exists():
-            creation = [binary, *common, "--create", str(destination), "--map-gen-settings", str(config / "map-gen-settings.json"), "--map-settings", str(config / "map-settings.json")]
+            temporary = destination.with_name(destination.stem + ".tmp.zip")
+            if temporary.is_symlink() or temporary.exists() and not temporary.is_file():
+                raise ValueError("Temporary save must use an ordinary file")
+            creation = [binary, *common, "--create", str(temporary), "--map-gen-settings", str(config / "map-gen-settings.json"), "--map-settings", str(config / "map-settings.json")]
             if env.get("PRESET"):
                 creation.extend(["--preset", env["PRESET"]])
     args = [binary, *common, "--port", str(int(env.get("PORT", "34197"))),
@@ -95,6 +108,23 @@ def prepare(env, data=Path("/factorio"), game=Path("/opt/factorio")):
             raise ValueError("Selected save is missing; no replacement world was generated")
         args.extend(["--start-server", str(selected)])
     return args, creation, paths
+
+
+def generate_save(creation, paths):
+    temporary = Path(creation[creation.index("--create") + 1])
+    destination = temporary.with_name(temporary.name[:-len(".tmp.zip")] + ".zip")
+    # A failed/killed generator leaves only an ignored temporary save. Retry it
+    # with the same configuration and password, never load its partial output.
+    if temporary.is_symlink() or temporary.exists() and not temporary.is_file():
+        raise ValueError("Temporary save must use an ordinary file")
+    temporary.unlink(missing_ok=True)
+    subprocess.run(creation, check=True)
+    if temporary.is_symlink() or not temporary.is_file():
+        raise ValueError("Generated save must use an ordinary file")
+    # Publish without overwriting any save that appeared during generation.
+    os.link(temporary, destination, follow_symlinks=False)
+    temporary.unlink()
+    (paths["CONFIG"] / ".initial-world-pending").unlink(missing_ok=True)
 
 
 def ownership_entries(paths):
@@ -139,7 +169,7 @@ def main():
         os.setgid(gid)
         os.setuid(uid)
     if creation:
-        subprocess.run(creation, check=True)
+        generate_save(creation, paths)
     os.execv(args[0], args + sys.argv[1:])
 
 

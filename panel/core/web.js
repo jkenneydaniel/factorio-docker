@@ -5,6 +5,7 @@ import {readBody,requestJSON,json,assert,HttpError,equalSecret} from '../common.
 import {checkOrigin,checkPassword,requireAdmin} from '../auth.js';
 import {validateGameModule} from './game-module.js';
 import {ReleaseChecks} from '../updates.js';
+import {proxyResponse} from './proxy.js';
 
 const sharedRoutes=['status','backups','jobs','download','schedule','backup-retention','update-status','update-plan','update-install'];
 
@@ -123,10 +124,7 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
         body=await readBody(req,web.bodyLimit?.(route)||1024*1024);
         if(route==='/jobs'){let value;try{value=JSON.parse(body);}catch{throw new HttpError(400,'Invalid action.');}value.actor=user.username;body=Buffer.from(JSON.stringify(value));}
       }
-      const response=await fetch(controller+route+url.search,{method:req.method,headers:{authorization:`Bearer ${token}`,'content-type':req.headers['content-type']||'application/json','x-panel-user':user.username},body,signal:AbortSignal.timeout(route==='/update-install'?150000:30000)});
-      for(const key of ['content-type','content-disposition'])if(response.headers.has(key))res.setHeader(key,response.headers.get(key));
-      res.setHeader('cache-control','no-store');res.writeHead(response.status);
-      if(response.body)for await(const chunk of response.body)res.write(chunk);return res.end();
+      return proxyResponse(req,res,controller+route+url.search,{headers:{authorization:`Bearer ${token}`,'content-type':req.headers['content-type']||'application/json','x-panel-user':user.username},body,download:route==='/download',timeout:route==='/update-install'?150000:30000});
     }
     const files=web.assets;
     assert(req.method==='GET'&&Object.hasOwn(files,url.pathname),'Not found.',404);
@@ -138,7 +136,7 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
     }
     res.writeHead(200,{'content-type':type,'cache-control':'no-cache'});res.end(content);
   }
-  const server=http.createServer((req,res)=>handle(req,res).catch(error=>{if(!res.headersSent)json(res,error.status||502,{error:error.status?error.message:'The controller is unavailable. Please try again.'});else res.end();}));
+  const server=http.createServer((req,res)=>handle(req,res).catch(error=>{if(!res.headersSent)json(res,error.status||502,{error:error.status?error.message:'The controller is unavailable. Please try again.'});else res.destroy();}));
   server.requestTimeout=180000;server.headersTimeout=15000;if(listen)await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,hostname,resolve);});
   if(listen)console.log(module.name+' LAN panel listening on port '+server.address().port);
   const sessionTimer=setInterval(()=>{for(const map of [sessions,attempts,registrationAttempts])for(const [id,value] of map)if((value.expires||value.reset)<Date.now())map.delete(id);},60000).unref();
