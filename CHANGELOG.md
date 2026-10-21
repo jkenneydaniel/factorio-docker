@@ -2,6 +2,10 @@
 
 ## 0.3.0-alpha — 2026-10-20
 
+- Keep explicit world generation disabled after provisioning. A fresh Factorio
+  boot creates its first identity; imported, cloned and switched saves never
+  trigger generation of a competing default world.
+
 - Add an opt-in, separate single-host manager with Factorio/Rust server creation,
   resource limits, automatic port allocation, one login, scoped game controls,
   isolated named volumes and private bridges. Existing standalone deployments

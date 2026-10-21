@@ -16,7 +16,7 @@ test('Factorio snapshots strip credentials and clone into independent initialize
  const backup=await factorioBackup(a),result=await publishSnapshot({library:f.library,backup,record:{id:snap,sourceId:one,title:'Shared world',sourceName:'Source',game:'factorio',image:catalog.factorio.image}});
  const manifest=await verifySnapshot(f.library,snap,result.manifestSha256);assert.deepEqual(manifest.files.map(f=>f.name),['mods/mod-list.json','world.zip']);assert.equal(manifest.credentialsIncluded,false);
  await runWorker(provision(two,'factorio',{snapshotId:snap,snapshotHash:result.manifestSha256}),{instance:b,library:f.library});assert.deepEqual(await fs.readFile(path.join(b,'data/saves/world.zip')),world);
- const oldPassword=await fs.readFile(path.join(a,'data/config/rconpw'),'utf8'),newPassword=await fs.readFile(path.join(b,'data/config/rconpw'),'utf8');assert.notEqual(oldPassword,newPassword);assert.ok(!newPassword.includes('NEVER_SHARE'));
+ assert.equal(await fs.stat(path.join(a,'data/config/rconpw')).catch(()=>null),null,'fresh boot must not look like a broken existing identity');const oldPassword=provision(one).rconPassword,newPassword=await fs.readFile(path.join(b,'data/config/rconpw'),'utf8');assert.notEqual(oldPassword,newPassword);assert.ok(!newPassword.includes('NEVER_SHARE'));
  await fs.writeFile(path.join(b,'data/saves/world.zip'),'changed clone');assert.deepEqual(await fs.readFile(path.join(f.library,snap,'content/world.zip')),world);assert.equal((await readJSON(path.join(a,'.fleet-owner.json'))).id,one);
  await assert.rejects(runWorker(provision(two),{instance:a,library:f.library}),/empty, unowned/);
 });
@@ -59,7 +59,7 @@ async function fakeManager(t){
 }
 test('host creation reserves unique storage/secrets/ports and never changes unrelated servers',async t=>{
  const f=await fakeManager(t),first=await f.submit({game:'factorio',name:'First'}),second=await f.submit({game:'factorio',name:'Second',autoStart:false});assert.notEqual(first.volume,second.volume);assert.notEqual(first.controllerToken,second.controllerToken);assert.notEqual(first.rconPassword,second.rconPassword);assert.equal(first.gamePort,35003);assert.equal(second.gamePort,35006);
- const game=f.containers.get(first.container);assert.equal(game.HostConfig.Mounts[0].VolumeOptions.Subpath,'data');assert.equal(game.HostConfig.Memory,2*1024**3);assert.equal(f.containers.get(second.container).HostConfig.RestartPolicy.Name,'no');assert.equal(f.containers.get(first.controller).Image,'sha256:manager-runtime');
+ const game=f.containers.get(first.container);assert.ok(game.Env.includes('GENERATE_NEW_SAVE=false'),'world switches must never trigger empty-world generation');assert.equal(game.HostConfig.Mounts[0].VolumeOptions.Subpath,'data');assert.equal(game.HostConfig.Memory,2*1024**3);assert.equal(f.containers.get(second.container).HostConfig.RestartPolicy.Name,'no');assert.equal(f.containers.get(first.controller).Image,'sha256:manager-runtime');
  assert.ok(!JSON.stringify(f.manager.list()).includes(first.controllerToken));assert.ok(!f.calls.some(c=>c.method!=='GET'&&/factorio-server|production/.test(c.route)));
  const job=await f.manager.submit('create',{game:'rust',name:'Over budget',memoryGiB:12});while(f.manager.active)await new Promise(r=>setTimeout(r,5));assert.equal(job.state,'failed');assert.match(job.message,/budget/);assert.equal(f.manager.state.servers.length,2);
 });
