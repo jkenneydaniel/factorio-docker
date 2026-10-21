@@ -42,7 +42,7 @@ export async function testImage(definition,run=docker){
   assert.equal(imageLabel(owned.Config.Labels,'image-revision'),String(definition.revision));
   // Exercise the same disposable preflight the panel uses, including digest
   // references: platform-specific inspect IDs are not runnable on every engine.
-  for(const [image,item] of [[legacy,base],[definition.image,owned]]){
+  for(const [image,item] of [[definition.image,owned]]){
     const parsed=parseGameImage(image),selection={target:parsed.version,source:parsed.source,imageRevision:parsed.revision,targetImage:image};
     validateGameImage(item,selection);
     // A just-built image has no registry digest in classic Docker stores.

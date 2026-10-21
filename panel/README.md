@@ -1,6 +1,6 @@
 # Panel features and architecture
 
-Lobby Goblin v0.3.3-alpha runs as two containers built from the same image:
+Lobby Goblin v0.3.4-alpha runs as two containers built from the same image:
 a browser-facing web service and an internal controller. A third container runs
 the selected game. See the [root setup guide](../README.md) before starting.
 

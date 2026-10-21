@@ -29,8 +29,8 @@ These are configuration targets, not claims that every host has been tested.
 engines are outside this release's setup support. Windows ARM64 follows the same
 emulation requirement if its Docker Desktop installation supports Linux amd64.
 
-The game remains pinned to 2.0.77 to match existing clients. Its upstream ARM image
-uses a Box64 compatibility layer; our map workers invoke the x64 binary directly.
+The game remains pinned to 2.0.77 to match existing clients. The first-party image
+and map workers invoke the x64 binary directly.
 We explicitly select `linux/amd64` for the game and **all** disposable workers to
 avoid mixing these execution paths. The Node services build for the daemon's
 native architecture. Do not set `DOCKER_DEFAULT_PLATFORM=linux/amd64` globally:
@@ -39,8 +39,8 @@ to ARM for this release. Native Linux ARM game support would require a separate
 game-version and worker-path compatibility change.
 
 Sources: [Compose platform](https://docs.docker.com/reference/compose-file/services/#platform),
-[Docker emulation](https://docs.docker.com/build/building/multi-platform/#qemu),
-[upstream image implementation](https://github.com/factoriotools/factorio-docker/blob/master/docker/Dockerfile).
+[Docker emulation](https://docs.docker.com/build/building/multi-platform/#qemu).
+See also the [first-party image contract](../factorio-image/README.md).
 
 ## Guided setup
 

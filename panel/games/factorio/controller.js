@@ -35,10 +35,10 @@ function persistAutoMap(){
   autoMapWrites=autoMapWrites.catch(()=>{}).then(async()=>{const value=JSON.stringify(autoMap);if(value!==autoMapSaved){await writeJSON(autoMapFile,JSON.parse(value));autoMapSaved=value;}});return autoMapWrites;
 }
 const logFile=path.join(data,'factorio-current.log');
-const worldPreviews=new WorldPreviews({canRun:()=>!ctx.active&&!ctx.updater.busy,render:async input=>{const server=await info();assert((server.Image||server.Config.Image)===input.image,'Factorio changed. Refresh this preview.');return renderWorldPreview(input,{data,server,docker,gameContainerRoute});}});
+const worldPreviews=new WorldPreviews({canRun:()=>!ctx.imageMigrationPending&&!ctx.active&&!ctx.updater.busy,render:async input=>{const server=await info();assert((server.Image||server.Config.Image)===input.image,'Factorio changed. Refresh this preview.');return renderWorldPreview(input,{data,server,docker,gameContainerRoute});}});
 const livePlayersFile=path.join(state,'live-players.json');
 const livePlayers=new LivePlayers({config:await readJSON(livePlayersFile,{enabled:false}),query:rcon,persist:config=>writeJSON(livePlayersFile,config),scope:async()=>{
-  if(ctx.updater.busy)return {running:false};
+  if(ctx.imageMigrationPending||ctx.updater.busy)return {running:false};
   const server=await info();
   if(!server.State.Running||ctx.active&&['switch','restore','settings','restart','stop','start'].includes(ctx.active.action))return {running:false};
   const world=await activeSave(),value=await rcon('/seed'),seed=Number(value.match(/\d+/)?.[0]);assert(Number.isFinite(seed),'Factorio seed is unavailable.');return {running:true,world,seed};
@@ -314,7 +314,7 @@ async function pollSavedMap(){
       const item=event.completed,file=await existingFile(saves,item.source).catch(()=>null);
       if(file){const stat=await fs.stat(file);autoMap.observe({...item,version:saveVersion(item.world,item.source,stat)},snapshot);}
     }
-    if(!ctx.active&&!ctx.updater.busy&&!event.saving&&autoMap.pending){
+    if(!ctx.imageMigrationPending&&!ctx.active&&!ctx.updater.busy&&!event.saving&&autoMap.pending){
       const item=autoMap.pending,file=await existingFile(saves,item.source).catch(()=>null);
       if(!file||item.world!==await activeSave()||saveVersion(item.world,item.source,await fs.stat(file))!==item.version)autoMap.pending=null;
       const task=autoMap.claim(false);

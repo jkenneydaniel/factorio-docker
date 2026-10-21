@@ -1,7 +1,8 @@
+import {ownedImages} from '../core/game-images.js';
 import {assert} from '../common.js';
 export const catalog=Object.freeze({
- factorio:{id:'factorio',name:'Factorio',version:'2.0.77',image:'ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1@sha256:9c112e46d18d1e5ecc8d87172775c9c542798747f79368c4364331f17591addb',cpu:1,memoryGiB:2,gamePort:34197},
- rust:{id:'rust',name:'Rust',version:'Steam public branch',image:'didstopia/rust-server@sha256:f935f9631e53ad1a235b446496716e1ae65a8d179a3b620abf38e29b9877f88e',cpu:4,memoryGiB:12,gamePort:28015,queryPort:28017},
+ factorio:{id:'factorio',name:'Factorio',version:'2.0.77',image:ownedImages.factorio,cpu:1,memoryGiB:2,gamePort:34197},
+ rust:{id:'rust',name:'Rust',version:'Steam public branch',image:ownedImages.rust,cpu:4,memoryGiB:12,gamePort:28015,queryPort:28017},
 });
 export const validId=value=>typeof value==='string'&&/^[a-f0-9]{32}$/.test(value);
 export const labels=(fleet,id,game)=>({'io.lobby-goblin.fleet':fleet,'io.lobby-goblin.instance':id,'io.lobby-goblin.game':game});

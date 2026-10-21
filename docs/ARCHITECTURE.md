@@ -25,6 +25,8 @@ volumes. The source volume is never mounted writable by another game.
 | `panel/core/backups.js` | Archive storage, verification records, checksums, listing and health; asks the module to collect and validate game data |
 | `panel/core/host.js`, `docker.js` | Docker requests, container lifecycle and resource sampling; no game commands |
 | `panel/core/archive.js`, `files.js` | Bounded ZIP processing and file listing |
+| `panel/core/game-images.js`, `image-migration.js` | Owned image contracts, migration-only historical recognition and journalled replacement; game-specific consistency remains in module backup/stop/readiness hooks |
+| `panel/core/standalone-migration.js`, `panel/fleet/migrations.js` | Compose/registry ownership checks, operation coordination and durable environment/controller changes for automatic image migration |
 | `panel/games/index.js` | Explicit registry of built-in modules; defaults to Factorio without new environment settings |
 | `panel/games/factorio/` | Factorio transport, readiness, telemetry, saves, settings, world generation/switch/restore, map workers, drafts/presets, installation preparation and update/image compatibility |
 | `panel/games/rust/` | WebRCON, ownership/readiness checks, lifecycle, stopped-server configuration, streamed identity archives and a standalone prepare-only installation template |
@@ -60,7 +62,8 @@ The definition supplies:
 
 The controller context provides configuration, environment, the host/Docker
 transport, tracked timers (`every`), current jobs/active operation/schedule,
-backup storage, updater, `runJob` and `stageMessage`. Updater and backup accessors
+backup storage, updater, `runJob`, `stageMessage` and `imageMigrationPending`.
+Background game work must defer mutations while image migration is pending. Updater and backup accessors
 are available after controller creation; use them from runtime hooks/actions,
 not while constructing the adapter.
 
@@ -89,7 +92,13 @@ internal controller. Declaring a frontend control never grants backend access.
 
 ## Existing installations
 
-No state migration or host configuration change is required for this refactor:
+The original shared-core refactor preserves the contracts below. Separately,
+v0.3.4 performs a one-time, backup-protected image migration after installation;
+see [the image migration contract](IMAGE_MIGRATION.md). Persistent account and
+world paths remain unchanged. The migration updates the owned image reference
+and, for Rust, its instance controller configuration.
+
+Compatibility retained by the original refactor:
 
 - `server.js`, `controller.js`, `setup.js`, `update-worker.js` and existing module
   import paths remain available as entrypoints/compatibility exports.

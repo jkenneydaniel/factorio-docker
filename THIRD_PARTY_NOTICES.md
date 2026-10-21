@@ -21,14 +21,16 @@ respective owners.
   their terms and licenses apply separately.
 - [Node.js](https://nodejs.org/) and the Debian base image are external runtime
   dependencies. Their licenses and component notices remain in their images.
+- [ws](https://github.com/websockets/ws) is the MIT-licensed Rust WebRCON client.
+  Its license is included with the installed dependency in the panel image.
 
 The compact world preset in `panel/world-defaults.json` contains the panel's
 exposed configuration keys and numeric/boolean standard values. It is generated
 from the project's field definitions, rather than redistributing the full game
 example files. Omitted low-level tuning is supplied by the installed game.
 
-The project has no npm dependencies. A selected set of Tabler Icons v3.49.0
-outline icons is bundled in `panel/public/icons.js` under the MIT license.
+A selected set of Tabler Icons v3.49.0 outline icons is bundled in
+`panel/public/icons.js` under the MIT license.
 Copyright (c) 2020 Paweł Kuna. The complete notice is preserved in
 `panel/public/LICENSE-tabler.md`. Icons come from the official
 [Tabler Icons repository](https://github.com/tabler/tabler-icons).

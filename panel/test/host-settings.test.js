@@ -8,7 +8,7 @@ import {startFleetController} from '../fleet/controller.js';
 
 const fleet='a'.repeat(32),giB=1024**3;
 async function fixture(t,{budget=24}={}){
- const root=await fs.mkdtemp(path.join(os.tmpdir(),'lobby-host-settings-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lobby-host-settings-')));t.after(()=>fs.rm(root,{recursive:true,force:true}));
  const library=path.join(root,'library'),state=path.join(root,'state');let memory=32*giB,offline=false;const calls=[];
  const docker=async(method,route)=>{calls.push({method,route});assert.equal(method,'GET','Settings must never mutate Docker resources');if(route==='/info'){if(offline)throw Error('Offline');return {MemTotal:memory};}if(route==='/containers/host/json')return {Config:{Labels:{'io.lobby-goblin.fleet':fleet,'io.lobby-goblin.role':'host-controller'}}};throw Error('Unexpected route '+route);};
  const options={docker,root:state,library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'test:settings',hostContainer:'host',memoryBudgetGiB:budget};

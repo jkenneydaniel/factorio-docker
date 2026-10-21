@@ -1,3 +1,5 @@
+import {migrationImage,ownedImage} from './game-images.js';
+import {launchStandaloneMigration} from './standalone-migration.js';
 import fs from 'node:fs/promises';
 import {ownedDocker} from '../fleet/owned-docker.js';
 import {noManagedUpdater} from '../fleet/catalog.js';
@@ -18,7 +20,7 @@ import {validateGameModule} from './game-module.js';
 export async function startController(module,{env=process.env,docker=dockerAPI,port=Number(env.PORT||8081),hostname='0.0.0.0'}={}){
   validateGameModule(module);
   if(env.FLEET_ID)docker=ownedDocker(docker,env);
-  const config=module.configuration(env),{state,library,backupDir}=config;
+  const config=module.configuration(env,{migrationBootstrap:true}),{state,library,backupDir}=config;
   await module.validateInstallation?.(config);
   const token=(await fs.readFile(env.CONTROLLER_TOKEN_FILE||'/run/secrets/controller_token','utf8')).trim();
   for(const dir of [state,library,backupDir])await fs.mkdir(dir,{recursive:true});
@@ -31,18 +33,23 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   const host=createHost({docker,container:config.container,stopTimeout:module.stopTimeout});
   const ctx={config,env,host,docker,every,runJob,stageMessage,
     get jobs(){return jobs;},get active(){return active;},get schedule(){return schedule;},
-    get updater(){return updater;},get backups(){return backups;}};
+    get updater(){return updater;},get backups(){return backups;},get imageMigrationPending(){return migrationPending;}};
+  let migrationPending=false,migrationLaunching=false,migrationError=null,migrationWorker=null;
   const game=await module.createController(ctx);
   const backups=await createBackups({root:backupDir,state,game,getJobs:()=>jobs,getSchedule:()=>schedule});
   const updater=env.FLEET_ID?noManagedUpdater((await readJSON(new URL('../package.json',import.meta.url))).version):module.createUpdater({config,env,docker,backup:label=>backups.create(label),canInstall:()=>!active&&!retentionConfiguring,waitIdle:()=>game.waitIdle(),current:(await readJSON(new URL('../package.json',import.meta.url))).version});
   await game.init();
   await updater.init();
+  let migrationJournal=null;
+  const migrationFile=path.join(module.id==='rust'?state:env.UPDATE_STATE_DIR||'/updates','image-migration.json');
+  if(!env.FLEET_ID&&['factorio','rust'].includes(module.id)){migrationJournal=await readJSON(migrationFile,null);const installed=await host.info().catch(error=>{if(error.status===404&&migrationJournal)return migrationJournal.original;throw error;});migrationPending=!!installed.Config?.Labels?.['com.docker.compose.project']&&(!ownedImage(module.id,installed.Config?.Image)||migrationImage(module.id,installed.Config?.Image)||migrationJournal&&migrationJournal.phase!=='complete');}
+
   const retention=new BackupRetention({root:backupDir,file:path.join(state,'backup-retention.json'),extension:game.backupExtension||'.zip',
-    protectedNames:()=>updater.jobs.filter(job=>job.recovery?.requiresWorldRestore).map(job=>job.backup),
+    protectedNames:async()=>[...updater.jobs.filter(job=>job.recovery?.requiresWorldRestore).map(job=>job.backup),(await readJSON(migrationFile,null))?.backup,env.IMAGE_MIGRATION_BACKUP].filter(Boolean),
     validations:backups.validations,onDeleted:backups.deleted});
   await retention.init();
   const actions={...game.actions,
-    backup:async(params,job)=>{const scheduled=job?.actor==='scheduled backup',name=await backups.create(scheduled?'scheduled':'manual');if(scheduled)await retention.pruneScheduled(schedule.keep);return `Backup created: ${name}`;},
+    backup:async(params,job)=>{const scheduled=job?.actor==='scheduled backup',name=await backups.create(scheduled?'scheduled':job?.actor==='automatic image migration'?'before-image-migration':'manual');if(scheduled)await retention.pruneScheduled(schedule.keep);return `Backup created: ${name}`;},
     'verify-backup':params=>backups.verify(params.name),
     'cleanup-backups':async(params,job)=>{
       const automatic=job.actor==='automatic backup cleanup';
@@ -73,6 +80,8 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
     if(req.url==='/health')return json(res,200,{ok:true});
     assert(equalSecret(req.headers.authorization,`Bearer ${token}`),'Unauthorized.',401);
     const url=new URL(req.url,'http://controller');
+    const migrationRequest=equalSecret(req.headers['x-lobby-goblin-migration'],token);
+    if(req.method!=='GET'&&migrationPending)assert(migrationRequest,'Automatic image migration is using this installation. Wait for it to complete.',409);
     if(url.pathname.startsWith('/update-')){
       if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await updater.refresh());
       if(req.method==='POST'&&url.pathname==='/update-plan')return json(res,200,await updater.plan(await requestJSON(req)));
@@ -80,7 +89,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
       throw new HttpError(404,'Not found.');
     }
     if(req.method!=='GET'){await updater.refresh();assert(!updater.busy,'An update is in progress. Wait for it to finish.',409);}
-    if(req.method==='GET'&&url.pathname==='/status')return json(res,200,await game.status());
+    if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{...await game.status(),imageMigration:migrationPending?{state:migrationError?'attention':'pending',message:migrationError||'Automatic game image migration is pending.'}:null});
     if(req.method==='GET'&&url.pathname==='/diagnostics')return json(res,200,await module.diagnostics({docker,container:config.container,version:updater.current,recentStatus:game.recentStatus(),locations:[...game.locations,{id:'backups',title:'Backup storage',path:backupDir},{id:'state',title:'Controller storage',path:state}]}));
     if(req.method==='GET'&&url.pathname==='/backups'){const items=await backups.list();return json(res,200,{backups:items,schedule,retention:retention.status(),health:await backups.health(items)});}
     if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,{jobs,active});
@@ -121,7 +130,21 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   every(()=>void updater.refresh().catch(error=>console.error('Update state unavailable:',redact(error.message))),1000);
   await game.start();
   every(async()=>{
-    if(!schedule.enabled||active||updater.busy)return;
+    if(!migrationPending)return;
+    try{
+      migrationJournal=await readJSON(migrationFile,null);
+      if(migrationJournal?.phase==='complete'){const current=await host.info();assert(current.Image===migrationJournal.imageId&&current.Config.Image===migrationJournal.target,'Completed migration container changed.',409);migrationPending=false;migrationError=null;return;}
+      if(migrationLaunching){if(migrationWorker){const worker=await docker('GET','/containers/'+migrationWorker+'/json');assert(worker.State.Running,'Migration worker stopped before completion.',409);}return;}
+      if(active||updater.busy)return;
+      migrationLaunching=true;
+      await game.waitIdle();
+      migrationWorker=await launchStandaloneMigration({docker,game:module.id,journal:migrationJournal,names:{game:config.container,controller:env.CONTROLLER_CONTAINER||(module.id==='rust'?'lobby-goblin-rust-controller-'+config.instance:'factorio-panel-controller'),panel:env.PANEL_CONTAINER||(module.id==='rust'?'lobby-goblin-rust-panel-'+config.instance:'factorio-panel')}});
+    }
+    catch{migrationError='Automatic image migration needs attention. Data was preserved; inspect the migration worker and installation ownership.';}
+  },1000);
+
+  every(async()=>{
+    if(migrationPending||!schedule.enabled||active||updater.busy)return;
     const elapsed=Date.now()-new Date(schedule.lastRun||Date.now()).getTime();
     if(!schedule.lastRun){schedule.lastRun=new Date().toISOString();await writeJSON(path.join(state,'schedule.json'),schedule);return;}
     if(elapsed<schedule.hours*3600000)return;
@@ -130,7 +153,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   },60000);
   let retentionPolling=false;
   every(async()=>{
-    if(retentionPolling||!retention.due||active||updater.busy||updater.pendingRestore)return;
+    if(migrationPending||retentionPolling||!retention.due||active||updater.busy||updater.pendingRestore)return;
     retentionPolling=true;
     try{const job=await runJob('cleanup-backups',{},'automatic backup cleanup');while(['queued','running'].includes(job.state))await sleep(1000);}
     catch(error){console.error('Automatic backup cleanup failed:',redact(error.message));}

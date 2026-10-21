@@ -1,10 +1,11 @@
 # Lobby Goblin Factorio image
 
-`ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1` is the initial published image.
-The current source builds `2.0.77-fc.2`, a locally verified, unpublished revision
-that avoids duplicate ownership scans at startup. Existing image selections and
-installation defaults still use their previous image. See
-[performance measurements](../docs/PERFORMANCE.md).
+The current source builds
+`ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.3`. This advances the wrapper
+without changing Factorio 2.0.77. Revision 3 includes the first-world retry and
+ownership-scan fixes and current Lobby Goblin labels. Revision 2 is already
+published, so it is never overwritten. New installations and automatic v0.3.4
+migration use revision 3 after publication.
 It is built independently from digest-pinned Debian and the official Wube
 headless download, verified against the SHA-256 in `image.json`. The image does
 not use or copy from `factoriotools/factorio`. Publishing is a separate step;
@@ -57,8 +58,8 @@ node tools/factorio-image.mjs build
 node tools/factorio-image.mjs test
 ```
 
-The container acceptance test first runs the panel's read-only image preflight
-against both sources, selecting amd64 metadata as needed. Published images use
+The container acceptance test runs the panel's read-only image preflight
+against the owned image, selecting amd64 metadata as needed. Published images use
 verified repository digest references; a freshly built image without a registry
 digest in a classic Docker store is tested by its immutable local image ID. The
 panel still requires a repository digest for every installed image.
@@ -84,7 +85,7 @@ these checks did not publish or install the new revision.
 
 ## Publish deliberately
 
-Run the **Compatible Factorio image** GitHub Actions workflow with `publish`
+Run the **Lobby Goblin game images** GitHub Actions workflow with `publish`
 enabled after reviewing the source. Regular pushes and pull requests build/test
 only. Publication uses the repository's GitHub token, refuses an existing tag
 and pushes the exact image that passed its test. Increment `revision` and the
@@ -95,10 +96,8 @@ The GHCR package must be public before ordinary installations can pull it:
 the panel does not forward personal registry credentials. First publication may
 need repository package permissions/visibility configured in GitHub.
 
-Publishing does not migrate servers. Once the tag is public and tested, use
-Settings → Updates, choose Lobby Goblin, keep the current Factorio version,
-select the published image revision, then review and confirm. The installer
-backs up existing data, validates the image without mounting world data, pins its
-digest and replaces only Factorio. Failed readiness leaves the previous image
-prepared but stopped for an explicit backup restore. Keep the old image and
-pre-change backup until the migrated server has been accepted.
+Publishing does not deploy or migrate servers. Installing the v0.3.4 controller
+subsequently performs the one-time same-version migration described in
+[image migration](../docs/IMAGE_MIGRATION.md). Later game-version changes still
+use Settings → Updates with a verified backup and reviewed image selection.
+Keep the old container/image and pre-change backup until acceptance is complete.

@@ -5,12 +5,17 @@ Factorio or Rust installation, mounts its data, changes its ports, or restarts
 it. Standalone `compose.yaml` remains available. Use `fleet.compose.yaml` by
 itself, with its own `.env.fleet` and fresh identity. Do not merge Compose files.
 
+v0.3.4 automatically migrates this manager's registered older images after a
+verified backup and clean stop. It preserves each server's storage and previous
+running/stopped state. Unrelated standalone installations remain outside its
+registry. Read [migration and recovery](IMAGE_MIGRATION.md) before upgrading.
+
 ## Start
 
 Docker Engine 26+ with Linux containers on an amd64 host is required by this
-first version. Factorio uses the reviewed 2.0.77 Factory Control image; Rust uses
-the reviewed didstopia bootstrap digest and installs the Steam public server.
-The Factorio game image and Rust bootstrap image are pinned. Rust downloads the
+release. Factorio uses the first-party 2.0.77-fc.3 image; Rust uses the first-party
+steam-lg.1 bootstrap and installs the Steam public server.
+The game image references are resolved to registry digests before provisioning. Rust downloads the
 Steam public branch separately, so its installed game build can change on a
 fresh installation. Rust snapshot recovery across game-build updates remains a
 compatibility limitation; the reviewed bootstrap digest alone does not pin that

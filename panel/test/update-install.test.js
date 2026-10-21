@@ -29,12 +29,12 @@ async function fixture(t){
   const state=path.join(root,'.panel-data/updates');await fs.mkdir(state,{recursive:true});
   const files={'compose.yaml':'name: fixture\n','panel/package.json':'{"version":"0.1.0-alpha"}','panel/Dockerfile':'FROM node:24\n','panel/server.js':'// old panel\n','panel/update-worker.js':'// updater\n','README.md':'old docs\n'};
   for(const [name,data] of Object.entries(files)){await fs.mkdir(path.dirname(path.join(root,name)),{recursive:true});await fs.writeFile(path.join(root,name),data);}
-  await fs.writeFile(path.join(root,'.env'),'SERVER_ADDRESS=factory.example\nPANEL_PORT=9080\nPANEL_IMAGE=local/lobby-goblin:old\nFACTORIO_IMAGE=factoriotools/factorio:2.0.77\n');
+  await fs.writeFile(path.join(root,'.env'),'SERVER_ADDRESS=factory.example\nPANEL_PORT=9080\nPANEL_IMAGE=local/lobby-goblin:old\nFACTORIO_IMAGE=ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1\n');
   for(const name of ['auth','controller','secrets']){await fs.mkdir(path.join(root,'.panel-data',name));await fs.writeFile(path.join(root,'.panel-data',name,'fixture.json'),'original-'+name);}
   await fs.mkdir(path.join(root,'data/saves'),{recursive:true});await fs.writeFile(path.join(root,'data/saves/World.zip'),'real-fixture-world');
   await initializeUpdateBaseline(root);
   const names={game:'fixture-game',controller:'fixture-controller',panel:'fixture-panel'},images={game:'sha256:old-game',controller:'sha256:old-panel',panel:'sha256:old-panel'};
-  const id=crypto.randomUUID(),job={id,kind:'panel',target:'0.1.1-alpha',root,project:'fixture',names,images,gameImage:'factoriotools/factorio:2.0.77',state:'running',started:new Date().toISOString(),backup:'verified-before.zip',assets:Object.fromEntries(['.zip','.sha256','.update.json'].map(s=>[s,'https://github.com/example/project/releases/download/v0.1.1-alpha/lobby-goblin-0.1.1-alpha'+s]))};
+  const id=crypto.randomUUID(),job={id,kind:'panel',target:'0.1.1-alpha',root,project:'fixture',names,images,gameImage:'ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1',state:'running',started:new Date().toISOString(),backup:'verified-before.zip',assets:Object.fromEntries(['.zip','.sha256','.update.json'].map(s=>[s,'https://github.com/example/project/releases/download/v0.1.1-alpha/lobby-goblin-0.1.1-alpha'+s]))};
   const config={services:Object.fromEntries([['factorio','game'],['panel-controller','controller'],['panel','panel']].map(([name,key])=>[name,{container_name:names[key],image:key==='game'?job.gameImage:'local/lobby-goblin:old',platform:key==='game'?'linux/amd64':undefined,volumes:[{type:'bind',source:root+(key==='game'?'/data':'/.panel-data/'+key),target:key==='game'?'/factorio':'/state'}],ports:key==='panel'?[{target:8080,published:'9080',protocol:'tcp'}]:[]}]))};
   const releaseFiles={...files,'panel/package.json':'{"version":"0.1.1-alpha"}','panel/server.js':'// new panel\n'};
   const archive=makeZip(Object.entries(releaseFiles).map(([name,data])=>({name:'lobby-goblin-0.1.1-alpha/'+name,data:Buffer.from(data)})));
@@ -60,7 +60,7 @@ async function fixture(t){
   return {root,state,job,config,archive,metadata,calls,run,fetcher,names,images,async execute(changes={}){Object.assign(job,changes);await writeJSON(path.join(state,id+'.json'),job);return runUpdate({root,state,id,run,fetcher,own:async()=>{},now:()=>clock,wait:async()=>{clock+=60000;}});},failHealth(){failHealth=true;},failBuild(){failBuild=true;},failPull(){failPull=true;},notReady(){ready=false;}};
 }
 test('image inspection supports classic Docker and selects amd64 metadata from multi-platform stores',async()=>{
-  const image='factoriotools/factorio:2.0.77',candidate=candidateImage(image);
+  const image='ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1',candidate=candidateImage(image);
   for(const initial of [candidate,{Config:{}},{...candidate,Architecture:'arm64'}]){
     const calls=[],run=async args=>{calls.push(args);return JSON.stringify([args.includes('--platform')?candidate:initial]);};
     assert.deepEqual(await inspectGameImage(image,run),candidate);
@@ -85,16 +85,12 @@ test('verified panel update stages/builds before replacement and never restarts 
   assert.deepEqual((await readJSON(path.join(f.state,'baseline.json'))).files,await sourceSnapshot(f.root));
 });
 test('same-version source migration pins the reviewed image digest and preserves world, mods and configuration',async t=>{
-  for(const source of ['factory','upstream']){
+  for(const source of ['factory']){
     const f=await fixture(t),owned=gameSources.factory.repository;
-    if(source==='upstream'){
-      f.job.gameImage=owned+':2.0.77-fc.1';f.config.services.factorio.image=f.job.gameImage;
-      await fs.writeFile(path.join(f.root,'.env'),(await fs.readFile(path.join(f.root,'.env'),'utf8')).replace('factoriotools/factorio:2.0.77',f.job.gameImage));
-    }
     for(const file of ['config/server-settings.json','config/rconpw','config/server-id.json','mods/mod-list.json','mods/custom.zip']){await fs.mkdir(path.dirname(path.join(f.root,'data',file)),{recursive:true});await fs.writeFile(path.join(f.root,'data',file),'original-'+file);}
-    const result=await f.execute({kind:'game',target:'2.0.77',source,imageRevision:source==='factory'?1:null,targetImage:gameSources[source].repository+':2.0.77'+(source==='factory'?'-fc.1':'')});
+    const result=await f.execute({kind:'game',target:'2.0.77',source,imageRevision:2,targetImage:gameSources[source].repository+':2.0.77'+'-fc.2'});
     assert.equal(result.state,'succeeded',result.message);
-    assert.match(result.resolvedImage,new RegExp('^'+gameSources[source].repository+':2.0.77'+(source==='factory'?'-fc.1':'')+'@sha256:'));
+    assert.match(result.resolvedImage,new RegExp('^'+gameSources[source].repository+':2.0.77'+'-fc.2'+'@sha256:'));
     assert.ok(f.calls.some(a=>a[0]==='pull'&&a.at(-1)===result.targetImage));
     const probe=f.calls.find(a=>a[0]==='run');assert.ok(probe.includes('--read-only'));assert.ok(probe.includes(result.resolvedImage));assert.deepEqual(probe.slice(2,6),['--platform','linux/amd64','--pull','never']);assert.ok(!probe.some(a=>a.includes(f.root)||a==='--mount'||a==='-v'));
     for(const file of ['config/server-settings.json','config/rconpw','config/server-id.json','mods/mod-list.json','mods/custom.zip'])assert.equal(await fs.readFile(path.join(f.root,'data',file),'utf8'),'original-'+file);
@@ -114,7 +110,7 @@ test('incompatible candidate images and mismatched review targets fail before re
   ];
   for(const tamper of cases){
     const f=await fixture(t),before=await fs.readFile(path.join(f.root,'.env'),'utf8');
-    Object.assign(f.job,{kind:'game',target:'2.0.77',source:'factory',imageRevision:1,targetImage:gameSources.factory.repository+':2.0.77-fc.1'});await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);
+    Object.assign(f.job,{kind:'game',target:'2.0.77',source:'factory',imageRevision:2,targetImage:gameSources.factory.repository+':2.0.77-fc.2'});await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);
     const run=async args=>{if(args[0]==='image'){const item=candidateImage(args.at(-1));tamper(item);return JSON.stringify([item]);}return f.run(args);};
     const result=await runUpdate({root:f.root,state:f.state,id:f.job.id,run,own:async()=>{}});
     assert.equal(result.state,'failed');assert.equal(await fs.readFile(path.join(f.root,'.env'),'utf8'),before);assert.ok(!f.calls.some(a=>a.includes('up')||a.includes('stop')));
@@ -123,9 +119,9 @@ test('incompatible candidate images and mismatched review targets fail before re
   assert.equal(result.state,'failed');assert.match(result.message,/reviewed/);assert.ok(!f.calls.some(a=>a[0]==='pull'));
 });
 test('failed same-version migration keeps failed saves and prepares the previous image stopped',async t=>{
-  const f=await fixture(t);f.notReady();const result=await f.execute({kind:'game',target:'2.0.77',source:'factory',imageRevision:1});
+  const f=await fixture(t);f.notReady();const result=await f.execute({kind:'game',target:'2.0.77',source:'factory',imageRevision:2});
   assert.equal(result.state,'failed');assert.equal(result.recovery.requiresWorldRestore,true);
-  assert.match(await fs.readFile(path.join(f.root,'.env'),'utf8'),/FACTORIO_IMAGE=factoriotools\/factorio:2.0.77/);
+  assert.match(await fs.readFile(path.join(f.root,'.env'),'utf8'),/FACTORIO_IMAGE=ghcr.io\/jkenneydaniel\/factorio-server:2.0.77-fc.1/);
   assert.equal(await fs.readFile(path.join(f.root,'data/saves/World.zip'),'utf8'),'real-fixture-world');
 });
 test('image replacement validation refuses changes to existing server settings',async t=>{
@@ -134,19 +130,19 @@ test('image replacement validation refuses changes to existing server settings',
 });
 test('administrator reviews persist exact provider and revision, retain old-client defaults, and never change data',async t=>{
   const f=await fixture(t),manager=reviewManager(f);await manager.init();
-  const plan=await manager.plan({kind:'game',target:'2.0.77',source:'factory',imageRevision:1});
-  assert.equal(plan.operation,'image-change');assert.equal(plan.targetImage,gameSources.factory.repository+':2.0.77-fc.1');
+  const plan=await manager.plan({kind:'game',target:'2.0.77',source:'factory',imageRevision:2});
+  assert.equal(plan.operation,'image-change');assert.equal(plan.targetImage,gameSources.factory.repository+':2.0.77-fc.2');
   assert.match(plan.notes,/version stays the same/);
-  const stored=await readJSON(path.join(f.state,'plan-'+plan.id+'.json'));assert.equal(stored.source,'factory');assert.equal(stored.imageRevision,1);
-  const oldClient=await manager.plan({kind:'game',target:'2.0.78'});assert.equal(oldClient.targetImage,'factoriotools/factorio:2.0.78');
+  const stored=await readJSON(path.join(f.state,'plan-'+plan.id+'.json'));assert.equal(stored.source,'factory');assert.equal(stored.imageRevision,2);
+  const oldClient=await manager.plan({kind:'game',target:'2.0.78'});assert.equal(oldClient.targetImage,gameSources.factory.repository+':2.0.78-fc.1');
   f.job.gameImage=gameSources.factory.repository+':2.0.77-fc.2';
   const upgrade=await manager.plan({kind:'game',target:'2.0.78',imageRevision:1});assert.equal(upgrade.targetImage,gameSources.factory.repository+':2.0.78-fc.1');
-  await assert.rejects(manager.plan({kind:'game',target:'2.0.76',source:'upstream'}),/Downgrades/);
+  await assert.rejects(manager.plan({kind:'game',target:'2.0.76',source:'factory'}),/Downgrades/);
   assert.equal(await fs.readFile(path.join(f.root,'data/saves/World.zip'),'utf8'),'real-fixture-world');
 });
 test('wrong binary version fails the disposable preflight before configuration or containers change',async t=>{
   const f=await fixture(t),before=await fs.readFile(path.join(f.root,'.env'),'utf8');
-  Object.assign(f.job,{kind:'game',target:'2.0.77',source:'factory',imageRevision:1});await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);
+  Object.assign(f.job,{kind:'game',target:'2.0.77',source:'factory',imageRevision:2});await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);
   const run=async args=>args[0]==='run'?'Version: 2.0.76':f.run(args);
   const result=await runUpdate({root:f.root,state:f.state,id:f.job.id,run,own:async()=>{}});
   assert.equal(result.state,'failed');assert.match(result.message,/binary/);assert.equal(await fs.readFile(path.join(f.root,'.env'),'utf8'),before);assert.ok(!f.calls.some(a=>a.includes('up')||a.includes('stop')));
@@ -197,9 +193,9 @@ test('an edit arriving during a build is preserved when the final baseline check
 });
 test('game update pulls one pinned amd64 version and verifies its reported version',async t=>{
   const f=await fixture(t),result=await f.execute({kind:'game',target:'2.0.78'});assert.equal(result.state,'succeeded',result.message);
-  assert.ok(f.calls.some(a=>a.join(' ')==='pull --platform linux/amd64 factoriotools/factorio:2.0.78'));
+  assert.ok(f.calls.some(a=>a.join(' ')==='pull --platform linux/amd64 ghcr.io/jkenneydaniel/factorio-server:2.0.78-fc.1'));
   assert.deepEqual(f.calls.find(a=>a.includes('up')).slice(-1),['factorio']);
-  assert.match(await fs.readFile(path.join(f.root,'.env'),'utf8'),/FACTORIO_IMAGE=factoriotools\/factorio:2.0.78/);
+  assert.match(await fs.readFile(path.join(f.root,'.env'),'utf8'),/FACTORIO_IMAGE=ghcr.io\/jkenneydaniel\/factorio-server:2.0.78-fc.1/);
 });
 test('failed game download leaves source, configuration and running services unchanged',async t=>{
   const f=await fixture(t),before=await fs.readFile(path.join(f.root,'.env'),'utf8');f.failPull();const result=await f.execute({kind:'game',target:'2.0.78'});

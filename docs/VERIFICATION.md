@@ -1,5 +1,80 @@
 # Release verification
 
+## v0.3.4-alpha preparation: owned images and automatic migration
+
+The source is based on v0.3.3-alpha and retains the restored WebRCON, dependency
+lockfile and historical Rust recovery changes. These checks prepare source and
+images without installing the release in an existing deployment.
+
+- Node 24: **235 passed, zero failed, one skipped** (236 total) on macOS and in
+  an isolated, network-disabled Linux container. The Linux run passed the root
+  ownership test; the Lua interpreter was unavailable. Python Factorio image
+  runtime tests: **20 passed**. Both example Compose configurations validated.
+- Migration tests cover running and stopped Factorio/Rust, backup/image failure
+  before replacement, ownership and custom-wrapper refusal, rename/create/config
+  interruptions, controller recreation/start interruption and resumption, exact
+  network/mount/resource settings, protected recovery backups and verified
+  standalone retirement without deleting storage. Full standalone worker tests
+  check image-only environment edits, file permissions, recovery environment and
+  Rust controller/installation metadata.
+- The shared HTTP operation gate rejects mutations while migration is pending
+  and clears only after the recorded image is actually installed. Snapshot
+  compatibility tests cover pinned digest references and older image snapshots;
+  newly provisioned Rust clones explicitly permit a first Steam installation.
+- The public panel image built. Its packaged installer passed first-time setup
+  and a safe rerun with no network, Docker socket or running game. The actual
+  **v0.3.3-alpha updater source** accepted all four new ZIP variants (complete
+  source and compatibility archives, current and historical asset names).
+  Every variant includes the shared migration and custom Rust image sources.
+- Rust image tests cover fresh/existing installs, saved seed/size, missing binary
+  refusal, identity/symlink protection, a restricted temporary Docker build
+  context, startup health and shutdown evidence. An early WebRCON response cannot
+  mark an initializing world ready or allow save/stop operations. Rust's
+  self-termination is recognized only
+  after the supervisor's acknowledged save, observed save completion and explicit
+  game quit; unrelated signals/nonzero exits remain failures.
+
+Native Windows x86-64 Docker acceptance (new private fixtures, no host ports):
+
+- Factorio **passed** the real legacy-to-owned migration, same-world readiness,
+  configuration/password/mod-list preservation, saved-state backup recovery,
+  stop/start/restart and unchanged resource/port settings. The old game formatted
+  `mod-list.json` during its own shutdown without changing its contents; the new
+  wrapper retained the stopped source file byte-for-byte. The legacy exit was
+  143 with current-run save/Goodbye proof; all three owned-image stops were zero.
+  All containers, networks and volumes for that run were removed.
+- Rust **passed both complete suites**: legacy-to-owned migration and a fresh
+  SteamCMD installation on an empty volume. SteamCMD reported app **258550**
+  successfully installed, and the new server reached completed startup.
+- Both Rust suites preserved installed binary/configuration hashes, the same
+  seed **456** and size **1000**, player/settings queries, 30 rapid WebRCON
+  requests and unchanged resource/port settings. After changing the running
+  world to **18.5**, archive recovery returned **13.38351** (migration) and
+  **13.37822** (fresh), within tolerance of the saved **13.37** marker.
+- Both suites exercised the real HTTP controller's status, empty player list,
+  bounded logs, settings, verified backup, stop, edit, start and restart. The
+  edited eight-player limit was visible after restart. All **14 game exits** and
+  **two HTTP-controller exits** were zero, with save completion and explicit
+  game quit observed. The harness explicitly handles its HTTP process shutdown;
+  game stops remain unlimited and graceful.
+- Health observations confirmed each tested start begins without a readiness
+  marker, then becomes healthy with a root-owned mode-600 marker identifying a
+  live game PID. WebRCON alone is not sufficient to establish readiness.
+- Independent label-scoped cleanup confirmed **zero** remaining containers,
+  networks, volumes or outer harnesses for both Rust runs. Factorio's earlier
+  pass remains applicable: its tested image and all **30** image/module source
+  files were unchanged.
+
+Native Rust acceptance used public source bundle SHA-256
+`b827fd1c7e18aa514035141212ad76c0782f7ed8d91c516c7840d53d11f1fbf0`.
+Subsequent source changes only update this verification record. No human client
+joined; player-list acceptance used real empty servers.
+
+The registry image digests are intentionally required in production before any
+backup/stop. Locally built images are enabled only by the acceptance harness;
+no controller environment flag bypasses publication checks. No image or release
+has been published as part of these preparation checks.
+
 ## Unreleased: single-host manager, October 20, 2026
 
 Implemented and accepted on a Windows x86-64 host running Linux containers with
@@ -59,24 +134,27 @@ PC/console and a full computer reboot were not exercised here. Restart policies
 were inspected; the manager replacement was exercised without restarting games.
 See [host manager setup and operation](FLEET.md).
 
-## Unreleased: Lobby Goblin and disposable Rust runtime checks, October 19, 2026
+## Historical standalone Lobby Goblin and Rust runtime checks, October 19–20, 2026
 
 The repository was renamed to `jkenneydaniel/lobby-goblin`. Source branding,
 interfaces, launchers, image metadata, package names and documentation use Lobby
 Goblin. Historical update archives, workers, repository settings and published
-Factorio image labels remain supported. Source changes are local and unreleased;
+Factorio image labels remain supported. At the time of these checks, source changes were local and unreleased;
 the existing Factorio installation was not deployed or reconfigured.
 
-- Node 24 suite: 157 passed, zero failed, one Linux-only ownership check skipped
-  on macOS. The final Rust/branding/package subset passed all 19 checks after
-  the startup-template and branding changes. Python image-wrapper tests: 12 passed.
+- Node 24 suite: 159 passed, zero failed, one Linux-only ownership check skipped
+  on macOS. The final Rust subset passed all 18 checks after connection reuse.
+  Python image-wrapper tests: 12 passed.
   Both current and historical release packages were unpacked/imported in temporary
   folders. Default and generated standalone Compose configurations validate.
-- A native ARM64 panel image built successfully and imported both game modules.
+- A native ARM64 panel image built successfully, imported both game modules and
+  included the locked `ws` dependency. The actual built image passed first-time
+  setup and a safe repeated setup from the release ZIP with no network, Docker
+  socket or running game.
   Browser checks covered the renamed Factorio fixture, Rust fixture, and the final
   Rust web image connected to the disposable runtime. Synthetic preview data are
   distinct from the actual runtime results below.
-- The real test used a new temporary installation, a random installation ID,
+- The Mac runtime test used a new temporary installation, a random installation ID,
   dedicated containers/bridge/accounts/secrets/data/backups, loopback-only random
   host ports, an 8 GiB game memory limit and four game CPUs. Controller/RCON ports
   were private. No existing Factorio container, installation or world was used.
@@ -102,15 +180,81 @@ entity/navmesh/occlusion and Steam initialization; management readiness still
 has not completed. These experiments changed only the disposable stack, without
 changing Docker's global emulator or VM settings.
 
-**Runtime acceptance remains incomplete:** clean lifecycle operations, settings
-applied in a ready game, connected-player results, successful real backups and
-actual game-load recovery are not yet verified. Fixture/hash/TAR checks do not
-substitute for a real recovery. A native x86 Docker host running Linux containers
-with sufficient free memory is needed to finish acceptance. Windows Docker
-Desktop is a suitable target; the saved Windows Docker endpoint timed out during
-the connection check, so no Windows containers or files have been created yet.
 The disposable Mac containers and private bridge were removed. The experimental
 emulator is not part of the distributed setup or a supported ARM solution.
+
+### Native Windows Docker acceptance
+
+- The connected Windows 11 host has native x86-64 Linux Docker Desktop, a
+  31.29 GiB Docker VM and about 29.8 GiB available during preflight. The saved TCP
+  Docker context was stale; testing used its connected Windows Codex chat.
+- A source-only transfer (165 allowlisted files, 339,355 bytes) was verified
+  against SHA-256 before extraction into a new temporary directory outside
+  Factorio. Its SHA-256 was
+  `41575c5c19bafabad33288957ed20edbe2e4805ba10d99c532399d34d5eeb75d`.
+- The isolated installation ID is `5bce0a3e8ec46500121da47bd2714021`.
+  It has separate Rust/controller/panel containers, accounts, credentials,
+  bridge, game data and backups. Panel/game/query host ports are loopback-only
+  63967/53682/53683; RCON and controller ports are private.
+- Windows-side Compose reported the game bind source as a Windows path. Creating
+  only the disposable game container through Linux-side Compose produced the
+  expected `/run/desktop/mnt/host/c/...` path. Strict mount/image/label checks
+  remained enabled. This test adaptation does not add a native Windows installer.
+- The panel image built, SteamCMD installed Rust successfully, and the game
+  reached `Server startup complete` with a new 1000m map. The runtime reported
+  `server.seed` 921721; the disposable game had four CPUs and a 12 GiB memory cap.
+  Its Steam appmanifest confirmed app 258550, build 25902425; the loaded save was
+  `proceduralmap.1000.921721.289.sav`.
+  Controller resource readings, actual browser registration/sign-in and disabled
+  running-state settings controls were observed.
+- After a temporary host disconnect and renewed direct authorization in the
+  Windows chat, testing resumed. The original WebRCON client left five sockets
+  open, exhausting Rust's default five-connections-per-IP limit. Calls six and
+  seven failed; a diagnostic client that explicitly terminated each socket passed
+  all seven. Twenty paced calls passed after explicit cleanup, leaving zero
+  sockets, but an unpaced ten-call burst hit Rust's reconnect controls and briefly
+  made further calls unavailable. The final source fix uses locked `ws` 8.22.0
+  and reuses one connection per controller, with correlated replies, up to 64
+  pending commands and bounded upgrade time/payload size. Failure, timeout and
+  30-second idle cleanup destroy the socket. Disconnected writes are never
+  replayed. Loopback regressions cover stalled upgrades, unanswered closes,
+  concurrent replies in reverse order, and timeout/disconnect recovery.
+- The final controller passed 41 actual status/player requests across sequential
+  and concurrent bursts and an idle reconnect, with no failures or controller
+  restart. Exactly one connection remained after the bursts, zero after idle
+  cleanup, and one after reconnect. Both runtime file hashes matched source.
+- Clean save/stop exited with code zero and no OOM kill. All four exposed
+  settings saved while stopped, preserving an unrelated setting. Start reached
+  readiness. The exact patched runtime files were verified by SHA-256 before
+  rebuilding only the disposable controller and panel. The source-transfer
+  service on the Mac was closed after the verified initial download.
+
+- The final patched runtime passed clean stop, settings save, start and restart.
+  Running settings edits were refused. The real game reported the edited name
+  and seven-player limit; an unmanaged configuration line remained unchanged.
+- A real backup saved/stopped the game, published and verified an archive, and
+  resumed to WebRCON readiness. Its authenticated download matched the stored
+  archive: 2,390,224 bytes, SHA-256
+  `f5cd229cd1d17cac73612f7a34a0d1ae1fc80e8fa46a6a0d5a759a3082a1dd8e`.
+  Independent Python standard-library TAR extraction checked exact manifest
+  membership and all 30 file hashes, totaling 4,302,477 uncompressed bytes.
+- The disposable world was then changed and saved at 18.5, cleanly stopped, and
+  its post-backup identity preserved separately. Only that disposable identity
+  was replaced with the independently extracted copy. The module's start job
+  succeeded, Rust reported the expected hostname and seven-player limit, and
+  `env.time` returned **13.37243**, near the saved **13.37** marker. This is actual
+  game-load recovery, beyond archive integrity. Logs confirmed **819 entities
+  loaded from the save** and `Server startup complete`. The browser displayed the
+  recovered server, empty player list, filtered logs, settings and verified backups.
+  No human client join was tested.
+
+Runtime acceptance passed. All three Windows test containers, their private
+network and test panel/helper image tags were removed; checks found no remaining
+owned containers or network. Shared bootstrap images and build cache were
+retained. The redacted evidence report scanned 69 files against four test
+secrets without finding a leak. The Mac disposable containers/network and local
+UI preview processes were also removed/stopped. No running Factorio server,
+existing installation or world was changed.
 
 ## Initial isolated Rust fixture checks, October 19, 2026
 

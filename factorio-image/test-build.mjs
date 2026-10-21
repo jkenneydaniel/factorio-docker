@@ -8,14 +8,14 @@ import {imageDefinition,buildImage,testImage} from '../tools/factorio-image.mjs'
 import {publicSource,sourceSnapshot,unpackRelease,sha256} from '../panel/update-source.js';
 import {makeZip} from '../panel/zip.js';
 const owned=gameSources.factory.repository;
-test('the independent image definition pins Debian, the official archive and the x86 platform without changing deployment defaults',async()=>{
+test('the independent image definition pins Debian, the official archive and the x86 platform and owns deployment defaults',async()=>{
   const definition=await imageDefinition(),calls=[];await buildImage(definition,async args=>calls.push(args));
-  assert.equal(definition.image,owned+':2.0.77-fc.2');assert.match(definition.baseImage,/^debian:.*@sha256:/);
+  assert.equal(definition.image,owned+':2.0.77-fc.3');assert.match(definition.baseImage,/^debian:.*@sha256:/);
   assert.equal(calls.length,1);assert.deepEqual(calls[0].slice(0,5),['buildx','build','--load','--platform','linux/amd64']);
   const dockerfile=await fs.readFile(new URL('./Dockerfile',import.meta.url),'utf8');
   assert.ok(!dockerfile.includes('factoriotools'));assert.match(dockerfile,/www.factorio.com\/get-download/);assert.match(dockerfile,/sha256sum -c/);
-  assert.match(await fs.readFile(new URL('../compose.yaml',import.meta.url),'utf8'),/FACTORIO_IMAGE:-factoriotools\/factorio:2.0.77/);
-  assert.match(await fs.readFile(new URL('../.env.example',import.meta.url),'utf8'),/^FACTORIO_IMAGE=factoriotools\/factorio:2.0.77/m);
+  assert.match(await fs.readFile(new URL('../compose.yaml',import.meta.url),'utf8'),/FACTORIO_IMAGE:-ghcr.io\/jkenneydaniel\/factorio-server:2.0.77-fc.3/);
+  assert.match(await fs.readFile(new URL('../.env.example',import.meta.url),'utf8'),/^FACTORIO_IMAGE=ghcr.io\/jkenneydaniel\/factorio-server:2.0.77-fc.3/m);
 });
 test('container acceptance commands use only unique disposable resources and clean up a failed start',async()=>{
   const definition=await imageDefinition(),config={Entrypoint:['/docker-entrypoint.sh'],Volumes:{'/factorio':{}},ExposedPorts:{'34197/udp':{},'27015/tcp':{}},Env:['SAVES=/factorio/saves','CONFIG=/factorio/config','MODS=/factorio/mods','SCENARIOS=/factorio/scenarios','SCRIPTOUTPUT=/factorio/script-output','PUID=845','PGID=845','PORT=34197','RCON_PORT=27015'],Labels:{'factorio.version':definition.version,'io.lobby-goblin.compatibility':'1','io.lobby-goblin.image-revision':String(definition.revision)}};
@@ -27,7 +27,7 @@ test('container acceptance commands use only unique disposable resources and cle
         if(classic)assert.equal(args.includes('--platform'),false,'Classic Docker clients do not need platform-specific inspect');
         else assert.deepEqual(args.slice(2,4),['--platform','linux/amd64']);
         const parsed=parseGameImage(args.at(-1));
-        return JSON.stringify([{Id:'sha256:'+'a'.repeat(64),RepoDigests:classic&&parsed.source==='factory'?[]:[gameSources[parsed.source].repository+'@sha256:'+'b'.repeat(64)],Architecture:'amd64',Os:'linux',Config:config}]);
+        return JSON.stringify([{Id:'sha256:'+'a'.repeat(64),RepoDigests:classic&&parsed?.source==='factory'?[]:[(parsed?gameSources[parsed.source].repository:'factoriotools/factorio')+'@sha256:'+'b'.repeat(64)],Architecture:'amd64',Os:'linux',Config:config}]);
       }
       if(args[0]==='inspect')return JSON.stringify([{State:{ExitCode:0}}]);
       if(args[0]==='logs')return 'Loading map /factorio/saves/Compatibility.zip: fixture';

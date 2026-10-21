@@ -1,6 +1,7 @@
 # Development and release
 
-Use Node.js 24 or newer. There are no npm dependencies to install.
+Use Node.js 24 or newer. Install the locked WebSocket dependency before testing;
+container builds install it automatically. Host setup remains independent of npm.
 See [the shared-core/module contract](ARCHITECTURE.md) before adding game behavior.
 The [Rust module guide](RUST.md) documents its separate, prepare-only installation.
 `node panel/test/rust-ui-preview.js` serves a synthetic Rust panel on loopback
@@ -8,6 +9,7 @@ port 8090 with mock game/host transports and disposable storage.
 
 ```sh
 cd panel
+npm ci --ignore-scripts
 npm test
 ```
 
@@ -16,7 +18,8 @@ real Docker socket. Run them in Linux/Node Docker if host filesystem restriction
 prevent temporary-file renames. A read-only mount of the source is sufficient:
 
 ```sh
-docker run --rm -v "./panel:/test:ro" -w /test node:24.22.0-bookworm-slim npm test
+docker run --rm -v "./panel:/source:ro" -w /tmp node:24.22.0-bookworm-slim \
+  sh -c 'cp -R /source /tmp/panel && cd /tmp/panel && npm ci --ignore-scripts && npm test'
 ```
 
 `node panel/test/ui-preview.js` starts a loopback-only UI fixture on port 8089.
@@ -37,7 +40,7 @@ simulations only; real lifecycle, account writes and installations stay blocked.
 ## Build without deploying
 
 ```sh
-docker build -t local/lobby-goblin:0.2.6-alpha panel
+docker build -t local/lobby-goblin:0.3.4-alpha panel
 docker compose --env-file .env.example config --quiet
 ```
 
@@ -91,3 +94,12 @@ See [the image guide](../factorio-image/README.md) for the pinned build definiti
 first-party startup/RCON runtime, isolated Python tests and separate container
 acceptance/publication workflow. Local changes must not deploy or migrate the
 running server. The compatibility baseline is Factorio 2.0.77 on linux/amd64.
+
+## Game image migration acceptance
+
+See [the image migration contract](IMAGE_MIGRATION.md) and
+[the Rust image build/acceptance guide](../panel/games/rust/image/README.md).
+The shared migration and standalone/host coordination tests simulate Docker;
+`panel/test/image-acceptance.mjs` deliberately uses a real Linux amd64 Docker
+socket, new labelled resources and no published ports. Never aim it at existing
+installation data. Image publication and release preparation do not deploy games.

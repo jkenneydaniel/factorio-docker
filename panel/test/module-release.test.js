@@ -28,6 +28,8 @@ test('compatible release bundles contain an importable core/module runtime and p
   }
   for(const suffix of ['','.source']){
     const files=unpackRelease(await fs.readFile(prefix+suffix+'.zip'),await fs.readFile(prefix+suffix+'.sha256','utf8'),version,JSON.parse(await fs.readFile(prefix+suffix+'.update.json','utf8')));
+    assert.ok(files.has('panel/package-lock.json'),'Release must include the locked Rust WebSocket dependency');
+    for(const name of ['panel/core/image-migration.js','panel/core/standalone-migration.js','panel/fleet/migrations.js','panel/games/rust/image/Dockerfile','panel/games/rust/image/entrypoint.mjs','panel/games/rust/image/image.json'])assert.ok(files.has(name),'Missing migration or image source: '+name);
     for(const name of ['panel/fleet/manager.js','panel/fleet/controller.js','panel/fleet/web.js','panel/fleet/worker.js','panel/core/data-mount.js','panel/public/scope.js','panel/public/fleet/app.js','panel/core/controller.js','panel/core/web.js','panel/core/accounts.js','panel/games/index.js','panel/games/factorio/controller.js','panel/games/factorio/setup.js','panel/games/factorio/update-worker.js','panel/games/rust/controller.js','panel/games/rust/archive.js','panel/games/rust/compose.yaml','panel/games/rust/setup.js','panel/public/rust/app.js'])assert.ok(files.has(name),'Missing module source in '+suffix+' bundle: '+name);
     assert.ok(![...files.keys()].some(name=>/^(data|backups|\.panel-data)\//.test(name)));
     if(suffix){for(const name of ['fleet.compose.yaml','.env.fleet.example','Fleet.ps1','Fleet.sh'])assert.ok(files.has(name),'Missing host manager launcher '+name);continue;}
