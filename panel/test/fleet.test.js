@@ -100,6 +100,20 @@ test('host creation stays active until the child accepts start and persists the 
  const saved=await readJSON(path.join(f.manager.root,'registry.json'));
  assert.equal(saved.jobs.find(j=>j.id===job.id).state,'succeeded');assert.equal(saved.servers[0].state,'installed');
 });
+test('memory admission includes each controller and refused creates leave no stale reservation',async t=>{
+ const f=await fakeManager(t);await f.submit({game:'factorio',name:'Existing',memoryGiB:3});
+ const before=f.calls.length,job=await f.manager.submit('create',{game:'rust',name:'Default Rust'});await f.settled(job);
+ assert.equal(job.state,'failed');assert.match(job.message,/configured memory budget/);
+ assert.equal(f.manager.memoryBudgetGiB,16);assert.equal(f.manager.state.servers.length,1);
+ assert.ok(f.calls.slice(before).every(call=>call.method==='GET'),'Admission fails before allocating any resource');
+ const rust=await f.submit({game:'rust',name:'Fits exactly',memoryGiB:11});
+ assert.equal(f.manager.state.servers.length,2);assert.equal(f.containers.get(rust.container).HostConfig.Memory,11*1024**3);
+});
+test('default Rust and a 2 GiB Factorio allocation fit the 16 GiB budget exactly',async t=>{
+ const f=await fakeManager(t);await f.submit({game:'factorio',name:'Default Factorio'});
+ const rust=await f.submit({game:'rust',name:'Default Rust'});
+ assert.equal(rust.memoryGiB,12);assert.equal(f.manager.state.servers.reduce((sum,s)=>sum+s.memoryGiB+1,0),16);
+});
 test('host registry refuses another fleet marker before Docker mutations',async t=>{const f=await fixture(t),root=await directory(f.root,'state');await writeJSON(path.join(root,'.fleet-owner.json'),{fleet:'f'.repeat(32)});const m=new FleetManager({docker:()=>assert.fail('Must not call Docker'),root,library:f.library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'test',hostContainer:'test'});await assert.rejects(m.init(),/another installation/);});
 test('one fleet login opens scoped game controls; viewer/CSRF boundaries survive delegation',async t=>{
  const f=await fixture(t),auth=await directory(f.root,'auth'),tokenFile=path.join(f.root,'token');await fs.writeFile(tokenFile,token);await writeJSON(path.join(auth,'users.json'),{admin:{...hashPassword('test-admin-password'),role:'admin'},viewer:{...hashPassword('test-viewer-password'),role:'viewer'}});

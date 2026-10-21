@@ -77,3 +77,17 @@ No real Docker engine, production server, release, deployment, or existing world
 was modified. The Python generation tests use temporary files and a simulated
 Factorio subprocess. Real Factorio image acceptance remains a CI/build check,
 not a local result claimed here.
+
+## v0.3.2-alpha release candidate
+
+The candidate preserves the concurrent v0.3.1-alpha session-loading fixes.
+The combined local Node suite passed 186 tests with one platform skip; two
+additional memory-admission regressions then passed with all 15 fleet tests.
+Image runtime tests, workflow tests, packaging and diff checks also passed.
+
+Memory admission reserves each game's configured GiB plus 1 GiB for its
+controller. A 3 GiB Factorio allocation and default 12 GiB Rust allocation require
+17 GiB, exceeding a 16 GiB configured budget. A 2 GiB Factorio allocation and
+12 GiB Rust allocation fit exactly at 16 GiB. Regression tests verify both
+boundaries and that refusal occurs before creating resources or reservations.
+Budget and physical-memory safeguards remain unchanged.

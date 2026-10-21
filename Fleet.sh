@@ -14,7 +14,7 @@ if [ ! -f "$config" ]; then
  umask 077
  cat > "$config" <<EOF
 FLEET_ID=$id
-FLEET_IMAGE=local/lobby-goblin-host:0.3.0-alpha
+FLEET_IMAGE=local/lobby-goblin-host:0.3.2-alpha
 FLEET_ADDRESS=$address
 FLEET_PANEL_PORT=${FLEET_PANEL_PORT:-8082}
 FLEET_PANEL_BIND=0.0.0.0

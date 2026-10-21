@@ -31,7 +31,7 @@ async function api(route,{method='GET',body,raw=false,signal}={}){
 let toastTimer;
 function toast(message,error=false){const element=$('#toast');element.textContent=message;element.className='toast'+(error?' error':'');element.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{element.hidden=true;},error?10000:6500);}
 async function confirmAction(title,message,label='Continue'){const dialog=$('#confirm-dialog');$('#confirm-title').textContent=title;$('#confirm-message').textContent=message;$('#confirm-yes').textContent=label;dialog.returnValue='';dialog.showModal();return await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='confirm'),{once:true}));}
-function showLogin(){cleanWorldPreview();clearWorldDraft();worldOptions=null;createdWorld=null;worldSearch='';worldFilter='all';panelRelease=null;lastReleasePoll=0;updateState=null;$('#release-notice').hidden=true;user=null;livePositions=null;cleanMap();clearInterval(refreshTimer);clearInterval(liveTimer);$('#app-view').hidden=true;$('#login-view').hidden=false;$('#login-form').hidden=false;$('#register-form').hidden=true;}
+function showLogin(){$('#session-loading').hidden=true;cleanWorldPreview();clearWorldDraft();worldOptions=null;createdWorld=null;worldSearch='';worldFilter='all';panelRelease=null;lastReleasePoll=0;updateState=null;$('#release-notice').hidden=true;user=null;livePositions=null;cleanMap();clearInterval(refreshTimer);clearInterval(liveTimer);$('#app-view').hidden=true;$('#login-view').hidden=false;$('#login-form').hidden=false;$('#register-form').hidden=true;}
 function invitationToken(value){return String(value).trim().split('#register=').pop();}
 async function showRegistration(token=''){
   showLogin();$('#login-form').hidden=true;$('#register-form').hidden=false;$('#register-form').reset();
@@ -51,6 +51,7 @@ $('#register-form').addEventListener('submit',async event=>{
   catch(error){$('#register-error').textContent=error.message;}finally{button.disabled=false;}
 });
 async function showApp(){
+  $('#session-loading').hidden=true;
   $('#login-view').hidden=true;$('#app-view').hidden=false;$('#user-label').textContent=user.username+' · '+(admin()?'Administrator':'Read-only');
   $('#accounts-nav').hidden=false;$('#setup-nav').hidden=!admin();
   if(admin()&&user.onboarding?.completed===false&&!location.hash)history.replaceState(null,'','/#setup');
