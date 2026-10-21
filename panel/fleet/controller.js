@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';import http from 'node:http';
-import {FleetManager} from './manager.js';import {catalog,validId,noManagedUpdater} from './catalog.js';import {docker as dockerAPI} from '../core/docker.js';import {selectedGame} from '../games/index.js';
+import {FleetManager} from './manager.js';
+import {proxyResponse} from '../core/proxy.js';
+import {catalog,validId,noManagedUpdater} from './catalog.js';import {docker as dockerAPI} from '../core/docker.js';import {selectedGame} from '../games/index.js';
 import {assert,equalSecret,json,requestJSON,readBody,redact} from '../common.js';import {initializePanel} from '../init.js';
 export async function startFleetController({env=process.env,docker=dockerAPI,port=Number(env.PORT||8091),hostname='0.0.0.0'}={}){
  const root=env.FLEET_ROOT||'/fleet',library=env.FLEET_LIBRARY||'/library',webRoot=env.FLEET_WEB_ROOT||'/web-state';
@@ -14,7 +16,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(url.pathname==='/servers'){
    if(req.method==='GET')return json(res,200,{servers:manager.list()});assert(req.method==='POST','Not found.',404);return json(res,202,await manager.submit('create',await requestJSON(req),req.headers['x-panel-user']||'administrator'));
   }
-  if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater('0.3.1-alpha').refresh());
+  if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater('0.3.2-alpha').refresh());
   const match=url.pathname.match(/^\/servers\/([a-f0-9]{32})(?:\/(.*))?$/);assert(match,'Not found.',404);const item=manager.server(match[1]),tail=match[2]||'';
   if(!tail&&req.method==='GET')return json(res,200,manager.publicServer(item));
   if(req.method==='POST'&&['snapshot','remove'].includes(tail)){const body=await requestJSON(req);return json(res,202,await manager.submit(tail==='snapshot'?'publish':'remove',{...body,serverId:item.id},req.headers['x-panel-user']||'administrator'));}
@@ -22,9 +24,8 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   assert(['/status','/diagnostics','/backups','/jobs','/download','/schedule','/backup-retention','/update-status','/update-plan','/update-install',...module.routes].includes(route),'Not found.',404);
   assert(['GET','POST'].includes(req.method),'Not found.',404);assert(req.method==='GET'||!item.maintenance,'A host operation is using this server. Wait for it to finish.',409);
   await manager.ownedContainer(item.controller,item.id);let body;if(req.method==='POST')body=await readBody(req,route==='/upload'?128*1024**2:1024**2);
-  const response=await fetch(`http://${item.controller}:8081${route}${url.search}`,{method:req.method,headers:{authorization:'Bearer '+item.controllerToken,'content-type':req.headers['content-type']||'application/json','x-panel-user':req.headers['x-panel-user']||'administrator'},body,signal:AbortSignal.timeout(route==='/download'?300000:30000)});
-  for(const key of ['content-type','content-disposition'])if(response.headers.has(key))res.setHeader(key,response.headers.get(key));res.setHeader('cache-control','no-store');res.writeHead(response.status);if(response.body)for await(const b of response.body)if(!res.write(b))await new Promise(resolve=>res.once('drain',resolve));res.end();
+  return proxyResponse(req,res,`http://${item.controller}:8081${route}${url.search}`,{headers:{authorization:'Bearer '+item.controllerToken,'content-type':req.headers['content-type']||'application/json','x-panel-user':req.headers['x-panel-user']||'administrator'},body,download:route==='/download'});
  }
- const server=http.createServer((req,res)=>handle(req,res).catch(error=>{if(!res.headersSent)json(res,error.status||502,{error:error.status?redact(error.message):'The host manager could not complete the request.'});else res.end();}));server.requestTimeout=300000;
+ const server=http.createServer((req,res)=>handle(req,res).catch(error=>{if(!res.headersSent)json(res,error.status||502,{error:error.status?redact(error.message):'The host manager could not complete the request.'});else res.destroy();}));server.requestTimeout=300000;
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,hostname,resolve);});return {server,manager};
 }

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.2-alpha — 2026-10-21
+
+- Let backup downloads outlive the generic proxy timeout at both web and host
+  manager layers. Bound idle reads, respect client backpressure, cancel upstream
+  requests when clients disconnect, and visibly fail interrupted transfers.
+- Watch the relocated Factorio image validator in both image CI path filters.
+- Keep interrupted first-world generation retryable with the same settings and
+  password. Generate into a temporary save and publish without overwriting
+  existing saves. Established identities with missing saves still require repair.
+  This image-source fix awaits a separately published and adopted Factorio image;
+  the existing fleet image digest is unchanged.
+- Make fleet regression fixtures await operation completion and final persistence
+  and exercise the real asynchronous child-controller handoff under delay.
+- Retain the session-loading and sign-in-flash fixes from 0.3.1-alpha.
+
 ## 0.3.1-alpha — 2026-10-20
 
 - Avoid briefly displaying sign-in when opening a server or returning to the

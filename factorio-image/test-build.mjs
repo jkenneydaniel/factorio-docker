@@ -30,6 +30,7 @@ test('container acceptance commands use only unique disposable resources and cle
         return JSON.stringify([{Id:'sha256:'+'a'.repeat(64),RepoDigests:classic&&parsed.source==='factory'?[]:[gameSources[parsed.source].repository+'@sha256:'+'b'.repeat(64)],Architecture:'amd64',Os:'linux',Config:config}]);
       }
       if(args[0]==='inspect')return JSON.stringify([{State:{ExitCode:0}}]);
+      if(args[0]==='logs')return 'Loading map /factorio/saves/Compatibility.zip: fixture';
       if(args[0]==='start'&&fail)throw Error('simulated start failure');
       if(args.includes('--read-only'))return 'Version: '+definition.version+' (build fixture)';
       if(args[0]==='exec')return args.at(-1)==='/version'?definition.version:args.at(-1).includes('game.tick')?(++ticks===1?'':'42'):'';
@@ -50,4 +51,14 @@ test('image build sources are included in update snapshots and public packages, 
   assert.deepEqual(Object.keys(await sourceSnapshot(root)).sort(),Object.keys(files).sort());
   const archive=makeZip(Object.entries(files).map(([name,text])=>({name:'lobby-goblin-0.2.2-alpha/'+name,data:Buffer.from(text)})));
   assert.equal(unpackRelease(archive,sha256(archive)+'  lobby-goblin-0.2.2-alpha.zip','0.2.2-alpha',{format:1,version:'0.2.2-alpha',updater:1,stateVersion:1,rollbackSafe:true}).size,Object.keys(files).length);
+});
+
+test('image CI watches the Factorio image validator implementation for pushes and pull requests',async()=>{
+  const workflow=await fs.readFile(new URL('../.github/workflows/factorio-image.yml',import.meta.url),'utf8');
+  for(const event of ['push','pull_request']){
+    const paths=workflow.match(new RegExp('  '+event+':\\n    paths: (\\[[^\\n]+\\])'))?.[1];
+    assert.ok(paths,event+' must have image path filters');
+    assert.ok(paths.includes("'panel/games/factorio/update-worker.js'"),event+' must watch the implementation');
+    assert.ok(paths.includes("'panel/update-worker.js'"),event+' must keep watching the wrapper');
+  }
 });

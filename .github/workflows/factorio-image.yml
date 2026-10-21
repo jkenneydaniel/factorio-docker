@@ -1,9 +1,9 @@
 name: Compatible Factorio image
 on:
   push:
-    paths: ['factorio-image/**', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', '.github/workflows/factorio-image.yml']
+    paths: ['factorio-image/**', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', 'panel/games/factorio/update-worker.js', '.github/workflows/factorio-image.yml']
   pull_request:
-    paths: ['factorio-image/**', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', '.github/workflows/factorio-image.yml']
+    paths: ['factorio-image/**', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', 'panel/games/factorio/update-worker.js', '.github/workflows/factorio-image.yml']
   workflow_dispatch:
     inputs:
       publish:

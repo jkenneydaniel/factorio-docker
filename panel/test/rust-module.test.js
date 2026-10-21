@@ -223,3 +223,31 @@ test('Rust start reports process crashes and restart loops without waiting for r
     await assert.rejects(adapter.actions.start(),/exited or restarted/);assert.equal(attempts,1);
   }
 });
+
+test('a Rust backup downloads completely through the web proxy beyond 30 seconds',{timeout:45000},async t=>{
+  const f=await fixture(t);
+  const job=await f.settle(await f.submit('backup',{confirm:true}));assert.equal(job.state,'succeeded');
+  const item=(await(await f.request('/backups')).json()).backups[0];
+  const archive=await fs.readFile(path.join(f.config.backupDir,item.relative));
+  // Throttle only this disposable archive on loopback; no real Docker or worlds.
+  const slow=http.createServer((req,res)=>{
+    assert.ok(req.url.startsWith('/download?'));assert.equal(req.headers.authorization,'Bearer test-token');
+    res.writeHead(200,{'content-type':'application/gzip','content-disposition':'attachment; filename="fixture.tar.gz"','content-length':archive.length});
+    const size=Math.ceil(archive.length/32);let offset=0;
+    const send=()=>{res.write(archive.subarray(offset,offset+size));offset+=size;if(offset>=archive.length){clearInterval(timer);res.end();}};
+    const timer=setInterval(send,1000);res.once('close',()=>clearInterval(timer));send();
+  });await new Promise(resolve=>slow.listen(0,'127.0.0.1',resolve));
+  t.after(()=>new Promise(resolve=>{slow.closeAllConnections();slow.close(resolve);}));
+  const web=await startWeb(f.module,{env:{...f.env,CONTROLLER_URL:'http://127.0.0.1:'+slow.address().port},port:0,hostname:'127.0.0.1'});
+  t.after(()=>new Promise(resolve=>{web.closeAllConnections();web.close(resolve);}));
+  await writeJSON(path.join(f.env.AUTH_DIR,'users.json'),{admin:{...hashPassword('test-admin-password'),role:'admin'}});
+  const origin='http://127.0.0.1:'+web.address().port;
+  const login=await fetch(origin+'/api/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({username:'admin',password:'test-admin-password'})});assert.equal(login.status,200);
+  const started=performance.now(),response=await fetch(origin+'/api/download?kind=backup&name='+encodeURIComponent(item.relative),{headers:{cookie:login.headers.get('set-cookie').split(';')[0]}});
+  assert.equal(response.status,200);assert.match(response.headers.get('content-disposition'),/fixture.tar.gz/);assert.equal(response.headers.get('cache-control'),'no-store');
+  const received=Buffer.from(await response.arrayBuffer()),elapsed=performance.now()-started;
+  assert.ok(elapsed>30000,'Exercise the actual 30-second boundary');
+  assert.equal(crypto.createHash('sha256').update(received).digest('hex'),crypto.createHash('sha256').update(archive).digest('hex'));
+  const downloaded=path.join(f.root,'downloaded.tar.gz');await fs.writeFile(downloaded,received);assert.equal((await verifyArchive(downloaded)).files,5);
+  t.diagnostic(`Downloaded and verified ${received.length} bytes in ${Math.round(elapsed)} ms.`);
+});

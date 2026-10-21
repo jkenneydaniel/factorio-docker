@@ -1,8 +1,9 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import http from 'node:http';
 import {catalog,validateCreation,resources,labels} from '../fleet/catalog.js';import {runWorker} from '../fleet/worker.js';import {publishSnapshot,verifySnapshot,hashFile} from '../fleet/snapshots.js';import {writeArchive} from '../games/rust/archive.js';import {makeZip} from '../core/archive.js';import {ownedDocker} from '../fleet/owned-docker.js';import {dataMount} from '../core/data-mount.js';import {FleetManager} from '../fleet/manager.js';import {startFleetWeb} from '../fleet/web.js';import {writeJSON,readJSON} from '../common.js';import {hashPassword} from '../auth.js';
+import {waitForIdleJob} from './fixtures.js';
 const fleet='a'.repeat(32),one='b'.repeat(32),two='c'.repeat(32),snap='d'.repeat(32),token='e'.repeat(64);
 const world=makeZip([{name:'world/level.dat',data:Buffer.from('disposable world content')}]);
-async function fixture(t){const root=await fs.mkdtemp(path.join(os.tmpdir(),'lobby-fleet-test-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const library=path.join(root,'library');await fs.mkdir(library);return {root,library};}
+async function fixture(t){const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lobby-fleet-test-')));t.after(()=>fs.rm(root,{recursive:true,force:true}));const library=path.join(root,'library');await fs.mkdir(library);return {root,library};}
 async function directory(root,name){const p=path.join(root,name);await fs.mkdir(p,{recursive:true});return p;}
 const provision=(id,game='factorio',extra={})=>({action:'provision',fleet,id,game,name:'Private test server',image:catalog[game].image,seed:456,worldSize:1000,maxPlayers:7,controllerToken:id.repeat(2),rconPassword:id+'different_rcon_password_1234567890',...extra});
 async function factorioBackup(instance){const file=path.join(instance,'backup.zip');await fs.writeFile(file,makeZip([{name:'saves/world.zip',data:world},{name:'config/rconpw',data:Buffer.from('NEVER_SHARE_THIS_SECRET')},{name:'config/server-adminlist.json',data:Buffer.from('["private-admin"]')},{name:'mods/mod-list.json',data:Buffer.from('{"mods":[{"name":"base","enabled":true}]}')},{name:'panel-manifest.json',data:Buffer.from(JSON.stringify({activeSave:'world.zip'}))}]));return file;}
@@ -53,15 +54,51 @@ async function fakeManager(t){
  if(method==='POST'&&u.pathname==='/containers/create'){const name=u.searchParams.get('name');containers.set(name,{...data,Name:'/'+name,Id:name,Config:{Image:data.Image,Labels:data.Labels,Env:data.Env},State:{Running:false,ExitCode:0,OOMKilled:false}});return {Id:name};}
  if(bits[0]==='containers'){const c=containers.get(bits[1])||missing();if(method==='GET')return c;if(bits[2]==='start')c.State.Running=true;if(bits[2]==='stop')c.State.Running=false;if(method==='DELETE')containers.delete(bits[1]);return null;}throw Error('Unexpected fake API '+route);};
  const manager=new FleetManager({docker,root,library:f.library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'manager:test',hostContainer:host,memoryBudgetGiB:16});await manager.init();const instanceRoots=new Map();
- manager.helper=async(item,config)=>{let instance=instanceRoots.get(item.id);if(!instance){instance=await directory(f.root,item.id);instanceRoots.set(item.id,instance);}return runWorker({...config,fleet,id:item.id,game:item.game},{instance,library:f.library});};manager.request=async()=>({id:'child-start'});
- async function submit(input){const job=await manager.submit('create',input);for(let n=0;n<100&&manager.active;n++)await new Promise(r=>setTimeout(r,5));assert.equal(job.state,'succeeded',job.message);return manager.state.servers.at(-1);}
- return {...f,manager,submit,calls,containers,volumes,networks,instanceRoots};
+ manager.helper=async(item,config)=>{let instance=instanceRoots.get(item.id);if(!instance){instance=await directory(f.root,item.id);instanceRoots.set(item.id,instance);}return runWorker({...config,fleet,id:item.id,game:item.game},{instance,library:f.library});};
+ // Exercise the real manager.request transport and ownership checks. The child
+ // accepts a start job before the game is ready; creation means handoff accepted.
+ const childRequests=[];let beforeStart=async()=>{};
+ const backend=http.createServer(async(req,res)=>{
+  const id=req.headers['x-test-controller'];const item=manager.state.servers.find(item=>item.controller===id);
+  assert.ok(item);assert.equal(req.headers.authorization,'Bearer '+item.controllerToken);
+  assert.equal(req.method,'POST');assert.equal(req.url,'/jobs');
+  let body='';for await(const chunk of req)body+=chunk;
+  const value=JSON.parse(body);assert.equal(value.action,'start');assert.equal(value.actor,'administrator');childRequests.push({id,value});
+  await beforeStart();res.writeHead(202,{'content-type':'application/json'});res.end(JSON.stringify({id:'child-start',state:'running'}));
+ });await new Promise(resolve=>backend.listen(0,'127.0.0.1',resolve));
+ t.after(()=>new Promise(resolve=>{backend.closeAllConnections();backend.close(resolve);}));
+ const realFetch=globalThis.fetch;
+ t.mock.method(globalThis,'fetch',(url,options)=>{
+  const target=new URL(url);assert.ok(manager.state.servers.some(item=>item.controller===target.hostname));
+  return realFetch('http://127.0.0.1:'+backend.address().port+target.pathname,{...options,headers:{...options.headers,'x-test-controller':target.hostname}});
+ });
+ const settled=async job=>{
+  const result=await waitForIdleJob(async()=>({jobs:manager.state.jobs,active:manager.active}),job.id,{attempts:1000,pause:()=>new Promise(resolve=>setTimeout(resolve,10))});
+  await manager.queue; // include the final registry write before fixture cleanup
+  return result;
+ };
+ async function submit(input){const job=await settled(await manager.submit('create',input));assert.equal(job.state,'succeeded',job.message);return manager.server(job.result.serverId);}
+ return {...f,manager,submit,settled,calls,containers,volumes,networks,instanceRoots,childRequests,holdStart:callback=>{beforeStart=callback;}};
 }
 test('host creation reserves unique storage/secrets/ports and never changes unrelated servers',async t=>{
  const f=await fakeManager(t),first=await f.submit({game:'factorio',name:'First'}),second=await f.submit({game:'factorio',name:'Second',autoStart:false});assert.notEqual(first.volume,second.volume);assert.notEqual(first.controllerToken,second.controllerToken);assert.notEqual(first.rconPassword,second.rconPassword);assert.equal(first.gamePort,35003);assert.equal(second.gamePort,35006);
  const game=f.containers.get(first.container);assert.ok(game.Env.includes('GENERATE_NEW_SAVE=false'),'world switches must never trigger empty-world generation');assert.equal(game.HostConfig.Mounts[0].VolumeOptions.Subpath,'data');assert.equal(game.HostConfig.Memory,2*1024**3);assert.equal(f.containers.get(second.container).HostConfig.RestartPolicy.Name,'no');assert.equal(f.containers.get(first.controller).Image,'sha256:manager-runtime');
  assert.ok(!JSON.stringify(f.manager.list()).includes(first.controllerToken));assert.ok(!f.calls.some(c=>c.method!=='GET'&&/factorio-server|production/.test(c.route)));
- const job=await f.manager.submit('create',{game:'rust',name:'Over budget',memoryGiB:12});while(f.manager.active)await new Promise(r=>setTimeout(r,5));assert.equal(job.state,'failed');assert.match(job.message,/budget/);assert.equal(f.manager.state.servers.length,2);
+ const job=await f.manager.submit('create',{game:'rust',name:'Over budget',memoryGiB:12});await f.settled(job);assert.equal(job.state,'failed');assert.match(job.message,/budget/);assert.equal(f.manager.state.servers.length,2);
+});
+test('host creation stays active until the child accepts start and persists the completed handoff',{timeout:15000},async t=>{
+ const f=await fakeManager(t);let release,entered;
+ const held=new Promise(resolve=>{release=resolve;}),requested=new Promise(resolve=>{entered=resolve;});t.after(()=>release());
+ f.holdStart(async()=>{entered();await held;});
+ const job=await f.manager.submit('create',{game:'factorio',name:'Slow controller'});
+ await requested;await new Promise(resolve=>setTimeout(resolve,650));
+ assert.equal(job.state,'running');assert.equal(f.manager.state.servers[0].state,'starting');
+ await assert.rejects(f.manager.submit('create',{game:'factorio',name:'Overlap'}),/current host operation/);
+ release();const result=await f.settled(job);assert.equal(result.state,'succeeded',result.message);
+ const item=f.manager.server(result.result.serverId);assert.equal(item.state,'installed');
+ assert.equal(f.childRequests.length,1);assert.equal(f.containers.get(item.container).State.Running,true);
+ const saved=await readJSON(path.join(f.manager.root,'registry.json'));
+ assert.equal(saved.jobs.find(j=>j.id===job.id).state,'succeeded');assert.equal(saved.servers[0].state,'installed');
 });
 test('host registry refuses another fleet marker before Docker mutations',async t=>{const f=await fixture(t),root=await directory(f.root,'state');await writeJSON(path.join(root,'.fleet-owner.json'),{fleet:'f'.repeat(32)});const m=new FleetManager({docker:()=>assert.fail('Must not call Docker'),root,library:f.library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'test',hostContainer:'test'});await assert.rejects(m.init(),/another installation/);});
 test('one fleet login opens scoped game controls; viewer/CSRF boundaries survive delegation',async t=>{
@@ -77,9 +114,9 @@ test('one fleet login opens scoped game controls; viewer/CSRF boundaries survive
  test('restart reconnects registered owned bridges and removal preserves volumes and library entries',async t=>{
  const f=await fakeManager(t),a=await f.submit({game:'factorio',name:'One'}),b=await f.submit({game:'factorio',name:'Two'});
  f.networks.get(a.network).Containers={};f.networks.get(b.network).Containers={};await f.manager.reconnect();assert.ok(f.networks.get(a.network).Containers['host-id']);assert.ok(f.networks.get(b.network).Containers['host-id']);
- f.containers.get(a.container).State.Running=false;const job=await f.manager.submit('remove',{serverId:a.id,name:a.name,confirm:true});while(f.manager.active)await new Promise(r=>setTimeout(r,5));assert.equal(job.state,'succeeded',job.message);assert.ok(f.volumes.has(a.volume));assert.ok(!f.containers.has(a.container));assert.ok(!f.networks.has(a.network));assert.ok(f.containers.get(b.container).State.Running);assert.ok(f.networks.has(b.network));assert.equal(a.state,'removed');
+ f.containers.get(a.container).State.Running=false;const job=await f.manager.submit('remove',{serverId:a.id,name:a.name,confirm:true});await f.settled(job);assert.equal(job.state,'succeeded',job.message);assert.ok(f.volumes.has(a.volume));assert.ok(!f.containers.has(a.container));assert.ok(!f.networks.has(a.network));assert.ok(f.containers.get(b.container).State.Running);assert.ok(f.networks.has(b.network));assert.equal(a.state,'removed');
  });
- test('creation failure preserves its volume and records attention without changing a neighboring server',async t=>{const f=await fakeManager(t),a=await f.submit({game:'factorio',name:'Neighbor'});f.manager.helper=async()=>{throw Error('disposable failure');};const job=await f.manager.submit('create',{game:'factorio',name:'Interrupted'});while(f.manager.active)await new Promise(r=>setTimeout(r,5));assert.equal(job.state,'failed');const b=f.manager.state.servers.at(-1);assert.equal(b.state,'attention');assert.ok(f.volumes.has(b.volume));assert.ok(f.containers.get(a.container).State.Running);});
+ test('creation failure preserves its volume and records attention without changing a neighboring server',async t=>{const f=await fakeManager(t),a=await f.submit({game:'factorio',name:'Neighbor'});f.manager.helper=async()=>{throw Error('disposable failure');};const job=await f.manager.submit('create',{game:'factorio',name:'Interrupted'});await f.settled(job);assert.equal(job.state,'failed');const b=f.manager.state.servers.at(-1);assert.equal(b.state,'attention');assert.ok(f.volumes.has(b.volume));assert.ok(f.containers.get(a.container).State.Running);});
 
 test('saved world presets are scoped by account and server and are removed with their account',async t=>{
  const f=await fixture(t),root=await directory(f.root,'accounts');const {Accounts}=await import('../games/factorio/accounts.js');const accounts=new Accounts(root);
