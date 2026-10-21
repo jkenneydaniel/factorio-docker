@@ -1,3 +1,4 @@
+import {serverPath} from './scope.js';
 const clone=value=>JSON.parse(JSON.stringify(value));
 let cleanup=()=>{};
 export function cleanWorldPreview(){cleanup();cleanup=()=>{};}
@@ -15,7 +16,7 @@ export function mountWorldPreview(form,{api,getDraft,isValid,onSeed=()=>{}}){
   function paint(result,current){
     if(stopped||current!==version)return;
     if(result.state==='ready'){
-      lastId=result.id;const expected='/api/world-preview-image?id='+encodeURIComponent(result.id);
+      lastId=result.id;const expected=serverPath('/api/world-preview-image?id=')+encodeURIComponent(result.id);
       const loaded=()=>{if(current!==version)return;image.hidden=false;empty.hidden=true;image.classList.remove('preview-stale');text('Up to date · Seed '+result.seed);};
       image.onload=loaded;image.onerror=()=>{if(current!==version)return;stale();text('Preview expired or could not load. Choose Refresh now to retry.');};
       if(image.getAttribute('src')===expected&&image.complete&&image.naturalWidth>0)loaded();else image.src=expected;

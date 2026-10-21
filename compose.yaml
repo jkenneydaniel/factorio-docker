@@ -32,7 +32,7 @@ services:
         max-file: "3"
 
   panel-controller:
-    image: ${PANEL_IMAGE:-local/factory-control:0.2.6-alpha}
+    image: ${PANEL_IMAGE:-local/lobby-goblin:0.3.0-alpha}
     build: ./panel
     container_name: ${CONTROLLER_CONTAINER:-factorio-panel-controller}
     restart: always
@@ -50,7 +50,7 @@ services:
       FACTORIO_PLATFORM: ${FACTORIO_PLATFORM:-linux/amd64}
       CONTROLLER_CONTAINER: ${CONTROLLER_CONTAINER:-factorio-panel-controller}
       PANEL_CONTAINER: ${PANEL_CONTAINER:-factorio-panel}
-      RELEASE_REPOSITORY: ${RELEASE_REPOSITORY:-jkenneydaniel/factorio-docker}
+      RELEASE_REPOSITORY: ${RELEASE_REPOSITORY:-jkenneydaniel/lobby-goblin}
       RELEASE_CHANNEL: ${RELEASE_CHANNEL:-preview}
       GAME_ADDRESS: "${SERVER_ADDRESS:-localhost}:${GAME_PORT:-34197}"
     volumes:
@@ -66,7 +66,7 @@ services:
       options: {max-size: "5m", max-file: "2"}
 
   panel:
-    image: ${PANEL_IMAGE:-local/factory-control:0.2.6-alpha}
+    image: ${PANEL_IMAGE:-local/lobby-goblin:0.3.0-alpha}
     build: ./panel
     container_name: ${PANEL_CONTAINER:-factorio-panel}
     restart: always
@@ -80,7 +80,7 @@ services:
     environment:
       PANEL_HOSTS: "${SERVER_ADDRESS:-localhost},127.0.0.1,localhost,${PANEL_EXTRA_HOSTS:-}"
       RELEASE_CHECKS: ${RELEASE_CHECKS:-true}
-      RELEASE_REPOSITORY: ${RELEASE_REPOSITORY:-jkenneydaniel/factorio-docker}
+      RELEASE_REPOSITORY: ${RELEASE_REPOSITORY:-jkenneydaniel/lobby-goblin}
       RELEASE_CHANNEL: ${RELEASE_CHANNEL:-preview}
     volumes:
       - ./.panel-data/auth:/auth
@@ -96,7 +96,7 @@ services:
   # Explicit one-time setup. It has no Docker socket and cannot manage servers.
   setup:
     profiles: [setup]
-    image: ${PANEL_IMAGE:-local/factory-control:0.2.6-alpha}
+    image: ${PANEL_IMAGE:-local/lobby-goblin:0.3.0-alpha}
     build: ./panel
     user: "0:0"
     network_mode: none

@@ -1,3 +1,4 @@
+import {canonicalRepository} from './branding.js';
 // Public release metadata only. This service never downloads/executes updates.
 export function version(value){
   const match=String(value).match(/^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/);
@@ -23,7 +24,8 @@ export function selectRelease(releases,channel){
     .sort((a,b)=>compareVersions(b.tag_name,a.tag_name))[0]||null;
 }
 export class ReleaseChecks{
-  constructor({repository='jkenneydaniel/factorio-docker',current,channel='preview',enabled=true,fetcher=fetch,now=Date.now,interval=6*3600000}={}){
+  constructor({repository='jkenneydaniel/lobby-goblin',current,channel='preview',enabled=true,fetcher=fetch,now=Date.now,interval=6*3600000}={}){
+    repository=canonicalRepository(repository);
     Object.assign(this,{repository,current,channel,enabled,fetcher,now,interval});
     this.checked=0;this.pending=null;this.etag=null;this.releases=[];
     this.result={state:enabled?'unchecked':'disabled',current,channel,repository,available:false,installation:'manual',checkedAt:null};
@@ -38,7 +40,7 @@ export class ReleaseChecks{
     this.checked=this.now();
     try{
       if(!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/.test(this.repository)||!version(this.current)||!['stable','preview'].includes(this.channel))throw new Error('Invalid release-check configuration.');
-      const headers={accept:'application/vnd.github+json','user-agent':'Factory-Control-release-check','x-github-api-version':'2022-11-28'};
+      const headers={accept:'application/vnd.github+json','user-agent':'Lobby Goblin-release-check','x-github-api-version':'2022-11-28'};
       if(this.etag)headers['if-none-match']=this.etag;
       const response=await this.fetcher(`https://api.github.com/repos/${this.repository}/releases?per_page=100`,{headers,redirect:'error',signal:AbortSignal.timeout(8000)});
       if(response.status!==304){

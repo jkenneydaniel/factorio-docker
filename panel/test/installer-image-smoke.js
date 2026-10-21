@@ -8,13 +8,13 @@ import {promisify} from 'node:util';
 import {unpackRelease,assertUnmodified,sha256} from '/app/update-source.js';
 
 const {version}=JSON.parse(await fs.readFile('/app/package.json','utf8'));
-const prefix='/release/factory-control-'+version;
+const prefix='/release/lobby-goblin-'+version;
 const files=unpackRelease(await fs.readFile(prefix+'.zip'),await fs.readFile(prefix+'.sha256','utf8'),version,JSON.parse(await fs.readFile(prefix+'.update.json','utf8')));
 const root=await fs.mkdtemp('/tmp/factory-install-');
 for(const [name,data] of files){
   const target=path.join(root,name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,data);
   const relative=name.startsWith('panel/')?name.slice(6):'';
-  if(relative&&(relative.startsWith('public/')||!relative.includes('/')&&(/\.(js|json|lua)$/.test(relative)||relative==='LICENSE')))assert.equal(sha256(await fs.readFile('/app/'+relative)),sha256(data),'Image/package mismatch: '+name);
+  if(relative&&(['public/','core/','games/','fleet/'].some(prefix=>relative.startsWith(prefix))||!relative.includes('/')&&(/\.(js|json|lua)$/.test(relative)||relative==='LICENSE')))assert.equal(sha256(await fs.readFile('/app/'+relative)),sha256(data),'Image/package mismatch: '+name);
 }
 await fs.writeFile(path.join(root,'.env'),'SERVER_ADDRESS=localhost\n');
 const run=promisify(execFile);

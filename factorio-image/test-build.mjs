@@ -18,7 +18,7 @@ test('the independent image definition pins Debian, the official archive and the
   assert.match(await fs.readFile(new URL('../.env.example',import.meta.url),'utf8'),/^FACTORIO_IMAGE=factoriotools\/factorio:2.0.77/m);
 });
 test('container acceptance commands use only unique disposable resources and clean up a failed start',async()=>{
-  const definition=await imageDefinition(),config={Entrypoint:['/docker-entrypoint.sh'],Volumes:{'/factorio':{}},ExposedPorts:{'34197/udp':{},'27015/tcp':{}},Env:['SAVES=/factorio/saves','CONFIG=/factorio/config','MODS=/factorio/mods','SCENARIOS=/factorio/scenarios','SCRIPTOUTPUT=/factorio/script-output','PUID=845','PGID=845','PORT=34197','RCON_PORT=27015'],Labels:{'factorio.version':definition.version,'io.factory-control.compatibility':'1','io.factory-control.image-revision':String(definition.revision)}};
+  const definition=await imageDefinition(),config={Entrypoint:['/docker-entrypoint.sh'],Volumes:{'/factorio':{}},ExposedPorts:{'34197/udp':{},'27015/tcp':{}},Env:['SAVES=/factorio/saves','CONFIG=/factorio/config','MODS=/factorio/mods','SCENARIOS=/factorio/scenarios','SCRIPTOUTPUT=/factorio/script-output','PUID=845','PGID=845','PORT=34197','RCON_PORT=27015'],Labels:{'factorio.version':definition.version,'io.lobby-goblin.compatibility':'1','io.lobby-goblin.image-revision':String(definition.revision)}};
   for(const [fail,classic] of [[false,false],[true,false],[false,true]]){
     let ticks=0;const calls=[],run=async args=>{
       calls.push(args);
@@ -48,6 +48,6 @@ test('image build sources are included in update snapshots and public packages, 
   for(const [name,text] of Object.entries(files)){assert.equal(publicSource(name),true,name);await fs.mkdir(path.dirname(path.join(root,name)),{recursive:true});await fs.writeFile(path.join(root,name),text);}
   for(const name of ['.env','data/saves/World.zip','factorio-image/private.pem','factorio-image/__pycache__/entrypoint.pyc'])assert.equal(publicSource(name),false,name);
   assert.deepEqual(Object.keys(await sourceSnapshot(root)).sort(),Object.keys(files).sort());
-  const archive=makeZip(Object.entries(files).map(([name,text])=>({name:'factory-control-0.2.2-alpha/'+name,data:Buffer.from(text)})));
-  assert.equal(unpackRelease(archive,sha256(archive)+'  factory-control-0.2.2-alpha.zip','0.2.2-alpha',{format:1,version:'0.2.2-alpha',updater:1,stateVersion:1,rollbackSafe:true}).size,Object.keys(files).length);
+  const archive=makeZip(Object.entries(files).map(([name,text])=>({name:'lobby-goblin-0.2.2-alpha/'+name,data:Buffer.from(text)})));
+  assert.equal(unpackRelease(archive,sha256(archive)+'  lobby-goblin-0.2.2-alpha.zip','0.2.2-alpha',{format:1,version:'0.2.2-alpha',updater:1,stateVersion:1,rollbackSafe:true}).size,Object.keys(files).length);
 });

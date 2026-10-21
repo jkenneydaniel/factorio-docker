@@ -1,3 +1,4 @@
+import {releasePrefixes} from '../panel/branding.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -7,9 +8,9 @@ import {makeZip} from '../panel/zip.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const version=JSON.parse(await fs.readFile(path.join(root,'panel/package.json'),'utf8')).version;
 if(!/^\d+\.\d+\.\d+-alpha(?:\.\d+)?$/.test(version))throw new Error('Expected an alpha version.');
-const name='factory-control-'+version;
+const name='lobby-goblin-'+version;
 const exact=new Set(['.gitignore','.env.example','.gitattributes','compose.yaml','README.md','LICENSE','CHANGELOG.md','SECURITY.md','THIRD_PARTY_NOTICES.md','Start-Server.ps1','Configure-Lan.ps1','Configure-Autostart.ps1','Register-LanAnnouncer.ps1','Start-LanAnnouncer.ps1']);
-for(const file of ['Setup.sh','Setup.command','Setup.ps1','Start-Server.sh'])exact.add(file);
+for(const file of ['Setup.sh','Setup.command','Setup.ps1','Start-Server.sh','fleet.compose.yaml','.env.fleet.example','Fleet.ps1','Fleet.sh'])exact.add(file);
 const prefixes=['panel/','docs/','factorio-image/','.github/'];
 const files=[];
 async function walk(relative=''){
@@ -19,7 +20,7 @@ async function walk(relative=''){
     if(entry.isSymbolicLink())throw new Error('Symlink in source allowlist: '+file);
     if(/^(?:data|backups|\.panel-data|import|users\.json|controller-token|registration-link\.txt|initial-login\.txt|rconpw|server-settings\.json|map\.json)$/.test(entry.name))throw new Error('Runtime/private path in source: '+file);
     if(entry.isDirectory()){
-      if(['node_modules'].includes(entry.name)||entry.name.startsWith('.test-'))continue;
+      if(['node_modules','__pycache__'].includes(entry.name)||entry.name.startsWith('.test-'))continue;
       await walk(file);continue;
     }
     if(!entry.isFile())throw new Error('Unexpected source entry: '+file);
@@ -44,8 +45,11 @@ for(const file of files){const target=path.join(destination,file.name);await fs.
 const metadata={format:1,version,updater:1,stateVersion:1,rollbackSafe:true};
 // Existing 0.2.x workers only admit their original source paths. Keep their ZIP
 // installable while the new installer can use a complete image-source bundle.
-const legacy=files.filter(({name})=>exact.has(name)||name==='tools/release.mjs'||/^(?:panel|docs|\.github)\//.test(name)&&/(?:\.(?:js|mjs|json|lua|html|css|md|yml|yaml)|\/Dockerfile|\/LICENSE|\/\.dockerignore)$/.test(name));
-for(const [suffix,entries] of [['',legacy],['.source',files]]){
+const fleetRoots=new Set(['fleet.compose.yaml','.env.fleet.example','Fleet.ps1','Fleet.sh']);
+const legacy=files.filter(({name})=>exact.has(name)&&!fleetRoots.has(name)||name==='tools/release.mjs'||/^(?:panel|docs|\.github)\//.test(name)&&/(?:\.(?:js|mjs|json|lua|html|css|md|yml|yaml)|\/Dockerfile|\/LICENSE|\/\.dockerignore)$/.test(name));
+// Publish historical aliases as well: already installed updaters require their
+// original asset names and ZIP root. Both variants contain identical sources.
+for(const name of releasePrefixes(version))for(const [suffix,entries] of [['',legacy],['.source',files]]){
   const basename=name+suffix;
   const manifest=entries.map(file=>`${crypto.createHash('sha256').update(file.data).digest('hex')}  ${file.name}`).join('\n')+'\n';
   const archive=makeZip(entries.map(file=>({name:name+'/'+file.name,data:file.data,executable:/\.(?:sh|command)$/.test(file.name)})));

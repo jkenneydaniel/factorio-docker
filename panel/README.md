@@ -1,8 +1,18 @@
 # Panel features and architecture
 
-Factory Control v0.2.6-alpha runs as two containers built from the same image:
+Lobby Goblin v0.3.0-alpha runs as two containers built from the same image:
 a browser-facing web service and an internal controller. A third container runs
-Factorio. See the [root setup guide](../README.md) before starting.
+the selected game. See the [root setup guide](../README.md) before starting.
+
+The optional [single-host manager](../docs/FLEET.md) creates several isolated
+servers and shares verified world snapshots through one account/session system.
+
+The features below describe the Factorio module. Rust has its own
+[controls, installation guide and recovery evidence](../docs/RUST.md).
+
+The shared core and built-in game modules are described in
+[architecture and compatibility](../docs/ARCHITECTURE.md). Existing entrypoints,
+configuration, URLs and persistent formats remain compatible.
 
 ## Accounts
 
@@ -176,7 +186,12 @@ change ownership of existing worlds or accounts.
 ### Game image sources
 
 Settings → Updates retains the current source and supports both pinned Factorio
-Tools tags and Factory Control `<version>-fc.<revision>` tags. A same-version
+Tools tags and Lobby Goblin `<version>-fc.<revision>` tags. A same-version
 source/revision change uses the same reviewed backup, compatibility checks and
 explicit recovery path as game upgrades. Download/preflight failures do not
 replace containers. See [the independent image guide](../factorio-image/README.md).
+## Rust installations
+
+The built-in Rust module uses a separate installation and panel. See
+[Rust setup, operation and backup limits](../docs/RUST.md). Existing Factorio
+installations keep their defaults and data layouts.

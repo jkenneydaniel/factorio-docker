@@ -1,3 +1,4 @@
+import {imageLabel} from '../panel/branding.js';
 // Explicit build/acceptance tooling. Never targets the installation's containers,
 // bind mounts, Compose project, data directory or Docker socket configuration.
 import fs from 'node:fs/promises';
@@ -37,8 +38,8 @@ export async function testImage(definition,run=docker){
   for(const key of ['Entrypoint','Cmd','User','Volumes','ExposedPorts','WorkingDir'])assert.deepEqual(owned.Config[key]||null,base.Config[key]||null,'Changed compatibility '+key);
   for(const key of ['SAVES','CONFIG','MODS','SCENARIOS','SCRIPTOUTPUT','PUID','PGID','PORT','RCON_PORT'])assert.equal(owned.Config.Env.find(v=>v.startsWith(key+'=')),base.Config.Env.find(v=>v.startsWith(key+'=')),'Changed compatibility '+key);
   assert.equal(owned.Config.Labels['factorio.version'],definition.version);
-  assert.equal(owned.Config.Labels['io.factory-control.compatibility'],'1');
-  assert.equal(owned.Config.Labels['io.factory-control.image-revision'],String(definition.revision));
+  assert.equal(imageLabel(owned.Config.Labels,'compatibility'),'1');
+  assert.equal(imageLabel(owned.Config.Labels,'image-revision'),String(definition.revision));
   // Exercise the same disposable preflight the panel uses, including digest
   // references: platform-specific inspect IDs are not runnable on every engine.
   for(const [image,item] of [[legacy,base],[definition.image,owned]]){

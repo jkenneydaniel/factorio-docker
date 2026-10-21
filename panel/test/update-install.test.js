@@ -13,7 +13,7 @@ import {gameSources,parseGameImage} from '../public/game-images.js';
 
 function candidateImage(image){
   const parsed=parseGameImage(image),digest='a'.repeat(64);
-  return {Id:'sha256:'+digest,Os:'linux',Architecture:'amd64',RepoDigests:[gameSources[parsed.source].repository+'@sha256:'+digest],Config:{Entrypoint:['/docker-entrypoint.sh'],Volumes:{'/factorio':{}},ExposedPorts:{'34197/udp':{},'27015/tcp':{}},Env:['PUID=845','PGID=845','SAVES=/factorio/saves','CONFIG=/factorio/config','MODS=/factorio/mods','SCENARIOS=/factorio/scenarios','SCRIPTOUTPUT=/factorio/script-output','PORT=34197','RCON_PORT=27015'],Labels:{'factorio.version':parsed.version,...(parsed.source==='factory'?{'io.factory-control.compatibility':'1','io.factory-control.image-revision':String(parsed.revision)}:{})}}};
+  return {Id:'sha256:'+digest,Os:'linux',Architecture:'amd64',RepoDigests:[gameSources[parsed.source].repository+'@sha256:'+digest],Config:{Entrypoint:['/docker-entrypoint.sh'],Volumes:{'/factorio':{}},ExposedPorts:{'34197/udp':{},'27015/tcp':{}},Env:['PUID=845','PGID=845','SAVES=/factorio/saves','CONFIG=/factorio/config','MODS=/factorio/mods','SCENARIOS=/factorio/scenarios','SCRIPTOUTPUT=/factorio/script-output','PORT=34197','RCON_PORT=27015'],Labels:{'factorio.version':parsed.version,...(parsed.source==='factory'?{'io.lobby-goblin.compatibility':'1','io.lobby-goblin.image-revision':String(parsed.revision)}:{})}}};
 }
 function reviewManager(f){
   const docker=async(method,route)=>{
@@ -29,15 +29,15 @@ async function fixture(t){
   const state=path.join(root,'.panel-data/updates');await fs.mkdir(state,{recursive:true});
   const files={'compose.yaml':'name: fixture\n','panel/package.json':'{"version":"0.1.0-alpha"}','panel/Dockerfile':'FROM node:24\n','panel/server.js':'// old panel\n','panel/update-worker.js':'// updater\n','README.md':'old docs\n'};
   for(const [name,data] of Object.entries(files)){await fs.mkdir(path.dirname(path.join(root,name)),{recursive:true});await fs.writeFile(path.join(root,name),data);}
-  await fs.writeFile(path.join(root,'.env'),'SERVER_ADDRESS=factory.example\nPANEL_PORT=9080\nPANEL_IMAGE=local/factory-control:old\nFACTORIO_IMAGE=factoriotools/factorio:2.0.77\n');
+  await fs.writeFile(path.join(root,'.env'),'SERVER_ADDRESS=factory.example\nPANEL_PORT=9080\nPANEL_IMAGE=local/lobby-goblin:old\nFACTORIO_IMAGE=factoriotools/factorio:2.0.77\n');
   for(const name of ['auth','controller','secrets']){await fs.mkdir(path.join(root,'.panel-data',name));await fs.writeFile(path.join(root,'.panel-data',name,'fixture.json'),'original-'+name);}
   await fs.mkdir(path.join(root,'data/saves'),{recursive:true});await fs.writeFile(path.join(root,'data/saves/World.zip'),'real-fixture-world');
   await initializeUpdateBaseline(root);
   const names={game:'fixture-game',controller:'fixture-controller',panel:'fixture-panel'},images={game:'sha256:old-game',controller:'sha256:old-panel',panel:'sha256:old-panel'};
-  const id=crypto.randomUUID(),job={id,kind:'panel',target:'0.1.1-alpha',root,project:'fixture',names,images,gameImage:'factoriotools/factorio:2.0.77',state:'running',started:new Date().toISOString(),backup:'verified-before.zip',assets:Object.fromEntries(['.zip','.sha256','.update.json'].map(s=>[s,'https://github.com/example/project/releases/download/v0.1.1-alpha/factory-control-0.1.1-alpha'+s]))};
-  const config={services:Object.fromEntries([['factorio','game'],['panel-controller','controller'],['panel','panel']].map(([name,key])=>[name,{container_name:names[key],image:key==='game'?job.gameImage:'local/factory-control:old',platform:key==='game'?'linux/amd64':undefined,volumes:[{type:'bind',source:root+(key==='game'?'/data':'/.panel-data/'+key),target:key==='game'?'/factorio':'/state'}],ports:key==='panel'?[{target:8080,published:'9080',protocol:'tcp'}]:[]}]))};
+  const id=crypto.randomUUID(),job={id,kind:'panel',target:'0.1.1-alpha',root,project:'fixture',names,images,gameImage:'factoriotools/factorio:2.0.77',state:'running',started:new Date().toISOString(),backup:'verified-before.zip',assets:Object.fromEntries(['.zip','.sha256','.update.json'].map(s=>[s,'https://github.com/example/project/releases/download/v0.1.1-alpha/lobby-goblin-0.1.1-alpha'+s]))};
+  const config={services:Object.fromEntries([['factorio','game'],['panel-controller','controller'],['panel','panel']].map(([name,key])=>[name,{container_name:names[key],image:key==='game'?job.gameImage:'local/lobby-goblin:old',platform:key==='game'?'linux/amd64':undefined,volumes:[{type:'bind',source:root+(key==='game'?'/data':'/.panel-data/'+key),target:key==='game'?'/factorio':'/state'}],ports:key==='panel'?[{target:8080,published:'9080',protocol:'tcp'}]:[]}]))};
   const releaseFiles={...files,'panel/package.json':'{"version":"0.1.1-alpha"}','panel/server.js':'// new panel\n'};
-  const archive=makeZip(Object.entries(releaseFiles).map(([name,data])=>({name:'factory-control-0.1.1-alpha/'+name,data:Buffer.from(data)})));
+  const archive=makeZip(Object.entries(releaseFiles).map(([name,data])=>({name:'lobby-goblin-0.1.1-alpha/'+name,data:Buffer.from(data)})));
   const metadata={format:1,version:job.target,updater:1,stateVersion:1,rollbackSafe:true};
   const calls=[];let failHealth=false,failBuild=false,failPull=false,ready=true,clock=0;
   async function run(args){
@@ -56,7 +56,7 @@ async function fixture(t){
     if(args.includes('up')&&args.includes('panel-controller')&&failHealth){failHealth=false;throw Error('health failed');}
     return '';
   }
-  const fetcher=async url=>new Response(url.endsWith('.zip')?archive:url.endsWith('.sha256')?sha256(archive)+'  factory-control-0.1.1-alpha.zip\n':JSON.stringify(metadata));
+  const fetcher=async url=>new Response(url.endsWith('.zip')?archive:url.endsWith('.sha256')?sha256(archive)+'  lobby-goblin-0.1.1-alpha.zip\n':JSON.stringify(metadata));
   return {root,state,job,config,archive,metadata,calls,run,fetcher,names,images,async execute(changes={}){Object.assign(job,changes);await writeJSON(path.join(state,id+'.json'),job);return runUpdate({root,state,id,run,fetcher,own:async()=>{},now:()=>clock,wait:async()=>{clock+=60000;}});},failHealth(){failHealth=true;},failBuild(){failBuild=true;},failPull(){failPull=true;},notReady(){ready=false;}};
 }
 test('image inspection supports classic Docker and selects amd64 metadata from multi-platform stores',async()=>{
@@ -78,7 +78,7 @@ test('version readiness accepts real RCON and binary formats while rejecting dif
 test('verified panel update stages/builds before replacement and never restarts the game',async t=>{
   const f=await fixture(t),result=await f.execute();assert.equal(result.state,'succeeded',result.message);
   assert.match(await fs.readFile(path.join(f.root,'panel/server.js'),'utf8'),/new panel/);
-  const env=await fs.readFile(path.join(f.root,'.env'),'utf8');assert.match(env,/PANEL_PORT=9080/);assert.match(env,/PANEL_IMAGE=local\/factory-control:update-/);
+  const env=await fs.readFile(path.join(f.root,'.env'),'utf8');assert.match(env,/PANEL_PORT=9080/);assert.match(env,/PANEL_IMAGE=local\/lobby-goblin:update-/);
   assert.equal(await fs.readFile(path.join(f.root,'data/saves/World.zip'),'utf8'),'real-fixture-world');
   const replacement=f.calls.find(args=>args.includes('up'));assert.deepEqual(replacement.slice(-2),['panel-controller','panel']);assert.ok(replacement.includes('--no-deps'));
   assert.ok(!f.calls.some(args=>args.includes('stop')&&args.includes('factorio')));
@@ -107,7 +107,7 @@ test('incompatible candidate images and mismatched review targets fail before re
   const cases=[
     item=>{item.Architecture='arm64';},
     item=>{item.Config.Labels['factorio.version']='2.0.76';},
-    item=>{item.Config.Labels['io.factory-control.compatibility']='2';},
+    item=>{item.Config.Labels['io.lobby-goblin.compatibility']='2';},
     item=>{item.Config.Env=item.Config.Env.filter(v=>v!=='PUID=845');},
     item=>{item.Config.Entrypoint=['/incompatible'];},
     item=>{item.RepoDigests=[];}
@@ -153,7 +153,7 @@ test('wrong binary version fails the disposable preflight before configuration o
 });
 test('panel review prefers complete image sources and falls back to older compatible release assets',async t=>{
   const f=await fixture(t),manager=reviewManager(f);await manager.init();
-  const prefix='factory-control-0.2.2-alpha',assets=suffix=>['.zip','.sha256','.update.json'].map(extension=>({name:prefix+suffix+extension,state:'uploaded'}));
+  const prefix='lobby-goblin-0.2.2-alpha',assets=suffix=>['.zip','.sha256','.update.json'].map(extension=>({name:prefix+suffix+extension,state:'uploaded'}));
   const release={tag_name:'v0.2.2-alpha',assets:[...assets(''),...assets('.source')]};
   manager.releases.check=async()=>{};manager.releases.result={available:true,latest:{tag:release.tag_name}};manager.releases.releases=[release];
   let plan=await manager.plan({kind:'panel'}),stored=await readJSON(path.join(f.state,'plan-'+plan.id+'.json'));
@@ -211,19 +211,19 @@ test('failed game readiness preserves upgraded saves and prepares old image stop
   assert.equal(await fs.readFile(path.join(f.root,'data/saves/World.zip'),'utf8'),'real-fixture-world');
 });
 test('release validation refuses bad checksums, private paths and incompatible state migrations',async t=>{
-  const f=await fixture(t),checksum=sha256(f.archive)+'  factory-control-0.1.1-alpha.zip\n';
-  assert.throws(()=>unpackRelease(f.archive,'0'.repeat(64)+'  factory-control-0.1.1-alpha.zip\n',f.job.target,f.metadata),/checksum/);
+  const f=await fixture(t),checksum=sha256(f.archive)+'  lobby-goblin-0.1.1-alpha.zip\n';
+  assert.throws(()=>unpackRelease(f.archive,'0'.repeat(64)+'  lobby-goblin-0.1.1-alpha.zip\n',f.job.target,f.metadata),/checksum/);
   assert.throws(()=>unpackRelease(f.archive,checksum,f.job.target,{...f.metadata,stateVersion:2}),/migration/);
-  assert.ok(unpackRelease(f.archive,sha256(f.archive)+'  factory-control-0.1.1-alpha.source.zip',f.job.target,{...f.metadata,bundle:'source'}).size>0);
+  assert.ok(unpackRelease(f.archive,sha256(f.archive)+'  lobby-goblin-0.1.1-alpha.source.zip',f.job.target,{...f.metadata,bundle:'source'}).size>0);
   assert.throws(()=>unpackRelease(f.archive,checksum,f.job.target,{...f.metadata,bundle:'unknown'}),/migration/);
-  const archive=makeZip([{name:'factory-control-0.1.1-alpha/.env',data:Buffer.from('private')}]);assert.throws(()=>unpackRelease(archive,sha256(archive)+'  factory-control-0.1.1-alpha.zip\n',f.job.target,f.metadata),/Unexpected release path/);
+  const archive=makeZip([{name:'lobby-goblin-0.1.1-alpha/.env',data:Buffer.from('private')}]);assert.throws(()=>unpackRelease(archive,sha256(archive)+'  lobby-goblin-0.1.1-alpha.zip\n',f.job.target,f.metadata),/Unexpected release path/);
   const after=structuredClone(f.config);after.services.panel.ports=[];assert.throws(()=>validateDeployment(f.config,after,f.job),/ports/);
 });
 test('update review expires, backup failures block workers, and accepted work survives a new manager',async t=>{
   const f=await fixture(t),calls=[];let backupFails=true,worker=false,clock=100;
   const docker=async(method,route,body)=>{
     calls.push({method,route,body});
-    if(route.includes('factory-control-update-')&&method==='GET'){if(!worker)throw new HttpError(404,'missing');return {State:{Running:true}};}
+    if(route.includes('lobby-goblin-update-')&&method==='GET'){if(!worker)throw new HttpError(404,'missing');return {State:{Running:true}};}
     if(route.endsWith('/json')){const name=decodeURIComponent(route.split('/')[2]),key=Object.keys(f.names).find(k=>f.names[k]===name);return {Image:f.images[key],Config:{Image:key==='game'?f.job.gameImage:'local/old',Labels:{'com.docker.compose.project':'fixture','com.docker.compose.service':{game:'factorio',controller:'panel-controller',panel:'panel'}[key],'com.docker.compose.project.working_dir':f.root,'com.docker.compose.project.config_files':f.root+'/compose.yaml'}},Mounts:[{Type:'bind',Source:f.root+'/data',Destination:'/factorio'}]};}
     if(route.startsWith('/containers/create')){worker=true;return {Id:'worker'};}return null;
   };
@@ -241,7 +241,7 @@ test('source and host path checks reject symlink escapes and preserve Windows Do
 });
 
 test('panel review rechecks an old controller release cache after a newly detected release',async t=>{
-  const f=await fixture(t),manager=reviewManager(f),prefix='factory-control-0.2.2-alpha';
+  const f=await fixture(t),manager=reviewManager(f),prefix='lobby-goblin-0.2.2-alpha';
   manager.releases.checked=Date.now()-60001;
   manager.releases.result={state:'current',available:false,latest:{tag:'v0.2.1-alpha'}};
   manager.releases.fetcher=async()=>new Response(JSON.stringify([{tag_name:'v0.2.2-alpha',prerelease:true,published_at:'2026-10-16T23:59:00Z',assets:['.zip','.sha256','.update.json'].map(suffix=>({name:prefix+suffix,state:'uploaded'}))}]));

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.0-alpha — 2026-10-20
+
+- Add an opt-in, separate single-host manager with Factorio/Rust server creation,
+  resource limits, automatic port allocation, one login, scoped game controls,
+  isolated named volumes and private bridges. Existing standalone deployments
+  remain unchanged. Recover network attachments after manager recreation.
+- Add a shared, verified snapshot library. Clone saved worlds into fresh storage
+  with fresh credentials; exclude configuration and access lists. Preserve Rust
+  map identity and player progress. Server removal saves/stops cleanly and retains
+  its data volume and snapshots. Disable standalone updaters in managed mode.
+
+- Rename the panel and repository to Lobby Goblin. Refresh both game interfaces,
+  setup guides, image metadata and release tooling. Keep historical update
+  assets, repository settings and Factorio image labels readable for upgrades.
+
+- Add an isolated Rust module with WebRCON status/players, lifecycle jobs, logs,
+  stopped-server settings and streamed identity backups with verification,
+  downloads and scheduling. Ship a prepare-only standalone installation template
+  with separate credentials, storage markers and container ownership checks.
+  Keep Factorio the default and disable Factorio update jobs in Rust installs.
+
+- Extract a shared web/controller core and a built-in Factorio module. Retain
+  existing installation configuration, routes, state formats and backup layouts.
+  Keep Factorio commands, worlds, maps, setup and update compatibility in the
+  game module. Include nested runtime sources in release/image checks.
+
 ## 0.2.6-alpha — 2026-10-19
 
 - Include saved enemy units alongside spawners and worms on the map. Preserve
@@ -50,7 +76,7 @@
 - Add an independently built x86-64 Factorio image from pinned Debian and the
   checksum-verified official headless download, with first-party startup/RCON
   tools. Keep existing worlds, settings, identity and mod selections intact.
-- Support Factorio Tools and Factory Control images in the panel, including
+- Support Factorio Tools and Lobby Goblin images in the panel, including
   reviewed same-version source changes and separate image revisions. Validate
   compatibility before replacement and pin the downloaded image digest.
 - Verify both image sources with read-only amd64/digest preflight checks and

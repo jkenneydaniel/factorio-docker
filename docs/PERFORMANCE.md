@@ -61,13 +61,13 @@ change or persistent RCON connection was introduced.
 ## Normal-startup saving follow-up
 
 On October 17, 2026, a second experiment compared normal startup in the existing
-Factory Control `2.0.77-fc.1` image and Factorio Tools `2.0.77`. Both images were
+Lobby Goblin `2.0.77-fc.1` image and Factorio Tools `2.0.77`. Both images were
 already cached; nothing was pulled, built, published or installed. This test
 used the same OrbStack amd64 compatibility runtime as the earlier benchmark.
 
 | Image | Ordinary saving | Non-blocking saving |
 | --- | --- | --- |
-| Factory Control `2.0.77-fc.1` | 9/9 saves completed; all three servers remained responsive | All three fresh trials crashed after their first child save |
+| Lobby Goblin `2.0.77-fc.1` | 9/9 saves completed; all three servers remained responsive | All three fresh trials crashed after their first child save |
 | Factorio Tools `2.0.77` | 9/9 saves completed; all three servers remained responsive | All three fresh trials crashed after their first child save |
 
 All six background-save failures reported `poll failed: Interrupted system call`
@@ -78,7 +78,7 @@ through the post-save RCON checks and were then explicitly stopped.
 
 This is **not specific to our startup scripts or unique to our image**. It also
 rules out the earlier Python-parent process layout as a necessary condition:
-normal Factory Control startup ran Factorio as PID 1, UID/GID 845; normal Factorio
+normal Lobby Goblin startup ran Factorio as PID 1, UID/GID 845; normal Factorio
 Tools startup ran `runuser` as PID 1. Both contained the same Factorio executable,
 SHA-256 `c9ac91d318bdbcce5afaac30d48f4b71dc38af257712a5d4d4c4feb625737198`.
 The evidence does not distinguish a Factorio defect from a compatibility-runtime
@@ -104,14 +104,14 @@ disabled and no ports were published. No installation paths or existing worlds
 were mounted. Logs and state were captured before all private resources were
 removed successfully.
 
-For ordinary-trial shutdown, Factory Control exited 0. Factorio Tools reported
+For ordinary-trial shutdown, Lobby Goblin exited 0. Factorio Tools reported
 container exit 143 through its `runuser` wrapper; its logs show SIGTERM handling,
 shutdown-save progress reaching 100%, and `Goodbye`. These requested shutdowns
 are separate from the unrequested background-save crashes.
 
 Immutable image references:
 
-- Factory Control:
+- Lobby Goblin:
   `ghcr.io/jkenneydaniel/factorio-server@sha256:c8056ca33a857406bd1f75521f237782faa810f4bf76e05d21d4d827e0dba990`.
 - Factorio Tools:
   `factoriotools/factorio@sha256:2552b97f548f999217bdc9a4e1cc2d4e8c638e9272452e58c978910bc3c01074`.

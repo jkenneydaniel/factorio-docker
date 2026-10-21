@@ -1,4 +1,4 @@
-# Factory Control Factorio image
+# Lobby Goblin Factorio image
 
 `ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.1` is the initial published image.
 The current source builds `2.0.77-fc.2`, a locally verified, unpublished revision
@@ -96,7 +96,7 @@ the panel does not forward personal registry credentials. First publication may
 need repository package permissions/visibility configured in GitHub.
 
 Publishing does not migrate servers. Once the tag is public and tested, use
-Settings → Updates, choose Factory Control, keep the current Factorio version,
+Settings → Updates, choose Lobby Goblin, keep the current Factorio version,
 select the published image revision, then review and confirm. The installer
 backs up existing data, validates the image without mounting world data, pins its
 digest and replaces only Factorio. Failed readiness leaves the previous image

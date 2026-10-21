@@ -16,7 +16,7 @@ test('Docker commands retain successful machine-readable output and use a privat
   const f=processFixture((child,args,options)=>{
     assert.deepEqual(args,['inspect','fixture']);
     assert.equal(options.env.DOCKER_HOST,'unix:///var/run/docker.sock');
-    assert.equal(options.env.DOCKER_CONFIG,'/tmp/factory-control-docker');
+    assert.equal(options.env.DOCKER_CONFIG,'/tmp/lobby-goblin-docker');
     child.stdout.write('[{"Image":"fixture"}]');child.emit('close',0,null);
   });
   assert.equal(await command(['inspect','fixture'],f),'[{"Image":"fixture"}]');

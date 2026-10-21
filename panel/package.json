@@ -1,9 +1,17 @@
 {
-  "name": "factorio-lan-panel",
-  "version": "0.2.6-alpha",
+  "name": "lobby-goblin",
+  "version": "0.3.0-alpha",
   "private": true,
   "type": "module",
-  "scripts": {"start": "node server.js", "test": "node --test test/*.test.js"},
-  "engines": {"node": ">=24"},
-  "license": "MIT"
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "ws": "8.22.0"
+  }
 }

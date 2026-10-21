@@ -11,7 +11,7 @@ export function retentionPolicy(value){
   assert(Number.isInteger(value.days)&&value.days>=1&&value.days<=3650,'Keep backups for between 1 and 3650 days.');
   return Object.fromEntries(Object.keys(defaultRetention).map(key=>[key,value[key]]));
 }
-const kind=name=>name.endsWith('-scheduled.zip')?'scheduled':name.endsWith('-manual.zip')?'manual':/-before-[A-Za-z0-9_.-]+\.zip$/.test(name)?'safety':'unknown';
+const kind=name=>/-scheduled\.(zip|tar\.gz)$/.test(name)?'scheduled':/-manual\.(zip|tar\.gz)$/.test(name)?'manual':/-before-[A-Za-z0-9_.-]+\.(zip|tar\.gz)$/.test(name)?'safety':'unknown';
 const identity=stat=>[stat.dev,stat.ino,stat.size,stat.mtimeMs,stat.ctimeMs];
 const fingerprint=value=>crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const publicFile=({relative,size,modified,kind})=>({relative,size,modified,kind});
@@ -36,11 +36,11 @@ export function retentionSelection(items,{policy,cutoff,keep=null,protectedNames
   return {candidates,protected:protectedFiles,bytes:candidates.reduce((sum,item)=>sum+item.size,0)};
 }
 
-// Only this directory's regular ZIP files are eligible. World libraries,
+// Only this directory's regular archives in the configured format are eligible. World libraries,
 // autosaves, directories and symbolic links never enter a deletion plan.
 export class BackupRetention{
-  constructor({root,file,protectedNames=()=>[],validations=()=>({}),onDeleted=async()=>{},now=Date.now}){
-    Object.assign(this,{root,file,protectedNames,validations,onDeleted,now});this.plans=new Map();this.writes=Promise.resolve();
+  constructor({root,file,extension='.zip',protectedNames=()=>[],validations=()=>({}),onDeleted=async()=>{},now=Date.now}){
+    Object.assign(this,{root,file,extension,protectedNames,validations,onDeleted,now});this.plans=new Map();this.writes=Promise.resolve();
   }
   async init(){
     const saved=await readJSON(this.file,{});
@@ -51,7 +51,7 @@ export class BackupRetention{
   async inventory(){
     const items=[];
     for(const entry of await fs.readdir(this.root,{withFileTypes:true})){
-      if(!entry.isFile()||!entry.name.endsWith('.zip'))continue;
+      if(!entry.isFile()||!entry.name.endsWith(this.extension))continue;
       const stat=await fs.lstat(path.join(this.root,entry.name)).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
       if(stat?.isFile())items.push({relative:entry.name,size:stat.size,modified:stat.mtime.toISOString(),kind:kind(entry.name),identity:identity(stat)});
     }

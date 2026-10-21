@@ -1,5 +1,171 @@
 # Release verification
 
+## Unreleased: single-host manager, October 20, 2026
+
+Implemented and accepted on a Windows x86-64 host running Linux containers with
+Docker Engine 29.8.2. Work used a separate checkout and Compose project. Existing
+Factorio game, controller and panel start times/restart counts were unchanged.
+No existing game data, accounts, configuration or running Compose services were
+adopted or changed.
+
+- Node 24 Linux suite: **169 passed, zero failed, one skipped** (Lua interpreter
+  unavailable). All **12 Python image-runtime tests passed** in Linux. Both
+  launcher syntax checks and the separate Compose configuration passed. The
+  Windows fleet launcher built and started a fresh host manager successfully.
+- A disposable loopback-only fleet created two independent Factorio servers and
+  two independent Rust servers, with unique volumes, bridges, ports and secrets.
+  Game and controller resource limits were applied; memory-budget rejection,
+  foreign-resource refusals and partial creation recovery are unit tested.
+- Factorio 2.0.77 generated seed 786420, published a hash-verified snapshot, and
+  loaded a clone with the same seed and fresh credentials. Editing clone settings
+  left the source settings and readiness unchanged. Real named-volume map preview
+  rendered successfully. Map export completed against an isolated copy; the fresh,
+  unvisited world had zero explored chunks. No claim of populated-map rendering
+  or multiplayer client joining is made by this acceptance.
+- Rust installed through the reviewed didstopia digest, reached WebRCON readiness,
+  saved/stopped/archived/resumed, and published a 24-file, 2,539,291-byte snapshot.
+  Manifest SHA-256:
+  `0f2194b3c0e92f4b5e2adb73a6bb3880a6d1614ceff1680266401895ab18a28b`.
+  A second real Rust server loaded `proceduralmap.1000.572911.289.sav` from that
+  snapshot. Both games reported seed 572911 and size 1000 through WebRCON. The
+  clone used new credentials and server configuration. File sizes/hashes were
+  independently recomputed and `cfg` was absent from the shared snapshot.
+- Replacing the host manager reconnected its registered private bridges. All
+  three then-running test game start times and restart counts stayed unchanged;
+  scoped status remained reachable. Interrupted host jobs preserve data and mark
+  themselves interrupted. Stopped-instance removal can be retried after a manager
+  replacement without requiring an already absent network attachment.
+- Real browser checks covered sign-in, game-specific creation options, the shared
+  snapshot library, a scoped Factorio page, and scoped Rust/player controls.
+  HTTP tests enforce shared-session, admin/viewer, CSRF and actor boundaries.
+  Draft/preset scope is per account and per managed server.
+- Every test game was saved/stopped and removed through the panel. All five test
+  data volumes and both snapshots remained, confirming retention after removal.
+  The disposable fleet's containers, bridges and eight owned volumes were then
+  removed explicitly; its temporary image tag was removed. Shared game images and
+  the existing standalone deployment were retained. A separate, empty LAN manager
+  was started for administrator registration; no persistent game was added.
+- Source packaging includes the new host launcher files only in complete source
+  bundles; historical updater ZIPs retain compatible root paths. Packages exclude
+  private environment files, registration links, local acceptance data and worlds.
+  Module imports, both archive formats and prepare-only setup are regression
+  tested. CI installs the locked runtime dependency before tests.
+
+Limits: trusted single-host amd64 use; global admin/read-only roles; no adoption,
+retained-volume purge UI, or fleet-aware image updater. Rust's pinned bootstrap
+still downloads Steam's public game build, so recovery across a future build
+change requires separate compatibility validation. Network joins from another
+PC/console and a full computer reboot were not exercised here. Restart policies
+were inspected; the manager replacement was exercised without restarting games.
+See [host manager setup and operation](FLEET.md).
+
+## Unreleased: Lobby Goblin and disposable Rust runtime checks, October 19, 2026
+
+The repository was renamed to `jkenneydaniel/lobby-goblin`. Source branding,
+interfaces, launchers, image metadata, package names and documentation use Lobby
+Goblin. Historical update archives, workers, repository settings and published
+Factorio image labels remain supported. Source changes are local and unreleased;
+the existing Factorio installation was not deployed or reconfigured.
+
+- Node 24 suite: 157 passed, zero failed, one Linux-only ownership check skipped
+  on macOS. The final Rust/branding/package subset passed all 19 checks after
+  the startup-template and branding changes. Python image-wrapper tests: 12 passed.
+  Both current and historical release packages were unpacked/imported in temporary
+  folders. Default and generated standalone Compose configurations validate.
+- A native ARM64 panel image built successfully and imported both game modules.
+  Browser checks covered the renamed Factorio fixture, Rust fixture, and the final
+  Rust web image connected to the disposable runtime. Synthetic preview data are
+  distinct from the actual runtime results below.
+- The real test used a new temporary installation, a random installation ID,
+  dedicated containers/bridge/accounts/secrets/data/backups, loopback-only random
+  host ports, an 8 GiB game memory limit and four game CPUs. Controller/RCON ports
+  were private. No existing Factorio container, installation or world was used.
+- Game image: `didstopia/rust-server@sha256:f935f9631e53ad1a235b446496716e1ae65a8d179a3b620abf38e29b9877f88e`.
+  SteamCMD installed app 258550, build 25902425, changeset 167781, protocol
+  2634.289.1, Unity 6000.3.15x1-13. The image digest pins the bootstrap;
+  SteamCMD downloads the game separately.
+- Real registration/sign-in, starting/unavailable status, resource samples,
+  authenticated Docker logs and password filtering were observed. Running-state
+  settings edits were refused. A backup attempted before WebRCON readiness failed
+  without stopping/restarting the game or publishing an invalid archive.
+- The runtime exposed and corrected image-command-line defaults overriding
+  `server.cfg`, Unity's unusable `/dev/stdout` logfile default (use `-logfile -`),
+  an obsolete `-load` flag, and readiness waiting after process exit/restart.
+  The startup-exit regression is covered by a test.
+
+The stock image's 32-bit SteamCMD crashed under ARM emulation. A disposable
+64-bit SteamCMD installer completed, but Rust then aborted in Mono's
+`tramp-amd64.c:641` under Rosetta. An experimental, per-container Box64 build
+(commit `75ff158c4ca9fd72ed4094a376a56fd62e5701ce`) passed Mono startup, but
+procedural generation stalled. A downloaded 1000m public terrain map reached
+entity/navmesh/occlusion and Steam initialization; management readiness still
+has not completed. These experiments changed only the disposable stack, without
+changing Docker's global emulator or VM settings.
+
+**Runtime acceptance remains incomplete:** clean lifecycle operations, settings
+applied in a ready game, connected-player results, successful real backups and
+actual game-load recovery are not yet verified. Fixture/hash/TAR checks do not
+substitute for a real recovery. A native x86 Docker host running Linux containers
+with sufficient free memory is needed to finish acceptance. Windows Docker
+Desktop is a suitable target; the saved Windows Docker endpoint timed out during
+the connection check, so no Windows containers or files have been created yet.
+The disposable Mac containers and private bridge were removed. The experimental
+emulator is not part of the distributed setup or a supported ARM solution.
+
+## Initial isolated Rust fixture checks, October 19, 2026
+
+- Node 24.19.0 suite: 154 passed, zero failed, one platform-specific ownership
+  check skipped on macOS. Existing Factorio regression tests still pass.
+- Rust fixtures cover explicit module selection, storage markers checked before
+  state writes, container/image/mount ownership, lifecycle/save failures,
+  readiness, player privacy, filtered logs, settings preservation/injection and
+  stale revisions, backup interruption consent, full identity inventory, archive
+  corruption, failure resumption and retention. A sparse 513 MiB world fixture
+  confirms streaming beyond the existing Factorio ZIP limit; system TAR lists
+  generated archives independently. A loopback WebSocket server tests the native
+  WebRCON client and request correlation; web tests verify admin/viewer and CSRF
+  restrictions through the actual proxy.
+- Both release formats include/import the Rust module, template and frontend.
+  Prepare-only setup creates separate temporary installations and refuses an
+  existing destination or a destination inside the Factorio checkout. The
+  generated standalone Compose configuration validates with Docker configured
+  to a nonexistent socket; no engine is needed or contacted.
+- Browser acceptance used the disposable Rust UI fixture with real web,
+  controller, account and archive code plus synthetic game/host transports.
+  Inspected the rendered desktop panel and exercised sign-in, players, logs,
+  confirmed stop/start, settings save and backup creation/verification. Confirmed
+  the backup list and completion feedback refresh when a job finishes.
+- At this initial fixture-only stage, no real Rust image pull/build/start, Docker
+  engine action, installation or live recovery was performed. The later runtime
+  attempts and remaining acceptance gap are recorded above. The
+  running Factorio installation and existing worlds were not accessed or changed.
+  See [Rust operation and limitations](RUST.md).
+
+## Unreleased: shared core and Factorio module, October 19, 2026
+
+- The complete Node suite passed on Node 24.19.0: 139 passed, zero failed,
+  one platform-specific ownership check skipped on macOS. Existing integration
+  fixtures still exercise Factorio lifecycle, world generation/switch recovery,
+  backups, maps, tracking consent, accounts, drafts and updates with mock Docker.
+- A different test-only game runs through the shared controller and web service:
+  module-specific routes/assets/cookies, administrator/viewer/CSRF enforcement,
+  operation locking, failed-job recovery and a non-Factorio backup layout.
+- A Factorio module fixture supplies its own transport and custom paths/container
+  name, verifies the legacy status/save commands and readiness fields, and blocks
+  accidental fallback to the real Docker socket.
+- Both compatible and complete source bundles are generated in temporary folders
+  and accepted by the existing updater package validation. An image-layout check
+  follows the Dockerfile's local COPY rules and imports the packaged runtime.
+  Prepare-only setup and a repeated setup preserve temporary private state and
+  create no world saves. The built-image smoke check now compares nested core and
+  game sources as well as the original runtime files.
+- No Docker image build, deployment, engine/host operation, live panel acceptance
+  or real game-load test was performed for this refactor. Tests use temporary
+  data, fake host launchers and mock transports; the running installation and
+  existing worlds were not accessed or changed. Compose, environment defaults,
+  public URLs, persistent paths/formats and updater/state contract versions are
+  unchanged. See [architecture and compatibility](ARCHITECTURE.md).
+
 ## v0.2.6-alpha: release preparation, October 19, 2026
 
 - Packages the enemy-map fix and measured panel/image-source performance work
@@ -53,12 +219,12 @@
 ## Unreleased: normal-startup saving comparison, October 17, 2026
 
 - Ran 12 disposable trials through the normal image entrypoints: three ordinary
-  and three non-blocking-save trials each for Factory Control `2.0.77-fc.1` and
+  and three non-blocking-save trials each for Lobby Goblin `2.0.77-fc.1` and
   Factorio Tools `2.0.77`, using the same generated save and identical RCON client.
 - Each image completed nine ordinary saves and stayed responsive. Both images
   crashed in all three non-blocking-save trials after the first child save, with
   the same `poll failed: Interrupted system call` error and exit status 1.
-- Confirmed identical Factorio executable hashes. Normal Factory Control ran
+- Confirmed identical Factorio executable hashes. Normal Lobby Goblin ran
   Factorio as PID 1; Factorio Tools used its normal `runuser` wrapper. The failure
   is not unique to our image or dependent on the previous Python-parent layout.
 - All runs used local amd64 images through OrbStack compatibility on this Mac.
@@ -173,7 +339,7 @@
 - In an isolated loopback preview with installation disabled and no Docker
   access, Check for updates fetched the published release and revealed Review
   panel update without navigation. Opened and cancelled both the panel review
-  and the same-version Factory Control image review; no install jobs were made.
+  and the same-version Lobby Goblin image review; no install jobs were made.
 - Retrieved the published 2.0.77-fc.1 image manifest/configuration anonymously and
   validated its amd64 metadata with the panel compatibility validator. No image
   was pulled or installed, and no game binary was started.

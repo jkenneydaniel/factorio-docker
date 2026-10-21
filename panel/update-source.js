@@ -1,10 +1,11 @@
+import {releasePrefixes} from './branding.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert,inside,readJSON,writeJSON} from './common.js';
 import {zipEntries} from './zip.js';
 
-const roots=new Set(['.gitignore','.gitattributes','.env.example','compose.yaml','README.md','LICENSE','CHANGELOG.md','SECURITY.md','THIRD_PARTY_NOTICES.md','Setup.sh','Setup.command','Setup.ps1','Start-Server.sh','Start-Server.ps1','Configure-Lan.ps1','Configure-Autostart.ps1','Register-LanAnnouncer.ps1','Start-LanAnnouncer.ps1','tools/release.mjs','tools/factorio-image.mjs']);
+const roots=new Set(['.gitignore','.gitattributes','.env.example','compose.yaml','README.md','LICENSE','CHANGELOG.md','SECURITY.md','THIRD_PARTY_NOTICES.md','Setup.sh','Setup.command','Setup.ps1','Start-Server.sh','Start-Server.ps1','Configure-Lan.ps1','Configure-Autostart.ps1','Register-LanAnnouncer.ps1','Start-LanAnnouncer.ps1','tools/release.mjs','tools/factorio-image.mjs','fleet.compose.yaml','.env.fleet.example','Fleet.ps1','Fleet.sh']);
 export const sha256=data=>crypto.createHash('sha256').update(data).digest('hex');
 export function publicSource(name){
   if(typeof name!=='string'||name.includes('\\')||name.split('/').some(p=>!p||p==='.'||p==='..'||p==='node_modules'||p.startsWith('.test-')))return false;
@@ -37,9 +38,10 @@ export async function assertUnmodified(root,baseline){
   assert(JSON.stringify(Object.entries(current).sort())===JSON.stringify(Object.entries(baseline.files).sort()),'Installation source has local changes. Preserve and reconcile them before updating; no files were replaced.',409);
 }
 export function unpackRelease(buffer,checksum,version,metadata){
-  const name='factory-control-'+version,expected=name+(metadata?.bundle==='source'?'.source':'')+'.zip';
+  const names=releasePrefixes(version),suffix=(metadata?.bundle==='source'?'.source':'')+'.zip';
   const checksumEntry=checksum.trim().match(/^([a-fA-F0-9]{64}) {2}(\S+)$/);
-  assert(checksumEntry?.[2]===expected,'Release checksum file is invalid.');
+  const name=names.find(name=>checksumEntry?.[2]===name+suffix);
+  assert(name,'Release checksum file is invalid.');
   assert(sha256(buffer)===checksum.slice(0,64).toLowerCase(),'Release checksum does not match.');
   assert(metadata?.format===1&&metadata.version===version&&metadata.updater===1&&metadata.stateVersion===1&&metadata.rollbackSafe===true&&(!metadata.bundle||metadata.bundle==='source'),'This release needs an installer or state migration not supported by this updater.');
   const files=new Map();

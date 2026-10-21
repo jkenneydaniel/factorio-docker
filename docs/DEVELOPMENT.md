@@ -1,6 +1,10 @@
 # Development and release
 
 Use Node.js 24 or newer. There are no npm dependencies to install.
+See [the shared-core/module contract](ARCHITECTURE.md) before adding game behavior.
+The [Rust module guide](RUST.md) documents its separate, prepare-only installation.
+`node panel/test/rust-ui-preview.js` serves a synthetic Rust panel on loopback
+port 8090 with mock game/host transports and disposable storage.
 
 ```sh
 cd panel
@@ -33,7 +37,7 @@ simulations only; real lifecycle, account writes and installations stay blocked.
 ## Build without deploying
 
 ```sh
-docker build -t local/factory-control:0.2.6-alpha panel
+docker build -t local/lobby-goblin:0.2.6-alpha panel
 docker compose --env-file .env.example config --quiet
 ```
 
@@ -57,7 +61,7 @@ node tools/release.mjs
 ```
 
 This packages only explicitly allowed source roots into
-`dist/factory-control-0.2.6-alpha/`, plus compatible update and complete source ZIPs, each with a SHA-256 checksum,
+`dist/lobby-goblin-0.2.6-alpha/`, plus compatible update and complete source ZIPs, each with a SHA-256 checksum,
 file manifest and installer metadata.
 It rejects symbolic links, unexpected file types and common credential/private
 deployment patterns. It never copies `.env`, state, saves, backups, captures or
