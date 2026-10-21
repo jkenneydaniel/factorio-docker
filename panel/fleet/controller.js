@@ -9,6 +9,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
  const manager=new FleetManager({docker,root,library,fleet:env.FLEET_ID,stateVolume:env.FLEET_STATE_VOLUME,libraryVolume:env.FLEET_LIBRARY_VOLUME,image:env.FLEET_IMAGE,hostContainer:env.FLEET_HOST_CONTAINER,address:env.FLEET_GAME_ADDRESS||'localhost',bind:env.FLEET_GAME_BIND||'0.0.0.0',memoryBudgetGiB:Number(env.FLEET_MEMORY_GIB||16),portBase:Number(env.FLEET_GAME_PORT_BASE||35000)});await manager.init();await manager.reconnect();
  async function handle(req,res){
   if(req.url==='/health')return json(res,200,{ok:true});assert(equalSecret(req.headers.authorization,'Bearer '+token),'Unauthorized.',401);const url=new URL(req.url,'http://host-manager');
+  if(url.pathname==='/host-settings'){if(req.method==='GET')return json(res,200,await manager.hostSettings());assert(req.method==='POST','Not found.',404);return json(res,200,await manager.updateHostSettings(await requestJSON(req),req.headers['x-panel-user']||'administrator'));}
   if(req.method==='GET'&&url.pathname==='/catalog')return json(res,200,{games:Object.values(catalog),memoryBudgetGiB:manager.memoryBudgetGiB});
   if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{game:'fleet',ready:true,servers:manager.list().length,activeJob:manager.active});
   if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,{jobs:manager.state.jobs,active:manager.active});
@@ -16,7 +17,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(url.pathname==='/servers'){
    if(req.method==='GET')return json(res,200,{servers:manager.list()});assert(req.method==='POST','Not found.',404);return json(res,202,await manager.submit('create',await requestJSON(req),req.headers['x-panel-user']||'administrator'));
   }
-  if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater('0.3.2-alpha').refresh());
+  if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater('0.3.3-alpha').refresh());
   const match=url.pathname.match(/^\/servers\/([a-f0-9]{32})(?:\/(.*))?$/);assert(match,'Not found.',404);const item=manager.server(match[1]),tail=match[2]||'';
   if(!tail&&req.method==='GET')return json(res,200,manager.publicServer(item));
   if(req.method==='POST'&&['snapshot','remove'].includes(tail)){const body=await requestJSON(req);return json(res,202,await manager.submit(tail==='snapshot'?'publish':'remove',{...body,serverId:item.id},req.headers['x-panel-user']||'administrator'));}

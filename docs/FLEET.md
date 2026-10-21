@@ -57,6 +57,23 @@ for inspection; no world is deleted automatically. A manager restart marks host
 jobs interrupted and preserves registered servers. Game restart policy follows
 the creation setting; manually stopped `unless-stopped` games remain stopped.
 
+## Host memory settings
+
+Open **Host settings** in the host manager to see the configured budget, total
+allocated memory, remaining allocation capacity, Docker memory capacity and each
+server's game/controller limits. These are configured allocations, not current
+RAM use. Stopped and incomplete servers count; removed servers do not. Every
+managed server includes a separate 1 GiB controller allowance.
+
+Administrators can save a whole-number budget without restarting games or the
+manager. Changes persist in the fleet registry volume and override the initial
+`FLEET_MEMORY_GIB` environment default on subsequent starts. Other administrators'
+changes require reloading a stale draft before it can be saved. Changes are
+blocked during host operations, below existing allocations, or above Docker's
+memory capacity minus 2 GiB (up to a maximum budget of 128 GiB). Leave additional
+headroom for other workloads. Docker/WSL limits and individual server memory
+limits are managed separately. Read-only accounts can view allocations.
+
 ## Shared snapshot library
 
 Publish snapshot first asks the source controller for a completed, verified

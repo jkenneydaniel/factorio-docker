@@ -6,21 +6,43 @@ export class FleetManager{
  constructor({docker,root='/fleet',library='/library',fleet,stateVolume,libraryVolume,image,hostContainer,address='localhost',bind='0.0.0.0',memoryBudgetGiB=16,portBase=35000}){
   assert(validId(fleet),'FLEET_ID must be a fresh 32-character lowercase hex ID.');assert(stateVolume===`lobby-goblin-fleet-${fleet}-state`&&libraryVolume===`lobby-goblin-fleet-${fleet}-library`,'Unexpected host-manager storage names.');
   assert(typeof image==='string'&&image.length>0,'The host manager image is required.');assert(/^[a-zA-Z0-9.-]+$/.test(address)&&['0.0.0.0','127.0.0.1'].includes(bind),'Invalid LAN address or bind setting.');assert(Number.isInteger(Number(memoryBudgetGiB))&&memoryBudgetGiB>=2&&memoryBudgetGiB<=128,'Memory budget must be 2–128 GiB.');assert(Number.isInteger(Number(portBase))&&portBase>=1024&&portBase<=64000,'Port base must be 1024–64000.');
-  Object.assign(this,{docker,root,library,fleet,stateVolume,libraryVolume,image,hostContainer,address,bind,memoryBudgetGiB:Number(memoryBudgetGiB),portBase:Number(portBase)});this.active=null;this.queue=Promise.resolve();
+  Object.assign(this,{docker,root,library,fleet,stateVolume,libraryVolume,image,hostContainer,address,bind,memoryBudgetGiB:Number(memoryBudgetGiB),portBase:Number(portBase)});this.active=null;this.settingsUpdating=false;this.queue=Promise.resolve();
  }
  async init(){
   await fs.mkdir(this.root,{recursive:true});await fs.mkdir(this.library,{recursive:true});
   for(const dir of [this.root,this.library]){assert(await fs.realpath(dir)===path.resolve(dir),'Host-manager storage cannot be a link.');const file=path.join(dir,'.fleet-owner.json'),owner=await readJSON(file,null);assert(!owner||owner.fleet===this.fleet,'Host-manager storage belongs to another installation.',409);if(!owner)await writeJSON(file,{fleet:this.fleet});}
   this.state=await readJSON(path.join(this.root,'registry.json'),{version:1,servers:[],snapshots:[],jobs:[]});assert(this.state.version===1,'Unsupported server registry.');
+  if(this.state.settings){assert(Number.isInteger(this.state.settings.memoryBudgetGiB)&&this.state.settings.memoryBudgetGiB>=2&&this.state.settings.memoryBudgetGiB<=128&&Number.isSafeInteger(this.state.settings.revision)&&this.state.settings.revision>=0,'Invalid persisted host settings.',409);this.memoryBudgetGiB=this.state.settings.memoryBudgetGiB;}
   for(const job of this.state.jobs)if(job.state==='running'){job.state='interrupted';job.message='Host manager restarted. Resources and data were preserved. Check this server before retrying.';}
   for(const item of this.state.servers)delete item.maintenance;
   await this.persist();
  }
- persist(){const data=structuredClone(this.state);const next=this.queue.then(()=>writeJSON(path.join(this.root,'registry.json'),data));this.queue=next.catch(()=>{});return next;}
+ persist(state=this.state){const data=structuredClone(state);const next=this.queue.then(()=>writeJSON(path.join(this.root,'registry.json'),data));this.queue=next.catch(()=>{});return next;}
  server(id){assert(validId(id),'Invalid server.');const item=this.state.servers.find(s=>s.id===id);assert(item,'Server not found.',404);return item;}
  snapshot(id){assert(validId(id),'Invalid snapshot.');const item=this.state.snapshots.find(s=>s.id===id);assert(item,'Snapshot not found.',404);return item;}
  publicServer(item){const {controllerToken,rconPassword,...publicFields}=item;return {...publicFields,address:`${this.address}:${item.gamePort}`,manageUrl:`/servers/${item.id}/`};}
  list(){return this.state.servers.map(s=>this.publicServer(s));}
+ allocations(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>({id:s.id,name:s.name,game:s.game,state:s.state,gameGiB:s.memoryGiB,controllerGiB:1,totalGiB:s.memoryGiB+1}));}
+ async hostSettings(){
+  const allocations=this.allocations(),allocatedMemoryGiB=allocations.reduce((sum,s)=>sum+s.totalGiB,0);let dockerMemoryGiB=null;
+  try{const info=await this.docker('GET','/info');if(Number.isFinite(info.MemTotal)&&info.MemTotal>0)dockerMemoryGiB=info.MemTotal/giB;}catch{}
+  return {memoryBudgetGiB:this.memoryBudgetGiB,revision:this.state.settings?.revision??0,allocatedMemoryGiB,availableMemoryGiB:Math.max(0,this.memoryBudgetGiB-allocatedMemoryGiB),dockerMemoryGiB,minMemoryBudgetGiB:Math.max(2,allocatedMemoryGiB),maxMemoryBudgetGiB:dockerMemoryGiB===null?null:Math.min(128,Math.max(0,Math.floor(dockerMemoryGiB)-2)),hostHeadroomGiB:2,allocations,updatedAt:this.state.settings?.updatedAt??null};
+ }
+ async updateHostSettings(input,actor='administrator'){
+  assert(!this.active&&!this.settingsUpdating,'Wait for the current host operation to finish before changing the budget.',409);
+  this.settingsUpdating=true;
+  try{
+   assert(input&&typeof input==='object'&&!Array.isArray(input),'Invalid host settings.');
+   assert(Number.isSafeInteger(input.revision)&&input.revision===(this.state.settings?.revision??0),'Host settings changed in another session. Reload the current budget before saving.',409);
+   const budget=input.memoryBudgetGiB;assert(Number.isInteger(budget)&&budget>=2&&budget<=128,'Choose a whole-number memory budget from 2 to 128 GiB.');
+   const current=await this.hostSettings();assert(current.dockerMemoryGiB!==null,'Docker memory capacity is unavailable. Retry when Docker is ready.',503);
+   assert(budget>=current.minMemoryBudgetGiB,`Existing servers and their controllers already have ${current.allocatedMemoryGiB} GiB allocated. The budget cannot be lower than that.`,409);
+   assert(budget<=current.maxMemoryBudgetGiB,`Choose at most ${current.maxMemoryBudgetGiB} GiB to leave at least 2 GiB of Docker memory for management and other work.`,409);
+   const settings={memoryBudgetGiB:budget,revision:current.revision+1,updatedAt:new Date().toISOString(),updatedBy:actor};
+   await this.persist({...this.state,settings});this.state.settings=settings;this.memoryBudgetGiB=budget;
+   return {...current,...settings,availableMemoryGiB:budget-current.allocatedMemoryGiB};
+  }finally{this.settingsUpdating=false;}
+ }
  async assertHost(){const info=await this.docker('GET',`/containers/${encodeURIComponent(this.hostContainer)}/json`);assert(info.Config?.Labels?.['io.lobby-goblin.fleet']===this.fleet&&info.Config.Labels['io.lobby-goblin.role']==='host-controller','The manager does not own its configured host container.',409);this.runtimeImage=info.Image;}
  async ownedContainer(name,id){const info=await this.docker('GET',`/containers/${encodeURIComponent(name)}/json`);assert(info.Config?.Labels?.['io.lobby-goblin.fleet']===this.fleet&&info.Config.Labels['io.lobby-goblin.instance']===id,'Container belongs to another installation.',409);return info;}
  async ownedVolume(name,id){const info=await this.docker('GET',`/volumes/${encodeURIComponent(name)}`);assert(info.Labels?.['io.lobby-goblin.fleet']===this.fleet&&info.Labels['io.lobby-goblin.instance']===id,'Volume belongs to another installation.',409);return info;}
@@ -32,7 +54,7 @@ export class FleetManager{
   }
  }
  async submit(action,input,actor='administrator'){
-  assert(!this.active,'Wait for the current host operation to finish.',409);
+  assert(!this.active&&!this.settingsUpdating,'Wait for the current host operation to finish.',409);
   if(action==='create')input=validateCreation(input);
   else if(action==='publish'){const s=this.server(input.serverId);assert(s.state!=='removed'&&input.confirm===true,'Confirm the save and possible server interruption.');assert(typeof input.title==='string'&&input.title.trim().length>=1&&input.title.length<=80&&!/[\x00-\x1f]/.test(input.title),'Use a snapshot title of 1–80 characters.');input={serverId:s.id,title:input.title.trim(),confirm:true};}
   else if(action==='remove'){const s=this.server(input.serverId);assert(s.state!=='removed'&&input.confirm===true&&input.name===s.name,'Type the server name to remove its containers.');input={serverId:s.id,confirm:true};}
@@ -59,7 +81,7 @@ export class FleetManager{
  }
  async create(input,job){
   const info=await this.docker('GET','/info');assert(info.OSType==='linux'&&['x86_64','amd64'].includes(info.Architecture),'This first host-manager version requires Linux containers on an amd64 host.');assert(Number(String(info.ServerVersion).split('.')[0])>=26,'Docker Engine 26 or newer is required for isolated volume subdirectories.');
-  const reserved=this.state.servers.filter(s=>s.state!=='removed').reduce((n,s)=>n+s.memoryGiB+1,0);assert(reserved+input.memoryGiB+1<=this.memoryBudgetGiB,'This server would exceed the host manager’s configured memory budget.',409);assert((reserved+input.memoryGiB+3)*giB<=info.MemTotal,'Keep at least 2 GiB outside the managed server memory budget.',409);
+  const reserved=this.allocations().reduce((n,s)=>n+s.totalGiB,0);assert(reserved+input.memoryGiB+1<=this.memoryBudgetGiB,`This server needs ${input.memoryGiB+1} GiB including its controller, but only ${Math.max(0,this.memoryBudgetGiB-reserved)} GiB remains in the ${this.memoryBudgetGiB} GiB host budget. Open Host settings to review allocations.`,409);assert((reserved+input.memoryGiB+3)*giB<=info.MemTotal,'Keep at least 2 GiB outside the managed server memory budget.',409);
   const game=catalog[input.game];let snapshot=null;if(input.snapshotId){snapshot=this.snapshot(input.snapshotId);assert(snapshot.game===input.game&&snapshot.image===game.image,'This snapshot requires a different game image.',409);const manifest=await verifySnapshot(this.library,snapshot.id,snapshot.manifestSha256);if(input.game==='rust'){assert(Number.isInteger(manifest.seed)&&Number.isInteger(manifest.worldSize),'Rust snapshot is missing its map identity.');input={...input,seed:manifest.seed,worldSize:manifest.worldSize};}}
   const id=crypto.randomBytes(16).toString('hex'),ports=await this.allocatePorts(input.game),item={...input,id,...resources(this.fleet,id,input.game),...ports,seed:input.seed??crypto.randomInt(1,0x100000000),image:game.image,created:new Date().toISOString(),state:'creating',controllerToken:crypto.randomBytes(48).toString('hex'),rconPassword:crypto.randomBytes(48).toString('base64url')};this.state.servers.push(item);await this.persist();
   try{
