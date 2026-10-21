@@ -1,10 +1,11 @@
 const $=selector=>document.querySelector(selector),esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let session=null,servers=[],snapshots=[],games=[],active=null,refreshing=false,view='servers';const live=new Map();
+let hostSettings=null,hostDirty=false,hostSaving=false,hostLoading=false,hostDraftRevision=0;
 async function api(route,body){const response=await fetch('/api'+route,{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json',...(session?{'x-csrf-token':session.csrf}:{})},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw Error(data.error||'The host manager is unavailable.');return data;}
 function error(message,target='#error'){const node=$(target);node.textContent=message;node.hidden=!message;}
 function notice(message){$('#notice').textContent=message;$('#notice').hidden=!message;}
-function authenticated(){$('#session-loading').hidden=true;const signed=!!session;$('#auth').hidden=signed;$('#dashboard').hidden=!signed;$('#account').hidden=!signed;$('#username').textContent=session?.username||'';document.querySelectorAll('[data-admin]').forEach(node=>node.hidden=session?.role!=='admin');}
-function selectView(next){view=next;for(const name of ['servers','library','access']){document.getElementById(name+'-view').hidden=name!==next;document.getElementById('show-'+name).setAttribute('aria-current',name===next?'page':'false');}if(next==='access')void loadAccess();}
+function authenticated(){$('#session-loading').hidden=true;const signed=!!session;$('#auth').hidden=signed;$('#dashboard').hidden=!signed;$('#account').hidden=!signed;$('#username').textContent=session?.username||'';document.querySelectorAll('[data-admin]').forEach(node=>node.hidden=session?.role!=='admin');if(signed&&hostSettings)renderHostSettings();}
+function selectView(next){view=next;for(const name of ['servers','library','access','host']){document.getElementById(name+'-view').hidden=name!==next;document.getElementById('show-'+name).setAttribute('aria-current',name===next?'page':'false');}if(next==='access')void loadAccess();if(next==='host')void loadHostSettings();}
 function render(){
  const admin=session?.role==='admin';$('#new-server').disabled=!!active;
  $('#servers').innerHTML=servers.length?servers.map(s=>{const status=live.get(s.id),removed=s.state==='removed',state=removed?'Removed · data kept':status?.ready?'Ready':status?.running?'Starting':status?.state==='exited'?'Stopped':s.state==='attention'?'Needs attention':s.state==='creating'?'Creating':'Checking';return `<article class="card"><span class="game">${esc(s.game.toUpperCase())}</span><h2>${esc(s.name)}</h2><span class="status ${s.state==='attention'?'attention':''}">${esc(state)}</span><p><code>${esc(s.address)}</code></p><div class="stats"><div><strong>${status?.players==null?'—':Array.isArray(status.players)?status.players.length:status.players}</strong>players</div><div><strong>${esc(s.cpu)}</strong>CPU cores</div><div><strong>${esc(s.memoryGiB)} GiB</strong>memory limit</div></div>${removed?'<p class="remove-note">Your isolated storage and published snapshots were retained.</p>':`<div class="actions"><a class="button primary" href="${esc(s.manageUrl)}">Open server</a>${admin?`<button data-snapshot="${s.id}" ${active?'disabled':''}>Publish snapshot</button><button class="quiet" data-remove="${s.id}" ${active?'disabled':''}>Remove</button>`:''}</div>`}</article>`;}).join(''):'<div class="empty"><h2>Your first server starts here.</h2><p>Create a Factorio factory or a Rust island. Existing standalone servers stay unchanged.</p></div>';
@@ -15,6 +16,7 @@ function render(){
 }
 async function refresh(){if(!session||refreshing)return;refreshing=true;try{const [serverResult,library,jobs]=await Promise.all([api('/servers'),api('/snapshots'),api('/jobs')]);servers=serverResult.servers;snapshots=library.snapshots;active=jobs.active;render();$('#jobs').innerHTML=jobs.jobs.slice(0,8).map(j=>`<div class="job"><div><strong>${esc(j.action)}</strong><small>${esc(j.message)}</small></div><span>${esc(j.state)}</span></div>`).join('')||'<p class="hint">Creation and snapshot progress will appear here.</p>';
  for(let n=0;n<servers.length;n+=4)await Promise.all(servers.slice(n,n+4).filter(s=>['installed','starting','attention'].includes(s.state)).map(async s=>{try{const r=await fetch(`/servers/${s.id}/api/status`);if(r.ok)live.set(s.id,await r.json());}catch{}}));render();error('');
+ if(view==='host')await loadHostSettings();
  }catch(e){error(e.message);}finally{refreshing=false;}}
 function configureCreation(keepSnapshot=''){
  const f=$('#create'),game=games.find(g=>g.id===f.elements.game.value);if(!game)return;const rust=game.id==='rust';f.elements.cpu.value=game.cpu;f.elements.memoryGiB.value=game.memoryGiB;f.elements.memoryGiB.min=rust?8:1;f.elements.maxPlayers.value=rust?20:10;f.elements.maxPlayers.max=rust?1000:100;$('#rust-size').hidden=!rust;
@@ -27,7 +29,29 @@ $('#create').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget;$('#c
 $('#publish').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget;try{await api('/servers/'+f.elements.serverId.value+'/snapshot',{title:f.elements.title.value,confirm:f.elements.confirm.checked});$('#snapshot-dialog').close();notice('Publishing a verified snapshot. Watch Host operations for progress.');await refresh();}catch(e){$('#snapshot-dialog').close();error(e.message);}};
 $('#remove').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget;try{await api('/servers/'+f.elements.serverId.value+'/remove',{name:f.elements.name.value,confirm:true});$('#remove-dialog').close();notice('Removing only this server’s containers. Its data volume will be kept.');await refresh();}catch(e){$('#remove-dialog').close();error(e.message);}};
 $('#cancel-publish').onclick=()=>$('#snapshot-dialog').close();$('#cancel-remove').onclick=()=>$('#remove-dialog').close();
-$('#show-servers').onclick=()=>selectView('servers');$('#show-library').onclick=()=>selectView('library');$('#show-access').onclick=()=>selectView('access');
+$('#show-servers').onclick=()=>selectView('servers');$('#show-library').onclick=()=>selectView('library');$('#show-access').onclick=()=>selectView('access');$('#show-host').onclick=()=>selectView('host');
+function renderHostSettings(resetDraft=false){
+ const data=hostSettings;if(!data)return;const admin=session?.role==='admin',capacityKnown=data.maxMemoryBudgetGiB!==null,conflict=hostDirty&&hostDraftRevision!==data.revision;
+ $('#host-summary').innerHTML=[['Host budget',data.memoryBudgetGiB+' GiB'],['Allocated',data.allocatedMemoryGiB+' GiB'],['Available to allocate',data.availableMemoryGiB+' GiB'],['Docker memory',data.dockerMemoryGiB===null?'Unavailable':data.dockerMemoryGiB.toFixed(1)+' GiB']].map(([label,value])=>`<div class="card"><strong>${esc(value)}</strong><p>${esc(label)}</p></div>`).join('');
+ const meter=$('#host-allocation-meter');meter.max=Math.max(1,data.memoryBudgetGiB);meter.value=data.allocatedMemoryGiB;meter.textContent=`${data.allocatedMemoryGiB} of ${data.memoryBudgetGiB} GiB allocated`;
+ $('#host-allocations').innerHTML=data.allocations.length?data.allocations.map(item=>`<tr><th scope="row">${esc(item.name)}<small>${esc(item.game==='factorio'?'Factorio':'Rust')}</small></th><td>${esc(item.gameGiB)} GiB</td><td>${esc(item.controllerGiB)} GiB</td><td>${esc(item.totalGiB)} GiB</td></tr>`).join(''):'<tr><td colspan="4">No managed servers have memory allocated yet.</td></tr>';
+ $('#host-allocated-total').textContent=data.allocatedMemoryGiB+' GiB';
+ const input=$('#host-budget');input.min=data.minMemoryBudgetGiB;input.max=data.maxMemoryBudgetGiB??128;
+ if(!hostDirty||resetDraft){input.value=data.memoryBudgetGiB;hostDraftRevision=data.revision;hostDirty=false;}
+ input.disabled=!admin||hostSaving||!capacityKnown||data.maxMemoryBudgetGiB<data.minMemoryBudgetGiB;
+ $('#save-host-settings').disabled=input.disabled||(!resetDraft&&conflict);$('#host-readonly').hidden=admin;$('#host-conflict').hidden=resetDraft||!conflict;
+ $('#host-budget-help').textContent=capacityKnown&&data.maxMemoryBudgetGiB<data.minMemoryBudgetGiB?'Docker cannot currently accommodate existing allocations with management headroom. Increase Docker’s memory limit or remove a server before changing the budget.':capacityKnown?`Choose ${data.minMemoryBudgetGiB}–${data.maxMemoryBudgetGiB} GiB. Keep at least ${data.hostHeadroomGiB} GiB of Docker memory outside the budget, plus room for other workloads.`:'Docker memory capacity is unavailable. Budget changes are temporarily unavailable.';
+}
+async function loadHostSettings({resetDraft=false}={}){
+ if(hostLoading||hostSaving)return;hostLoading=true;
+ try{const data=await api('/host-settings');if(!hostSettings||data.revision>=hostSettings.revision){hostSettings=data;renderHostSettings(resetDraft);}error('','#host-error');}catch(e){error(e.message,'#host-error');}finally{hostLoading=false;}
+}
+$('#host-budget').oninput=()=>{hostDirty=true;$('#host-saved').hidden=true;};
+$('#reload-host').onclick=()=>loadHostSettings({resetDraft:true});
+$('#host-settings-form').onsubmit=async event=>{
+ event.preventDefault();if(!hostSettings||hostSaving||session?.role!=='admin')return;hostSaving=true;renderHostSettings();error('','#host-error');$('#host-saved').hidden=true;
+ try{hostSettings=await api('/host-settings',{memoryBudgetGiB:Number($('#host-budget').value),revision:hostDraftRevision});hostDirty=false;renderHostSettings(true);$('#host-saved').textContent='Memory budget saved. Existing servers stayed running.';$('#host-saved').hidden=false;}catch(e){error(e.message,'#host-error');}finally{hostSaving=false;renderHostSettings();}
+};
 async function loadAccess(){try{const data=await api('/accounts');$('#accounts').innerHTML=data.users.map(u=>`<div class="job"><strong>${esc(u.username)}</strong><span>${esc(u.role)}</span></div>`).join('');}catch(e){error(e.message);}}
 $('#invite').onsubmit=async e=>{e.preventDefault();try{const r=await api('/invitations',{role:e.currentTarget.elements.role.value});$('#invitation').textContent=location.origin+'/#register='+r.token;$('#invitation').hidden=false;}catch(e){error(e.message);}};
 $('#login').onsubmit=async e=>{e.preventDefault();try{session=await api('/login',Object.fromEntries(new FormData(e.currentTarget)));authenticated();await load();}catch(e){error(e.message);}};

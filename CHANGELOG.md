@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.3-alpha — 2026-10-21
+
+- Add Host settings with the memory budget, allocated and remaining capacity,
+  Docker memory capacity and a per-server game/controller allocation breakdown.
+  Explain that allocations are limits rather than current RAM use.
+- Let administrators change the budget without restarting games or the manager.
+  Persist settings across restarts, protect concurrent edits, reject budgets below
+  existing allocations and preserve at least 2 GiB of Docker headroom. Read-only
+  accounts can view allocations; administrator and CSRF checks protect changes.
+- Include stopped and incomplete servers in allocations, exclude removed servers,
+  and show the 1 GiB controller allowance for each server. Improve creation errors
+  with the required memory, remaining capacity and Host settings guidance.
+- Add persistence, concurrency, validation and authorization regressions plus a
+  disposable UI preview. Preserve the streaming and world retry fixes in 0.3.2.
+
 ## 0.3.2-alpha — 2026-10-21
 
 - Let backup downloads outlive the generic proxy timeout at both web and host
