@@ -3,15 +3,13 @@ FROM ${BASE_IMAGE}
 ARG TARGETARCH
 ARG FACTORIO_VERSION=2.0.77
 ARG HEADLESS_SHA256=c4efc11529f74d37c96933e291e0db73fd9f5aa4738913d9301b24680b3e947f
-ARG IMAGE_REVISION=2
+ARG IMAGE_REVISION=3
 LABEL org.opencontainers.image.title="Lobby Goblin Factorio Server" \
       org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" \
       org.opencontainers.image.version="${FACTORIO_VERSION}-fc.${IMAGE_REVISION}" \
       factorio.version="${FACTORIO_VERSION}" \
       io.lobby-goblin.compatibility="1" \
-      io.lobby-goblin.image-revision="${IMAGE_REVISION}" \
-      io.factory-control.compatibility="1" \
-      io.factory-control.image-revision="${IMAGE_REVISION}"
+      io.lobby-goblin.image-revision="${IMAGE_REVISION}"
 RUN test "$TARGETARCH" = amd64 \
     && apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl xz-utils python3 passwd libstdc++6 \

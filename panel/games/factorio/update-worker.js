@@ -62,6 +62,7 @@ export async function inspectGameImage(image,run=command){
   return item;
 }
 export function validateGameImage(item,selection){
+  assert(selection.source==='factory','Only Lobby Goblin game images are supported.');
   assert(item?.Os==='linux'&&item.Architecture==='amd64'&&/^sha256:[a-f0-9]{64}$/.test(item.Id),'The selected image must support linux/amd64.');
   const config=item.Config||{},labels=config.Labels||{},repository=gameSources[selection.source].repository;
   assert(labels['factorio.version']===selection.target,'The image does not declare the reviewed Factorio version.');

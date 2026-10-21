@@ -4,12 +4,13 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {assert} from '../../common.js';
 import {initializePanel} from '../../init.js';
+import {ownedImages} from '../../core/game-images.js';
 import {rustConfiguration} from './index.js';
 
 const panelSource=fileURLToPath(new URL('../../',import.meta.url)),sourceRoot=path.dirname(panelSource.replace(/\/$/,''));
 // Preparation only: no Docker/socket calls, network access, server discovery,
 // existing install adoption, or reuse of Factorio files/secrets.
-export async function prepareRust({directory,image,address='http://localhost:8088'}){
+export async function prepareRust({directory,image=ownedImages.rust,address='http://localhost:8088'}){
   assert(typeof directory==='string'&&path.isAbsolute(directory),'Choose an absolute path for a new Rust installation.');
   const root=path.resolve(directory),parent=await fs.realpath(path.dirname(root)),target=path.join(parent,path.basename(root));
   assert(/^[A-Za-z0-9/_. -]+$/.test(target),'Use a Rust installation path containing letters, numbers, spaces, dots, dashes or underscores.');

@@ -1,14 +1,15 @@
 import path from 'node:path';
+import {ownedImage,legacyImage} from '../../core/game-images.js';
 import fs from 'node:fs/promises';
 import {assert,HttpError} from '../../common.js';
 import {Accounts} from '../../core/accounts.js';
 import {createRust} from './controller.js';
 
-export function rustConfiguration(env){
+export function rustConfiguration(env,{migrationBootstrap=false}={}){
   const instance=env.RUST_INSTANCE_ID;
   assert(/^[a-f0-9]{32}$/.test(instance||''),'Prepare a separate Rust installation before selecting the Rust module.');
   assert(env.RUST_CONTAINER===`lobby-goblin-rust-${instance}`,'Rust container name must match its installation ID.');
-  assert(/^didstopia\/rust-server@sha256:[a-f0-9]{64}$/.test(env.RUST_IMAGE||''),'Rust requires an explicitly selected didstopia/rust-server image digest.');
+  assert(ownedImage('rust',env.RUST_IMAGE)||migrationBootstrap&&legacyImage('rust',env.RUST_IMAGE),'Rust requires a Lobby Goblin rust-server image. Legacy images are accepted only by the migration bootstrap.');
   assert(path.isAbsolute(env.RUST_HOST_DATA||''),'Rust requires its dedicated host data path.');
   const data=path.resolve(env.RUST_DATA||'/rust-server'),state=path.resolve(env.RUST_STATE_DIR||'/rust-state'),backups=path.resolve(env.RUST_BACKUPS_DIR||'/rust-backups');
   const roots=[data,state,backups];

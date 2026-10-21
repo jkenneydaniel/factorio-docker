@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {assert,json,sleep} from '../../common.js';
+import {ownedImage} from '../../core/game-images.js';
 import {demultiplex} from '../../core/docker.js';
 import {createWebRcon,sanitizeLogs} from './transport.js';
 import {fields,readSettings,saveSettings,validateSettings} from './settings.js';
@@ -31,10 +32,17 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
     return rcon({host:networks[0],port:config.rconPort,password,command:value});
   }
   async function serverInfo(){const value=JSON.parse(await command('serverinfo'));assert(value&&typeof value==='object'&&!Array.isArray(value)&&Number.isFinite(value.Players),'Rust returned invalid server status.',502);return value;}
+  function started(info,live){
+    // WebRCON is available before SaveRestore and environment initialization.
+    // Owned images publish a process-scoped health proof after startup completes.
+    // Legacy bootstrap is migration-only; its runtime measurements stay zero
+    // until the server has finished initializing.
+    return ownedImage('rust',info.Config.Image)?info.State.Health?.Status==='healthy':live?.Framerate>0&&live?.Memory>0;
+  }
   async function ready(){
     const initial=await owned(),restarts=initial.RestartCount||0,deadline=Date.now()+readyTimeout;
     do{
-      try{await serverInfo();return;}catch{}
+      try{const live=await serverInfo();if(started(await owned(),live))return;}catch{}
       const current=await owned();
       assert(current.State?.Running&&!current.State?.Restarting&&!current.State?.OOMKilled&&(current.RestartCount||0)===restarts,'Rust exited or restarted before becoming ready. Check its logs and host resources before retrying.');
       await sleep(pollInterval);
@@ -46,6 +54,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
     const info=await owned();if(!info.State?.Running)return 'Rust is already stopped.';
     // Fail closed if a running server cannot save. Docker's unlimited graceful
     // stop signals the image shutdown handler; never escalate to SIGKILL.
+    assert(started(info,await serverInfo()),'Wait for Rust to finish startup before saving or stopping.',409);
     await command('server.save');await owned();await host.control('stop');
     const stopped=await owned();assert(!stopped.State?.Running&&!stopped.State?.Restarting&&stopped.State?.ExitCode===0&&!stopped.State?.OOMKilled,'Rust did not stop cleanly. Check status and logs before retrying.');
     return 'Rust saved and stopped.';
@@ -67,8 +76,9 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
   async function status(){
     const info=await owned();let live=null,error=null;
     if(info.State?.Running)try{live=await serverInfo();}catch{error='Rust is starting or WebRCON is unavailable.';}
+    const initialized=!!live&&started(info,live);if(live&&!initialized)error='Rust is still initializing its world.';
     const metrics=await host.metrics(!!info.State?.Running);
-    recent={game:'rust',name:live?.Hostname||'Rust server',running:!!info.State?.Running,ready:!!live,state:info.State?.Status||'unknown',
+    recent={game:'rust',name:live?.Hostname||'Rust server',running:!!info.State?.Running,ready:initialized,state:info.State?.Status||'unknown',
       players:live?.Players??null,maxPlayers:live?.MaxPlayers??null,fps:live?.Framerate??null,uptime:live?.Uptime??null,
       connection:env.RUST_GAME_ADDRESS||'localhost:28015',identity:config.identity,...metrics,error,activeJob:ctx.active};return recent;
   }

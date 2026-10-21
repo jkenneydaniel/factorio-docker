@@ -12,7 +12,7 @@ aliases with matching ZIP roots. Already installed 0.2.x workers require those
 aliases. Current workers accept either name; the payload and state contract are
 the same. Published Factorio image tags and the `factory` source selection remain
 stable, and both historical and current compatibility labels are accepted.
-New Factorio images retain historical labels for older installed updaters.
+Current images use Lobby Goblin labels; older labels are recognized when inspecting historical images.
 
 Panels released before this rename reject HTTP redirects from GitHub's release
 API. After a remote repository rename, those older panels need their
@@ -23,8 +23,9 @@ operations continue to work. Source changes here do not modify an installation.
 
 Settings → Updates supports administrator-triggered installation for two separate
 items: Lobby Goblin (web panel and matching controller) and the Factorio game
-container. Automatic checks notify; nothing installs without an administrator's
-review and confirmation. This does not update Docker Desktop, Docker Engine, the
+container. Automatic checks notify; an administrator reviews and confirms installation.
+Installing v0.3.4 also triggers the documented one-time game image migration
+after the panel update completes. See [image migration](IMAGE_MIGRATION.md). This does not update Docker Desktop, Docker Engine, the
 host OS or mods.
 
 ## Enable once on an existing installation
@@ -94,7 +95,9 @@ images. Do not disable HTTPS verification to work around this error.
    contents/paths and the supported state contract, and builds a staged image.
    Source files with local edits block installation. The baseline is checked again
    after the build before source promotion.
-5. Only the panel and controller are replaced. The game container is not restarted.
+5. The installation worker replaces the panel and controller. In v0.3.4, the new
+   controller subsequently migrates supported older game images after this update
+   completes; that separate migration disconnects players on running servers.
    Updated services must report healthy; otherwise the previous source/config and
    supported panel state are recovered and the previous image is restarted.
 6. Sign in again after panel replacement and review Installation history. Progress
@@ -110,22 +113,16 @@ untrusted release merely because its checksum matches.
 
 ## Upgrade Factorio separately
 
-Choose **Image source**, an exact `2.0.x` Factorio version and, for Factory
-Control, its published image revision. The source defaults to the installed
-source. Existing Factorio Tools installations continue to work; panel updates
-never switch them automatically.
+Choose an exact `2.0.x` Factorio version and its published Lobby Goblin image
+revision. Only `ghcr.io/jkenneydaniel/factorio-server:<version>-fc.<revision>` is
+supported. The v0.3.4 startup migration handles recognized older images first;
+Factorio Tools is no longer offered as an image choice.
 
-Supported images:
-
-- `factoriotools/factorio:<version>`
-- `ghcr.io/jkenneydaniel/factorio-server:<version>-fc.<revision>`
-
-Choose a newer game version to upgrade, or keep the same version to switch
-sources/update packaging. Same-source game downgrades, revision downgrades,
-floating tags and arbitrary repositories are refused. A game upgrade still
-requires matching clients and compatible mods. Mods and DLC selections are not
-automatically changed. Only the `2.0.x` branch and `linux/amd64` are supported;
-ARM hosts retain Docker's amd64 emulation policy.
+Choose a newer game version to upgrade, or keep the same version and choose a
+newer wrapper revision. Game/revision downgrades, floating tags and arbitrary
+repositories are refused. Matching clients and compatible mods are still
+required. Mods and DLC selections are not automatically changed. Only `2.0.x`
+and `linux/amd64` are supported; ARM retains Docker's amd64 emulation policy.
 
 Our image is built directly from Debian and the official Factorio download,
 without using Factorio Tools as its base. Its build and deliberate publication

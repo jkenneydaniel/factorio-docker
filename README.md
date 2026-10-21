@@ -19,13 +19,21 @@ On Windows, run `.\Fleet.ps1 -Address <your-LAN-address>` to start the new panel
 on port 8082. On amd64 Linux/Mac, run `FLEET_ADDRESS=<your-LAN-address> sh Fleet.sh`.
 The manager has separate registration and does not adopt or restart an existing
 server. Its alpha limits include global administrator/read-only roles, retained
-storage after removal, and no fleet-aware image updater.
+storage after removal, and no general fleet game-version updater.
 
 Standalone setup remains available for one game per installation. See
 [Rust setup and recovery](docs/RUST.md), the [shared-core architecture](docs/ARCHITECTURE.md),
 and the [verification record](docs/VERIFICATION.md) for runtime evidence and limits.
 
 ## Existing installations
+
+**v0.3.4-alpha uses Lobby Goblin's own images for both games.** Installing the
+new controller automatically migrates supported older images after a verified
+backup and a clean stop. It keeps the same storage, settings, ports, credentials
+and running/stopped preference. Factorio stays on 2.0.77; Rust reuses its installed
+game binaries. Players on a running managed server will disconnect during this
+one-time migration. Read the [migration and recovery guide](docs/IMAGE_MIGRATION.md)
+before installing this release. Third-party images are migration inputs only.
 
 The new name does not require moving your checkout, worlds or backups. Existing
 Factorio launchers, environment keys, container names, data paths and accounts

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.4-alpha — 2026-10-21
+
+- Build a first-party vanilla Rust image from a pinned Node/Debian base and
+  checksum-verified SteamCMD. Reuse installed Rust binaries and saved map identity;
+  refuse silent game downloads over existing worlds with missing binaries.
+- Automatically migrate supported older Factorio and Rust images when the new
+  controller starts. Verify a backup, require a clean stop, pin the replacement
+  by registry digest and preserve storage, settings, ports, limits and the prior
+  running/stopped preference. Keep original container configuration and a protected
+  backup, with a durable journal for interrupted migrations. Remove a verified
+  standalone original without deleting data to avoid duplicate Compose services.
+- Use first-party images for new servers and Factorio image updates. Remove
+  third-party image choices; recognize historical images only for migration.
+- Wait for Rust’s completed-startup health proof before reporting readiness or
+  saving. WebRCON can respond while the world is still initializing. Preserve
+  strict save-and-quit evidence for graceful shutdown.
+- Advance the Factorio wrapper to 2.0.77-fc.3 without changing the game version.
+  Preserve the restored WebRCON regressions, locked dependency checks and earlier
+  standalone Rust recovery documentation.
+
 ## 0.3.3-alpha — 2026-10-21
 
 - Add Host settings with the memory budget, allocated and remaining capacity,

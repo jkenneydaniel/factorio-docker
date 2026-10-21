@@ -8,6 +8,7 @@ import {assert,inside,writeJSON,readJSON} from '../common.js';
 import {zipEntries} from '../core/archive.js';
 import {validateWorld} from '../games/factorio/world-archive.js';
 import {verifyArchive} from '../games/rust/archive.js';
+import {snapshotImageCompatible} from '../core/game-images.js';
 import {validId} from './catalog.js';
 export async function hashFile(file){const hash=crypto.createHash('sha256');for await(const b of createReadStream(file))hash.update(b);return hash.digest('hex');}
 const safe=name=>typeof name==='string'&&name.length>0&&!name.includes('\\')&&!name.includes(':')&&!name.startsWith('/')&&!name.split('/').some(p=>['','.','..'].includes(p));
@@ -47,11 +48,14 @@ export async function verifySnapshot(library,id,expectedHash){
  const files=await inventory(path.join(root,'content'));assert(JSON.stringify(files)===JSON.stringify(manifest.files),'Snapshot files no longer match their hashes.',409);return manifest;
 }
 export async function cloneSnapshot({library,id,hash,data,game,image}){
- const manifest=await verifySnapshot(library,id,hash);assert(manifest.game===game&&manifest.image===image,'Snapshot game or image is incompatible.',409);const root=path.join(library,id,'content');
+ const manifest=await verifySnapshot(library,id,hash);assert(manifest.game===game&&snapshotImageCompatible(game,manifest.image,image),'Snapshot game or image is incompatible.',409);const root=path.join(library,id,'content');
  if(game==='factorio'){
   assert(manifest.files.every(f=>f.name==='world.zip'||f.name.startsWith('mods/')),'Unexpected Factorio snapshot file.');const bytes=await fs.readFile(path.join(root,'world.zip'));validateWorld(bytes);await fs.writeFile(path.join(data,'saves/world.zip'),bytes,{flag:'wx'});if(await fs.stat(path.join(root,'mods')).catch(()=>null))await fs.cp(path.join(root,'mods'),path.join(data,'mods'),{recursive:true});
  }else{
   assert(manifest.files.every(f=>f.name.startsWith('identity/')&&!f.name.startsWith('identity/cfg/')),'Unexpected Rust snapshot file.');await fs.cp(path.join(root,'identity'),path.join(data,'server/lobby-goblin-rust'),{recursive:true});
+  // Explicitly authorize Steam installation only for this new independent copy.
+  // An installed server with a missing binary must never trigger this path.
+  await writeJSON(path.join(data,'.lobby-goblin-clone.json'),{game:'rust',identity:'lobby-goblin-rust',snapshot:id});
  }
  return manifest;
 }

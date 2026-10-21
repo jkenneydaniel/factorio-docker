@@ -1,15 +1,21 @@
 # Rust module
 
 Rust can run through the [single-host manager](FLEET.md), or as a separate
-standalone Lobby Goblin installation described below. Existing Factorio launchers,
-Compose files, accounts, worlds and defaults are unchanged. There is no game
+standalone Lobby Goblin installation described below. Existing Factorio accounts,
+worlds, launcher names and storage paths remain supported. There is no game
 switcher in an existing panel and no automatic import of an existing Rust server.
 
 ## Included
 
-- Status and readiness from Rust WebRCON, plus Docker CPU/memory samples.
+- Status from Rust WebRCON, plus Docker CPU/memory samples. Readiness also
+  requires the owned image's completed-startup health proof. WebRCON can answer
+  while the world is still initializing.
+  The controller reuses one authenticated connection, correlates concurrent
+  replies and destroys failed or idle sockets. Disconnected commands are not
+  retried automatically.
 - Start, save-and-stop and restart jobs, with interruption confirmation and a
-  per-installation operation lock. Start waits up to ten minutes for WebRCON.
+  per-installation operation lock. Start waits up to ten minutes for completed
+  startup and WebRCON. Save/stop and backup refuse an initializing world.
 - Connected players, Steam IDs, ping and connection time. Player addresses are
   excluded. Read-only accounts can view overview and players.
 - Administrator-only, bounded Docker logs with credential filtering.
@@ -34,21 +40,21 @@ contact Docker, download an image, start a server or create a game world.
 This preparation command accepts POSIX host paths on Linux/macOS; native Windows
 path support is not implemented. The existing Windows Factorio setup is unchanged.
 
-Select a reviewed **linux/amd64** digest of
-[`didstopia/rust-server`](https://github.com/Didstopia/rust-server), then run:
+New installations use the first-party **linux/amd64** Rust image:
 
 ```sh
 node panel/games/rust/setup.js \
   --directory /absolute/path/to/new-rust-install \
-  --image didstopia/rust-server@sha256:YOUR_REVIEWED_64_HEX_DIGEST \
   --url http://localhost:8088
 ```
 
-Replace the digest placeholder with an actual reviewed image digest. The setup
-command intentionally has no mutable `latest` default. It copies this panel
-runtime into the new installation; later source edits do not update that copy.
-The generated Compose file is a standalone project, not an override to merge
-with the Factorio Compose file.
+The default is `ghcr.io/jkenneydaniel/rust-server:steam-lg.1`. An explicit
+`--image` must select a Lobby Goblin versioned tag, optionally pinned by digest.
+Third-party images are not accepted for new installations. Setup copies this
+panel runtime into the new installation; later source edits do not update that
+copy. The generated Compose file is a standalone project, not an override to
+merge with Factorio. See [image migration](IMAGE_MIGRATION.md) before upgrading
+an older Rust installation.
 
 The generated layout is:
 
@@ -79,8 +85,8 @@ Starting is a separate operator action. No running installation was changed whil
 implementing this module. Review the generated files and host resources first:
 [Facepunch's server guide](https://wiki.facepunch.com/rust/Creating-a-server)
 describes substantial Rust memory/disk requirements. ARM hosts require amd64
-emulation; the stock image failed to boot on the tested ARM64 Mac. Use a
-native x86-64 Docker host running Linux containers for the stock image; this can
+emulation; the previous bootstrap image failed to boot on the tested ARM64 Mac. Use a
+native x86-64 Docker host running Linux containers for Rust; this can
 be Docker Desktop on Windows. The preparation command above still requires a
 Linux/POSIX filesystem, such as a dedicated WSL installation on Windows. See the
 runtime evidence below.
@@ -101,11 +107,12 @@ docker compose up -d --build
 The image digest pins the bootstrap image, not the Rust build downloaded by
 SteamCMD. Record the installed Steam build ID when reviewing updates.
 
-On first launch the game image downloads Rust through SteamCMD. Mode `2` skips
-automatic updates when binaries already exist; background update checking,
-Oxide updates and the image's forced-restart heartbeat are disabled. The Rust
-module rejects Factorio update jobs. Rust game/panel updates require separate
-operator review; the existing Factorio updater must never manage this stack.
+On first launch the first-party image downloads Rust through SteamCMD. Later
+starts reuse the installed binary without update checks, heartbeat restarts or
+Oxide installation. Existing worlds with missing binaries are refused rather
+than silently downloading a newer game. Fresh independent snapshot clones carry
+an explicit one-time installation marker. The Rust module rejects Factorio update
+jobs; future Rust game-build updates still require separate review.
 
 The panel binds to loopback port 8088 by default. Game/query UDP ports default to
 28015/28017; WebRCON 28016 and the controller are not published to the host.
@@ -136,6 +143,9 @@ For a running Rust server, the module preflights the identity, asks `server.save
 then requests a graceful Docker stop with **no kill timeout**. The selected image
 has a signal handler that performs its Rust shutdown sequence. The controller
 requires a stopped, non-OOM container with exit code zero before copying files.
+The owned supervisor recognizes Rust's self-termination only after its own
+acknowledged save, observed save completion and explicit game quit message;
+unexpected kills and crashes remain failures.
 An unreachable WebRCON or failed save prevents the stop/copy; a hanging shutdown
 fails the request rather than escalating to a forced kill. Check status/logs and
 resolve it manually. There is no force-stop button.
@@ -166,6 +176,13 @@ verify a separate recovery copy before replacing any active identity.
 
 ## Runtime acceptance
 
+A separate standalone Windows x86-64 Docker test passed lifecycle, stopped
+settings, backup/resumption, 41 status/player requests including bursts and idle
+reconnect, and actual save recovery. Independent extraction verified all 30 files;
+loading the backup restored the saved time marker and 819 entities. No human game
+client joined. This standalone test is recorded separately from fleet acceptance
+in [the detailed verification record](VERIFICATION.md).
+
 Native Windows x86-64 Docker acceptance reached real WebRCON readiness and
 completed saved identity backups, hash verification, snapshot publication and
 independent clone loading on October 20, 2026. Both source and clone reported the
@@ -174,8 +191,8 @@ same map seed and size; credentials and volumes differed. See the
 
 Earlier ARM64 Mac experiments failed in SteamCMD and Unity/Mono; ARM Rust remains
 unsupported by the host manager. Its first version requires Linux amd64 containers.
-The pinned didstopia digest fixes the bootstrap image; SteamCMD still downloads
-the public game build separately. Future game-build compatibility needs separate
+Historical acceptance above used the previous pinned Didstopia image. The new
+first-party image also installs the public game build separately on fresh setup. Future game-build compatibility needs separate
 validation. Existing Factorio servers and worlds were not involved.
 
 ## Development evidence
@@ -187,6 +204,7 @@ archive inventory/checksums, resumption, retention and web permissions. Package
 tests check Rust runtime/template/assets in both existing release formats.
 
 ```sh
+npm ci --prefix panel --ignore-scripts
 node --test panel/test/*.test.js
 node panel/test/rust-ui-preview.js
 ```
@@ -197,5 +215,5 @@ account and archive code with synthetic game/host transports. It cannot contact
 the host Docker socket. Stop it with Ctrl+C to remove its temporary files.
 
 Protocol references: [Facepunch WebRCON client](https://github.com/Facepunch/webrcon/blob/gh-pages/js/rconService.js),
-[server configuration](https://wiki.facepunch.com/rust/Creating-a-server#servercfg),
-[image startup/shutdown contract](https://github.com/Didstopia/rust-server/blob/master/start_rust.sh).
+[server configuration](https://wiki.facepunch.com/rust/Creating-a-server#servercfg).
+The current image contract is documented in [the first-party image README](../panel/games/rust/image/README.md).
