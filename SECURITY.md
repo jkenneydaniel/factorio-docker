@@ -23,11 +23,13 @@ Checksums detect damaged downloads; they do not authenticate a compromised
 publisher. Only supported state contracts and unmodified source installations
 are accepted. See [update scope and recovery](docs/UPDATES.md).
 
-Game identity verification is off in the default LAN setup to allow LAN usernames.
+Factorio identity verification is off in the default LAN setup to allow LAN usernames.
 Use a game password/whitelist if not everyone on your network should join.
 
 Never publish `.env`, `data/`, `backups/`, `.panel-data/`, game/server logs,
-registration links, packet captures or diagnostic dumps. Game image startup logs
+registration links, packet captures or diagnostic dumps. Rust installations also
+keep private credentials and accounts in `rust.env` and `control/`; keep those
+out of public source and archives. Game image startup logs
 can include the RCON password. Use the allowlisted release packager for archives.
 An existing Git index can retain ignored files: review staged files before pushing.
 

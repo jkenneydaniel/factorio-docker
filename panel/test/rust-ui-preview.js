@@ -1,0 +1,47 @@
+// Disposable browser fixture. Real web/controller/auth/archive code, synthetic
+// Rust/Docker responses; no host socket, game process or installation access.
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {startController} from '../core/controller.js';
+import {startWeb} from '../core/web.js';
+import {rust} from '../games/rust/index.js';
+import {createRust} from '../games/rust/controller.js';
+import {writeJSON} from '../common.js';
+import {hashPassword} from '../auth.js';
+
+const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lobby-goblin-rust-ui-')));
+process.env.DOCKER_SOCKET=path.join(root,'no-real-engine.sock');
+const instance='c'.repeat(32),image='didstopia/rust-server@sha256:'+'d'.repeat(64);
+const env={RUST_INSTANCE_ID:instance,RUST_CONTAINER:'lobby-goblin-rust-'+instance,RUST_IMAGE:image,RUST_HOST_DATA:path.join(root,'host-data'),RUST_DATA:path.join(root,'data'),RUST_STATE_DIR:path.join(root,'state'),RUST_BACKUPS_DIR:path.join(root,'backups'),RUST_RCON_PASSWORD_FILE:path.join(root,'rcon-password'),CONTROLLER_TOKEN_FILE:path.join(root,'token'),AUTH_DIR:path.join(root,'auth'),PANEL_HOSTS:'127.0.0.1,localhost',RELEASE_CHECKS:'false',RUST_GAME_ADDRESS:'play.rust.example:28015'};
+const identity=path.join(env.RUST_DATA,'lobby-goblin-rust');await fs.mkdir(path.join(identity,'cfg'),{recursive:true});await fs.mkdir(env.AUTH_DIR);
+for(const directory of [env.RUST_DATA,env.RUST_STATE_DIR,env.RUST_BACKUPS_DIR]){await fs.mkdir(directory,{recursive:true});await writeJSON(path.join(directory,'.lobby-goblin-rust.json'),{game:'rust',instance});}
+await fs.writeFile(path.join(identity,'cfg/server.cfg'),'server.hostname "North Coast · Rust"\nserver.description "A quieter place to build."\nserver.maxplayers 50\nserver.saveinterval 600\n');
+await fs.writeFile(path.join(identity,'proceduralmap.4000.123.1.sav'),'Synthetic Rust world fixture');await fs.writeFile(path.join(identity,'player.blueprints.5.db'),'Synthetic player database');
+await fs.writeFile(env.RUST_RCON_PASSWORD_FILE,'fixture_only_password_1234567890123456');await fs.writeFile(env.CONTROLLER_TOKEN_FILE,'fixture-only-token');
+await writeJSON(path.join(env.AUTH_DIR,'users.json'),{admin:{...hashPassword('rust-preview-password'),role:'admin'},viewer:{...hashPassword('rust-preview-password'),role:'viewer'}});
+let running=true;
+const info=()=>({State:{Running:running,Status:running?'running':'exited',ExitCode:0},Config:{Image:image,Labels:{'io.lobby-goblin.game':'rust','io.lobby-goblin.instance':instance}},Mounts:[{Type:'bind',Destination:'/steamcmd/rust',Source:env.RUST_HOST_DATA}],HostConfig:{RestartPolicy:{Name:'unless-stopped'}},NetworkSettings:{Networks:{fixture:{IPAddress:'192.0.2.2'}}}});
+const docker=async(method,route)=>{
+  if(!route.startsWith('/containers/'+env.RUST_CONTAINER+'/'))throw Error('Fixture blocked an unexpected host request.');
+  if(route.endsWith('/json'))return info();
+  if(route.includes('/stats?'))return {cpu_stats:{cpu_usage:{total_usage:50},system_cpu_usage:1000,online_cpus:4},precpu_stats:{cpu_usage:{total_usage:25},system_cpu_usage:500},memory_stats:{usage:4.3*1024**3}};
+  if(route.includes('/logs?'))return Buffer.from('[server] Server startup complete\n[server] Harbor crew connected\n[server] Saving complete: 18,492 entities\n[server] No pending operations\n');
+  if(method==='POST'&&route.endsWith('/start')){running=true;return null;}
+  if(method==='POST'&&route.endsWith('/stop?t=-1')){running=false;return null;}
+  throw Error('Fixture blocked an unexpected host operation.');
+};
+const rcon=async({command})=>{
+  if(!running)throw Error('Fixture Rust is stopped.');
+  if(command==='serverinfo')return JSON.stringify({Hostname:'North Coast · Rust',Players:3,MaxPlayers:50,Framerate:61,Uptime:12400});
+  if(command==='server.save'){await fs.writeFile(path.join(identity,'proceduralmap.4000.123.1.sav'),'Synthetic saved Rust fixture');return 'Saved';}
+  if(command==='playerlist')return JSON.stringify(['Harbor crew','Builder <one>','A very long player display name'].map((DisplayName,n)=>({DisplayName,SteamID:'7656119800000000'+n,Ping:28+n*15,ConnectedSeconds:200+n*120})));
+  throw Error('Fixture blocked an unexpected Rust command.');
+};
+const module={...rust,createController:ctx=>createRust(ctx,{rcon,pollInterval:1,readyTimeout:50})};
+const controller=await startController(module,{env,docker,port:0,hostname:'127.0.0.1'});
+const web=await startWeb(module,{env:{...env,CONTROLLER_URL:'http://127.0.0.1:'+controller.address().port},port:Number(process.env.RUST_UI_PORT||8090),hostname:'127.0.0.1'});
+console.log(`Synthetic Rust preview: http://127.0.0.1:${web.address().port}\nSign in: admin or viewer / rust-preview-password`);
+let closing=false;
+async function close(){if(closing)return;closing=true;for(const server of [web,controller]){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await fs.rm(root,{recursive:true,force:true});}
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>void close());

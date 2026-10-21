@@ -16,7 +16,7 @@ export async function verifyUpdaterRuntime({readFile=fs.readFile,run=execute}={}
   }catch{throw Error('The panel image is missing a valid trusted certificate bundle required for updates. Rebuild the image from the current release, then rerun setup.');}
   for(const [name,args] of [['Docker',['--version']],['Docker Compose',['compose','version']],['Docker Buildx',['buildx','version']]]){
     try{
-      const result=await run('docker',args,{timeout:5000,maxBuffer:1024*1024,env:{...process.env,DOCKER_CONFIG:'/tmp/factory-control-docker'}});
+      const result=await run('docker',args,{timeout:5000,maxBuffer:1024*1024,env:{...process.env,DOCKER_CONFIG:'/tmp/lobby-goblin-docker'}});
       if(!result.stdout?.trim())throw Error('No version response');
     }catch{throw Error(`The panel image cannot run ${name}, which is required for updates. Rebuild the image from the current release, then rerun setup.`);}
   }

@@ -23,7 +23,7 @@ test('checks coalesce, cache, use conditional requests and never downgrade newer
     return calls===1?new Response(JSON.stringify([release('v0.1.1-alpha')]),{headers:{etag:'"release-list"'}}):new Response(null,{status:304});
   }});
   const [a,b]=await Promise.all([checks.check(),checks.check()]);assert.equal(calls,1);assert.deepEqual(a,b);assert.equal(a.state,'available');assert.equal(a.installation,'manual');
-  assert.equal(a.latest.url,'https://github.com/jkenneydaniel/factorio-docker/releases/tag/v0.1.1-alpha');
+  assert.equal(a.latest.url,'https://github.com/jkenneydaniel/lobby-goblin/releases/tag/v0.1.1-alpha');
   await checks.check();assert.equal(calls,1);now+=101;await checks.check();assert.equal(calls,2);assert.equal(requests[1].options.headers['if-none-match'],'"release-list"');
   assert.ok(requests.every(r=>r.url.startsWith('https://api.github.com/repos/')));
   checks.current='0.2.0';now+=101;assert.equal((await checks.check()).available,false);

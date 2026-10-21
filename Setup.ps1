@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 if ($Help) {
     Write-Host @'
-Factory Control setup (Windows PowerShell 5.1+)
+Lobby Goblin setup (Windows PowerShell 5.1+)
   .\Setup.ps1                            Guided setup; asks before starting
   .\Setup.ps1 -Check                     Read-only prerequisite/config check
   .\Setup.ps1 -NewWorld [-Address HOST]   Prepare without starting the stack
@@ -41,7 +41,7 @@ $details = (Invoke-SetupDocker info --format '{{.OSType}}|{{.Architecture}}|{{.O
 if ($details[0] -ne 'linux') { throw 'Switch Docker Desktop to Linux containers.' }
 if ($details[1] -notin @('x86_64','amd64','aarch64','arm64')) { throw 'Requires an x86-64 or ARM64 Docker host.' }
 if ($details[3] -match 'rootless') { throw 'Rootless Docker is not supported by this controller/socket layout.' }
-Write-Host "Factory Control - local Docker $($details[1])"
+Write-Host "Lobby Goblin - local Docker $($details[1])"
 if ($details[1] -in @('aarch64','arm64')) { Write-Host 'Factorio 2.0.77 requires amd64 emulation; the panel runs natively on ARM64. See docs/SETUP.md.' }
 if ((Test-Path -LiteralPath .env) -and ((Get-Item -Force -LiteralPath .env).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Refusing a symlink at .env.' }
 function Get-SetupValue([string]$Key, [string]$Default) {

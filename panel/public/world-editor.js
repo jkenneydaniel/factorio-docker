@@ -107,7 +107,7 @@ export function bindWorldEditor(options,{startJob,confirmAction,toast,api}){
   saveWithoutLeaving=async()=>{await save();await queue;};
   stopSaving=(flush=true)=>{clearTimeout(timer);const pending=flush?save():Promise.resolve();stopped=true;document.removeEventListener('visibilitychange',hide);stopSaving=()=>queue;return pending.then(()=>queue);};
   form.querySelector('#save-draft-now').addEventListener('click',()=>{dirty=true;void save();});
-  form.querySelector('#export-world-draft').addEventListener('click',()=>downloadJSON(capture(),'factory-control-world-draft.json'));
+  form.querySelector('#export-world-draft').addEventListener('click',()=>downloadJSON(capture(),'lobby-goblin-world-draft.json'));
   const result=form.querySelector('#preset-result'),select=form.querySelector('#saved-world-preset');
   async function presetAction(body){await save();if(conflict)throw new Error('Reload to load the latest saved setups. Download a draft copy first to keep your edits.');return write(body);}
   function presets(){select.innerHTML='<option value="">Choose a preset ('+options.setups.presets.length+'/20)</option>'+options.setups.presets.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');}

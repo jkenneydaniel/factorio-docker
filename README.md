@@ -1,16 +1,46 @@
-# Factory Control
+# Lobby Goblin
 
-**v0.2.6-alpha** — a self-hosted Factorio server and LAN management panel, built
-with Docker Compose. This is an early release for trusted home networks.
+**Your servers. One helpful goblin.** Lobby Goblin is a self-hosted control panel with
+a shared core for accounts, permissions, jobs and backups, plus a separate module for each
+game. The repository is [`jkenneydaniel/lobby-goblin`](https://github.com/jkenneydaniel/lobby-goblin).
+This is an early alpha for trusted home networks.
 
-Manage worlds, saves, backups, players, server settings and accounts from a
-browser with a consistent dark interface and warm amber actions. Create a world
-through Play style, Customize and Review, with precise sliders/numbers and an
-automatically updating Factorio terrain preview. Explore a saved map with
-resources, buildings and pins. Owner registration continues into a resumable
-readiness and joining guide.
+| Module | Available controls |
+| --- | --- |
+| **Factorio** | Worlds and saves, map previews, players, settings, backups and recovery, guided setup, reviewed updates |
+| **Rust** | Status, start/stop/restart, players, logs, settings, identity backups and verification |
 
-## Requirements
+The optional [single-host manager](docs/FLEET.md) creates Factorio and Rust
+servers on demand with isolated volumes, credentials, networks and ports. Its
+shared snapshot library creates independent copies of saved worlds. It runs as
+a separate Docker project alongside existing standalone installations.
+
+On Windows, run `.\Fleet.ps1 -Address <your-LAN-address>` to start the new panel
+on port 8082. On amd64 Linux/Mac, run `FLEET_ADDRESS=<your-LAN-address> sh Fleet.sh`.
+The manager has separate registration and does not adopt or restart an existing
+server. Its alpha limits include global administrator/read-only roles, retained
+storage after removal, and no fleet-aware image updater.
+
+Standalone setup remains available for one game per installation. See
+[Rust setup and recovery](docs/RUST.md), the [shared-core architecture](docs/ARCHITECTURE.md),
+and the [verification record](docs/VERIFICATION.md) for runtime evidence and limits.
+
+## Existing installations
+
+The new name does not require moving your checkout, worlds or backups. Existing
+Factorio launchers, environment keys, container names, data paths and accounts
+remain supported. Editing or downloading source does not deploy an update.
+Historical release archive names and image labels are accepted for compatibility.
+See [update instructions](docs/UPDATES.md) before deliberately changing an installed
+panel. No game server is restarted by this rename.
+
+## Factorio setup
+
+The following setup instructions apply to Factorio. Rust uses its
+[separate preparation command](docs/RUST.md#prepare-a-new-installation); do not
+merge its Compose file into a Factorio installation.
+
+### Requirements
 
 - Windows, macOS or Linux with Docker Engine/Desktop running Linux containers and
   Compose v2, on x86-64 or ARM64. The pinned game uses amd64 emulation on ARM64;
@@ -27,7 +57,7 @@ readiness and joining guide.
 The app and setup run in containers; you do not need Node.js on the host.
 This repository includes no game binaries, mods, personal saves or accounts.
 
-## Guided setup (recommended)
+### Guided setup (recommended)
 
 After installing and starting Docker, open the extracted folder and run:
 
@@ -44,7 +74,7 @@ No host Node.js installation is needed.
 See [host-specific setup and troubleshooting](docs/SETUP.md), including Linux
 ARM64 emulation prerequisites. Setup does not install emulation or open firewalls.
 
-## Manual first-time setup
+### Manual first-time setup
 
 Download the source or clone this repository. Work in its root directory.
 
@@ -98,7 +128,7 @@ docker compose run --rm setup --registration-link
 This invalidates previous setup/recovery invitations and retains registered users.
 Do not run setup or start a second stack against another server's data directory.
 
-## Network and startup
+### Network and startup
 
 Allow TCP 8080 (panel) and UDP 34197 (game) from your trusted LAN. Do not forward
 these ports from your router. The internal controller and RCON ports are not
@@ -119,7 +149,7 @@ Desktop startup requires sign-in. `Configure-Autostart.ps1` and
 `Register-LanAnnouncer.ps1` are optional Windows helpers; they change host startup
 settings only when explicitly run. They are not part of setup.
 
-## Operations and upgrades
+### Operations and upgrades
 
 Use the panel for saves, backups and world changes. World switches/restores
 disconnect players and create a backup first. To stop the stack with time to save:
@@ -149,13 +179,16 @@ working directory: those folders contain worlds, credentials, invitations and
 server configuration. `.gitignore` excludes them, and the release packaging tool
 uses an explicit source allowlist.
 
-The optional [Factory Control game image](factorio-image/README.md) builds
+The optional [Lobby Goblin game image](factorio-image/README.md) builds
 independently from Debian and the official Factorio headless download. Settings
 → Updates supports both image sources and reviewed same-version switching.
 Existing installations retain their current source; publishing or updating the
 panel does not migrate the game automatically.
 
 ## Alpha limits
+
+The map, world-preview and ZIP limits below apply to Factorio. Rust has separate
+[platform requirements and streaming archive limits](docs/RUST.md).
 
 - Trusted LAN over HTTP; no built-in TLS or Internet deployment support. The
   controller has Docker socket access, which effectively grants control of the
@@ -180,5 +213,6 @@ See [feature documentation](panel/README.md), [development](docs/DEVELOPMENT.md)
 
 ## License
 
-Original project code is [MIT licensed](LICENSE). Factorio and the external game
-image have separate terms. This is an unofficial project, unaffiliated with Wube.
+Original project code is [MIT licensed](LICENSE). Factorio, Rust and external game
+images have separate terms. This is an unofficial project, unaffiliated with Wube
+or Facepunch Studios.

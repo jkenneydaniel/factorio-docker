@@ -1,7 +1,8 @@
 # Third-party notices
 
-Factory Control is unofficial and is not affiliated with or endorsed by Wube
-Software. Factorio names and trademarks belong to their respective owners.
+Lobby Goblin is unofficial and is not affiliated with or endorsed by Wube
+Software or Facepunch Studios. Game names and trademarks belong to their
+respective owners.
 
 - [Factorio](https://factorio.com/) is proprietary software from Wube Software.
   No game executables, artwork, mods, saves or verbatim game example configuration
@@ -13,6 +14,11 @@ Software. Factorio names and trademarks belong to their respective owners.
   Factorio game. It is referenced, not vendored here. Our optional image is built
   independently from Debian and the official Wube headless download; its startup
   and RCON tools are maintained in `factorio-image/`.
+- [Rust](https://rust.facepunch.com/) is proprietary software from Facepunch
+  Studios. The Rust module downloads its dedicated server separately through a
+  reviewed [Didstopia image](https://github.com/Didstopia/rust-server). Neither
+  the game binaries nor that image wrapper are included in this source release;
+  their terms and licenses apply separately.
 - [Node.js](https://nodejs.org/) and the Debian base image are external runtime
   dependencies. Their licenses and component notices remain in their images.
 

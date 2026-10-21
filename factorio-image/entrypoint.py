@@ -1,4 +1,4 @@
-"""Factory Control startup; preserve existing files and exec the game as PID 1."""
+"""Lobby Goblin startup; preserve existing files and exec the game as PID 1."""
 import json
 import os
 from pathlib import Path

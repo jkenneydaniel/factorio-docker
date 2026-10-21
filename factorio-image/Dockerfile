@@ -4,10 +4,12 @@ ARG TARGETARCH
 ARG FACTORIO_VERSION=2.0.77
 ARG HEADLESS_SHA256=c4efc11529f74d37c96933e291e0db73fd9f5aa4738913d9301b24680b3e947f
 ARG IMAGE_REVISION=2
-LABEL org.opencontainers.image.title="Factory Control Factorio Server" \
-      org.opencontainers.image.source="https://github.com/jkenneydaniel/factorio-docker" \
+LABEL org.opencontainers.image.title="Lobby Goblin Factorio Server" \
+      org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" \
       org.opencontainers.image.version="${FACTORIO_VERSION}-fc.${IMAGE_REVISION}" \
       factorio.version="${FACTORIO_VERSION}" \
+      io.lobby-goblin.compatibility="1" \
+      io.lobby-goblin.image-revision="${IMAGE_REVISION}" \
       io.factory-control.compatibility="1" \
       io.factory-control.image-revision="${IMAGE_REVISION}"
 RUN test "$TARGETARCH" = amd64 \
@@ -21,15 +23,15 @@ RUN test "$TARGETARCH" = amd64 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 845 factorio \
     && useradd --system --uid 845 --gid 845 --no-create-home --shell /bin/sh factorio \
-    && mkdir -p /factorio /opt/factorio/config /usr/local/lib/factory-control \
+    && mkdir -p /factorio /opt/factorio/config /usr/local/lib/lobby-goblin \
     && ln -s /factorio/saves /opt/factorio/saves \
     && ln -s /factorio/scenarios /opt/factorio/scenarios \
     && chown -R 845:845 /opt/factorio /factorio
 COPY config.ini /opt/factorio/config/config.ini
-COPY entrypoint.py /usr/local/lib/factory-control/entrypoint.py
+COPY entrypoint.py /usr/local/lib/lobby-goblin/entrypoint.py
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 COPY rcon.py /usr/local/bin/rcon
-COPY LICENSE /usr/share/doc/factory-control/LICENSE
+COPY LICENSE /usr/share/doc/lobby-goblin/LICENSE
 RUN chmod 755 /docker-entrypoint.sh /usr/local/bin/rcon \
     && /opt/factorio/bin/x64/factorio --version
 ENV PORT=34197 RCON_PORT=27015 \

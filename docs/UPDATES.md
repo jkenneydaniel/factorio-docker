@@ -1,7 +1,28 @@
 # Updates through the panel
 
+## Lobby Goblin naming compatibility
+
+The canonical repository is `jkenneydaniel/lobby-goblin`. Current code maps the
+historical owned repository setting to that name. No checkout, `.env`, account,
+container, world or backup path needs renaming. Panel image defaults for new
+builds use `local/lobby-goblin`; explicit installed image values remain valid.
+
+Release tooling emits the Lobby Goblin packages below plus historical archive-name
+aliases with matching ZIP roots. Already installed 0.2.x workers require those
+aliases. Current workers accept either name; the payload and state contract are
+the same. Published Factorio image tags and the `factory` source selection remain
+stable, and both historical and current compatibility labels are accepted.
+New Factorio images retain historical labels for older installed updaters.
+
+Panels released before this rename reject HTTP redirects from GitHub's release
+API. After a remote repository rename, those older panels need their
+`RELEASE_REPOSITORY` setting changed to `jkenneydaniel/lobby-goblin` at the next
+**deliberate panel update**, or a manual update to this code. Their game/world
+operations continue to work. Source changes here do not modify an installation.
+
+
 Settings → Updates supports administrator-triggered installation for two separate
-items: Factory Control (web panel and matching controller) and the Factorio game
+items: Lobby Goblin (web panel and matching controller) and the Factorio game
 container. Automatic checks notify; nothing installs without an administrator's
 review and confirmation. This does not update Docker Desktop, Docker Engine, the
 host OS or mods.
@@ -39,7 +60,7 @@ later; the new setup checks cannot repair an already-running older worker.
 Back up the world and private installation state. Verify the new release checksum,
 then extract its complete `.source.zip` over the reviewed public source files,
 preserving `.env`, `data/`, `backups/` and `.panel-data/`. Set only `PANEL_IMAGE` in
-the existing `.env` to `local/factory-control:0.2.4-alpha`; retain the game image,
+the existing `.env` to `local/lobby-goblin:0.2.4-alpha`; retain the game image,
 addresses and ports. From that installation directory run:
 
 ```sh
@@ -133,10 +154,10 @@ Saves written by a newer game may not load in an older binary.
 
 The source packager and release workflow now emit/upload:
 
-- `factory-control-<version>.zip`
-- `factory-control-<version>.sha256`
-- `factory-control-<version>.manifest.txt`
-- `factory-control-<version>.update.json`
+- `lobby-goblin-<version>.zip`
+- `lobby-goblin-<version>.sha256`
+- `lobby-goblin-<version>.manifest.txt`
+- `lobby-goblin-<version>.update.json`
 
 Releases also provide `.source.zip`, `.source.sha256`, `.source.manifest.txt`
 and `.source.update.json` bundles containing the independent image build files.
@@ -184,7 +205,7 @@ most recent releases. Offline/rate-limit errors mean unavailable, not up to date
 
 ```dotenv
 RELEASE_CHECKS=true
-RELEASE_REPOSITORY=jkenneydaniel/factorio-docker
+RELEASE_REPOSITORY=jkenneydaniel/lobby-goblin
 RELEASE_CHANNEL=preview
 ```
 

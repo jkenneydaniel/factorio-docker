@@ -19,3 +19,9 @@ node_modules/
 *-firewall-result.json
 .DS_Store
 Thumbs.db
+
+!.env.fleet.example
+.fleet-test/
+
+__pycache__/
+*.pyc

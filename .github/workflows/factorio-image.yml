@@ -35,16 +35,16 @@ jobs:
       - name: Test old-save loading, RCON, settings, graceful save and reload
         run: node tools/factorio-image.mjs test
       - name: Select the tested tag
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/factorio-docker'
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
         run: node --input-type=module -e "import {imageDefinition} from './tools/factorio-image.mjs'; import fs from 'node:fs'; fs.appendFileSync(process.env.GITHUB_ENV,'IMAGE_TAG='+(await imageDefinition()).image+'\n')"
       - uses: docker/login-action@v4
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/factorio-docker'
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Refuse an existing tag, then publish the tested image
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/factorio-docker'
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
         shell: bash
         run: |
           if docker buildx imagetools inspect "$IMAGE_TAG" > /tmp/existing-image 2> /tmp/image-error; then

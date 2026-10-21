@@ -5,7 +5,7 @@ cd -P "$(dirname "$0")"
 fail() { printf '\nSetup: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'HELP'
-Factory Control setup (macOS / Linux)
+Lobby Goblin setup (macOS / Linux)
   sh Setup.sh                              Guided setup; asks before starting
   sh Setup.sh --check                      Read-only prerequisite/config check
   sh Setup.sh --new-world [--address HOST]  Prepare without starting the stack
@@ -42,7 +42,7 @@ EOF
 [ "$docker_os" = linux ] || fail 'Docker must use Linux containers.'
 case "$docker_arch" in x86_64|amd64|aarch64|arm64) ;; *) fail "Unsupported Docker architecture: $docker_arch (requires x86-64 or ARM64)." ;; esac
 case "$docker_security" in *rootless*) fail 'Rootless Docker is not supported by this controller/socket layout. Use a local rootful Docker Engine or Docker Desktop.' ;; esac
-printf '\nFactory Control · local Docker %s\n' "$docker_arch"
+printf '\nLobby Goblin · local Docker %s\n' "$docker_arch"
 case "$docker_arch" in aarch64|arm64)
   printf '%s\n' 'Factorio 2.0.77 uses amd64 emulation; the panel runs natively on ARM64.'
   case "$docker_system" in *'Docker Desktop'*) printf '%s\n' 'Enable amd64 emulation in Docker Desktop if game workers report an exec format error.' ;;
