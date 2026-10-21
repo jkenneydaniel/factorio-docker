@@ -38,3 +38,5 @@
 @media(max-width:1100px){.backup-policy-grid{grid-template-columns:1fr}}
 
 .backup-policy-grid .check-label{min-height:44px}
+
+.session-loading{margin:15vh auto;padding:24px;text-align:center;color:var(--muted)}
