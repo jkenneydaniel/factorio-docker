@@ -59,6 +59,9 @@ export async function testImage(definition,run=docker){
     await run(['volume','create',volume]);created=true;
     // Only a new disposable volume is used. Create the save with the old image.
     await run(['run','--rm',...container,'--entrypoint','/bin/bash',legacy,'-ec',`mkdir -p /factorio/{config,saves,mods,script-output}; cp /opt/factorio/data/server-settings.example.json /factorio/config/server-settings.json; jq '.name="Compatibility fixture" | .description="Disposable image acceptance" | .visibility={public:false,lan:false} | .require_user_verification=false' /factorio/config/server-settings.json > /factorio/config/settings.tmp; mv /factorio/config/settings.tmp /factorio/config/server-settings.json; printf 'fixture-rcon-only' > /factorio/config/rconpw; printf 'keep-settings' > /factorio/config/compatibility-marker; printf 'keep-mods' > /factorio/mods/compatibility-marker; printf '{"mods":[{"name":"base","enabled":true},{"name":"space-age","enabled":false},{"name":"quality","enabled":false},{"name":"elevated-rails","enabled":false}]}' > /factorio/mods/mod-list.json; /opt/factorio/bin/x64/factorio --create /factorio/saves/Compatibility.zip --mod-directory /factorio/mods; sha256sum /factorio/config/server-settings.json /factorio/config/rconpw /factorio/mods/mod-list.json > /factorio/config/compatibility.sha256; chown -R 845:845 /factorio`]);
+    // A killed first-world publication may leave quarantined scratch output.
+    // Make it newer than the real save and verify load-latest still ignores it.
+    await run(['run','--rm',...container,'--entrypoint','/bin/bash',definition.image,'-ec','mkdir -p /factorio/saves/.lobby-goblin-generation; cp /factorio/saves/Compatibility.zip /factorio/saves/.lobby-goblin-generation/Competing.tmp.zip; touch -d "next hour" /factorio/saves/.lobby-goblin-generation/Competing.tmp.zip']);
     await run(['create','--name',name,...container,'-e','LOAD_LATEST_SAVE=true','-e','GENERATE_NEW_SAVE=false','-e','DLC_SPACE_AGE=false','-e','UPDATE_MODS_ON_START=false',definition.image]);started=true;
     await run(['start',name]);
     const deadline=Date.now()+120000;let ready=false;
@@ -66,6 +69,9 @@ export async function testImage(definition,run=docker){
       try{const output=await run(['exec',name,'rcon','/version']);assert.equal(output.trim(),definition.version);ready=true;break;}catch{await new Promise(resolve=>setTimeout(resolve,1000));}
     }
     assert.ok(ready,'Image did not load the existing fixture save and expose RCON');
+    const startupLog=await run(['logs',name]);
+    assert.match(startupLog,/Loading map \/factorio\/saves\/Compatibility\.zip/,'Load-latest must choose the established world');
+    assert.doesNotMatch(startupLog,/Loading map[^\n]*\.lobby-goblin-generation/,'Quarantined generation output must never be selected');
     const tickCommand=['exec',name,'rcon','/silent-command rcon.print(game.tick)'];
     // New saves require the same Lua command twice to acknowledge achievements.
     // This acknowledgement affects only the disposable acceptance save.

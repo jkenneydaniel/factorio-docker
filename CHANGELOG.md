@@ -13,8 +13,6 @@
   the existing fleet image digest is unchanged.
 - Make fleet regression fixtures await operation completion and final persistence
   and exercise the real asynchronous child-controller handoff under delay.
-- Verify exact memory-admission boundaries and that rejected creates allocate no
-  resources or stale reservations. Keep existing budgets and safety limits.
 - Retain the session-loading and sign-in-flash fixes from 0.3.1-alpha.
 
 ## 0.3.1-alpha — 2026-10-20

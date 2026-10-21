@@ -81,13 +81,11 @@ not a local result claimed here.
 ## v0.3.2-alpha release candidate
 
 The candidate preserves the concurrent v0.3.1-alpha session-loading fixes.
-The combined local Node suite passed 186 tests with one platform skip; two
-additional memory-admission regressions then passed with all 15 fleet tests.
+The combined local Node suite passed 186 tests with one platform skip.
 Image runtime tests, workflow tests, packaging and diff checks also passed.
 
-Memory admission reserves each game's configured GiB plus 1 GiB for its
-controller. A 3 GiB Factorio allocation and default 12 GiB Rust allocation require
-17 GiB, exceeding a 16 GiB configured budget. A 2 GiB Factorio allocation and
-12 GiB Rust allocation fit exactly at 16 GiB. Regression tests verify both
-boundaries and that refusal occurs before creating resources or reservations.
-Budget and physical-memory safeguards remain unchanged.
+The final review also identified competing scratch output after a save-publication
+collision. Regression tests reproduce both a collision and a kill before
+publication. Scratch output now stays in a separate generation directory outside
+the discoverable world list, and publication cleans it up even when the destination
+appears concurrently. The winning save remains unchanged.

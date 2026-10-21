@@ -30,6 +30,7 @@ test('container acceptance commands use only unique disposable resources and cle
         return JSON.stringify([{Id:'sha256:'+'a'.repeat(64),RepoDigests:classic&&parsed.source==='factory'?[]:[gameSources[parsed.source].repository+'@sha256:'+'b'.repeat(64)],Architecture:'amd64',Os:'linux',Config:config}]);
       }
       if(args[0]==='inspect')return JSON.stringify([{State:{ExitCode:0}}]);
+      if(args[0]==='logs')return 'Loading map /factorio/saves/Compatibility.zip: fixture';
       if(args[0]==='start'&&fail)throw Error('simulated start failure');
       if(args.includes('--read-only'))return 'Version: '+definition.version+' (build fixture)';
       if(args[0]==='exec')return args.at(-1)==='/version'?definition.version:args.at(-1).includes('game.tick')?(++ticks===1?'':'42'):'';

@@ -79,7 +79,13 @@ def prepare(env, data=Path("/factorio"), game=Path("/opt/factorio")):
         if destination.is_symlink():
             raise ValueError("Save destination must not be a symlink")
         if not destination.exists():
-            temporary = destination.with_name(destination.stem + ".tmp.zip")
+            # Never expose scratch output to load-latest or the panel's world
+            # list, including after a kill between generation and publication.
+            workspace = saves / ".lobby-goblin-generation"
+            if workspace.is_symlink() or workspace.exists() and not workspace.is_dir():
+                raise ValueError("Generation workspace must use an ordinary directory")
+            workspace.mkdir(mode=0o700, exist_ok=True)
+            temporary = workspace / (destination.stem + ".tmp.zip")
             if temporary.is_symlink() or temporary.exists() and not temporary.is_file():
                 raise ValueError("Temporary save must use an ordinary file")
             creation = [binary, *common, "--create", str(temporary), "--map-gen-settings", str(config / "map-gen-settings.json"), "--map-settings", str(config / "map-settings.json")]
@@ -112,7 +118,7 @@ def prepare(env, data=Path("/factorio"), game=Path("/opt/factorio")):
 
 def generate_save(creation, paths):
     temporary = Path(creation[creation.index("--create") + 1])
-    destination = temporary.with_name(temporary.name[:-len(".tmp.zip")] + ".zip")
+    destination = paths["SAVES"] / (temporary.name[:-len(".tmp.zip")] + ".zip")
     # A failed/killed generator leaves only an ignored temporary save. Retry it
     # with the same configuration and password, never load its partial output.
     if temporary.is_symlink() or temporary.exists() and not temporary.is_file():
@@ -122,8 +128,11 @@ def generate_save(creation, paths):
     if temporary.is_symlink() or not temporary.is_file():
         raise ValueError("Generated save must use an ordinary file")
     # Publish without overwriting any save that appeared during generation.
-    os.link(temporary, destination, follow_symlinks=False)
-    temporary.unlink()
+    try:
+        os.link(temporary, destination, follow_symlinks=False)
+    finally:
+        # A destination collision must not leave the competing generated save.
+        temporary.unlink(missing_ok=True)
     (paths["CONFIG"] / ".initial-world-pending").unlink(missing_ok=True)
 
 

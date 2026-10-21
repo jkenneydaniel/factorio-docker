@@ -127,6 +127,20 @@ class StartupTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 startup.generate_save(creation, paths)
         self.assertEqual((self.data / "saves/World.zip").read_bytes(), b"preserve")
+        self.assertFalse(Path(creation[creation.index("--create") + 1]).exists())
+        self.assertIsNone(self.prepare()[1])
+        self.assertEqual([file.name for file in (self.data / "saves").glob("*.zip")], ["World.zip"])
+
+    def test_killed_publication_cannot_expose_a_competing_temporary_world(self):
+        _, creation, _ = self.prepare()
+        temporary = Path(creation[creation.index("--create") + 1])
+        temporary.write_bytes(b"competing generated world")
+        (self.data / "saves/World.zip").write_bytes(b"world that won the race")
+        # Simulate interruption after generation but before publication/cleanup.
+        self.assertIsNone(self.prepare()[1])
+        self.assertNotEqual(temporary.parent, self.data / "saves")
+        self.assertEqual([file.name for file in (self.data / "saves").glob("*.zip")], ["World.zip"])
+        self.assertEqual((self.data / "saves/World.zip").read_bytes(), b"world that won the race")
 
     def test_temporary_save_links_and_invalid_pending_markers_are_refused(self):
         _, creation, _ = self.prepare()
