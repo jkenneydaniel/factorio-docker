@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
+import tempfile
 import subprocess
 import sys
 
@@ -81,7 +83,7 @@ def prepare(env, data=Path("/factorio"), game=Path("/opt/factorio")):
         if not destination.exists():
             # Never expose scratch output to load-latest or the panel's world
             # list, including after a kill between generation and publication.
-            workspace = saves / ".lobby-goblin-generation"
+            workspace = config / ".lobby-goblin-generation"
             if workspace.is_symlink() or workspace.exists() and not workspace.is_dir():
                 raise ValueError("Generation workspace must use an ordinary directory")
             workspace.mkdir(mode=0o700, exist_ok=True)
@@ -127,11 +129,20 @@ def generate_save(creation, paths):
     subprocess.run(creation, check=True)
     if temporary.is_symlink() or not temporary.is_file():
         raise ValueError("Generated save must use an ordinary file")
-    # Publish without overwriting any save that appeared during generation.
+    # CONFIG and SAVES may be on different filesystems. Stream into a private
+    # non-ZIP staging file on the destination filesystem, then publish atomically
+    # without overwriting a save that appeared during generation. A kill during
+    # the copy cannot leave a discoverable world in SAVES.
+    staged = None
     try:
-        os.link(temporary, destination, follow_symlinks=False)
+        with tempfile.NamedTemporaryFile(dir=paths["SAVES"], prefix=".lobby-goblin-", suffix=".pending", delete=False) as output:
+            staged = Path(output.name)
+            with temporary.open("rb") as source:
+                shutil.copyfileobj(source, output)
+        os.link(staged, destination, follow_symlinks=False)
     finally:
-        # A destination collision must not leave the competing generated save.
+        if staged is not None:
+            staged.unlink(missing_ok=True)
         temporary.unlink(missing_ok=True)
     (paths["CONFIG"] / ".initial-world-pending").unlink(missing_ok=True)
 

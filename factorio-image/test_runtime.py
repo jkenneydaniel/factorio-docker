@@ -138,9 +138,24 @@ class StartupTests(unittest.TestCase):
         (self.data / "saves/World.zip").write_bytes(b"world that won the race")
         # Simulate interruption after generation but before publication/cleanup.
         self.assertIsNone(self.prepare()[1])
-        self.assertNotEqual(temporary.parent, self.data / "saves")
+        self.assertNotIn(self.data / "saves", temporary.parents)
         self.assertEqual([file.name for file in (self.data / "saves").glob("*.zip")], ["World.zip"])
         self.assertEqual((self.data / "saves/World.zip").read_bytes(), b"world that won the race")
+
+    def test_publication_uses_non_zip_staging_on_the_saves_filesystem(self):
+        _, creation, paths = self.prepare()
+        original_link = startup.os.link
+        def complete(command, **kwargs):
+            Path(command[command.index("--create") + 1]).write_bytes(b"generated world")
+        def publish(source, destination, **kwargs):
+            self.assertEqual(source.parent, destination.parent)
+            self.assertEqual(source.suffix, ".pending")
+            self.assertEqual(list(paths["SAVES"].glob("*.zip")), [])
+            self.assertEqual(source.read_bytes(), b"generated world")
+            original_link(source, destination, **kwargs)
+        with patch.object(startup.subprocess, "run", side_effect=complete), patch.object(startup.os, "link", side_effect=publish):
+            startup.generate_save(creation, paths)
+        self.assertEqual([file.name for file in paths["SAVES"].iterdir()], ["World.zip"])
 
     def test_temporary_save_links_and_invalid_pending_markers_are_refused(self):
         _, creation, _ = self.prepare()
