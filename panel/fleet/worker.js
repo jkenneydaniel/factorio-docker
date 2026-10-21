@@ -12,7 +12,9 @@ export async function runWorker(config,{instance='/instance',library='/library'}
   await fs.writeFile(path.join(instance,'control/controller-token'),config.controllerToken,{mode:0o600,flag:'wx'});
   if(config.game==='factorio'){
    await writeJSON(path.join(data,'config/server-settings.json'),{name:config.name,description:'Managed by Lobby Goblin',visibility:{public:false,lan:true},require_user_verification:false,max_players:config.maxPlayers,autosave_interval:5,autosave_slots:3,auto_pause:true});
-   await fs.writeFile(path.join(data,'config/rconpw'),config.rconPassword,{mode:0o600,flag:'wx'});
+   // A fresh image boot creates its RCON key and first world. Existing identities
+   // require saves when generation is disabled, so do not pre-create that marker.
+   if(config.snapshotId)await fs.writeFile(path.join(data,'config/rconpw'),config.rconPassword,{mode:0o600,flag:'wx'});
    if(!config.snapshotId)await writeJSON(path.join(data,'config/map-gen-settings.json'),{seed:config.seed});
   }else{
    await fs.writeFile(path.join(instance,'control/rcon-password'),config.rconPassword,{mode:0o600,flag:'wx'});
