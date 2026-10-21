@@ -14,7 +14,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(url.pathname==='/servers'){
    if(req.method==='GET')return json(res,200,{servers:manager.list()});assert(req.method==='POST','Not found.',404);return json(res,202,await manager.submit('create',await requestJSON(req),req.headers['x-panel-user']||'administrator'));
   }
-  if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater('0.3.0-alpha').refresh());
+  if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater('0.3.1-alpha').refresh());
   const match=url.pathname.match(/^\/servers\/([a-f0-9]{32})(?:\/(.*))?$/);assert(match,'Not found.',404);const item=manager.server(match[1]),tail=match[2]||'';
   if(!tail&&req.method==='GET')return json(res,200,manager.publicServer(item));
   if(req.method==='POST'&&['snapshot','remove'].includes(tail)){const body=await requestJSON(req);return json(res,202,await manager.submit(tail==='snapshot'?'publish':'remove',{...body,serverId:item.id},req.headers['x-panel-user']||'administrator'));}

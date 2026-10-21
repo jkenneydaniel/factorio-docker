@@ -3,7 +3,7 @@ let session=null,servers=[],snapshots=[],games=[],active=null,refreshing=false,v
 async function api(route,body){const response=await fetch('/api'+route,{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json',...(session?{'x-csrf-token':session.csrf}:{})},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw Error(data.error||'The host manager is unavailable.');return data;}
 function error(message,target='#error'){const node=$(target);node.textContent=message;node.hidden=!message;}
 function notice(message){$('#notice').textContent=message;$('#notice').hidden=!message;}
-function authenticated(){const signed=!!session;$('#auth').hidden=signed;$('#dashboard').hidden=!signed;$('#account').hidden=!signed;$('#username').textContent=session?.username||'';document.querySelectorAll('[data-admin]').forEach(node=>node.hidden=session?.role!=='admin');}
+function authenticated(){$('#session-loading').hidden=true;const signed=!!session;$('#auth').hidden=signed;$('#dashboard').hidden=!signed;$('#account').hidden=!signed;$('#username').textContent=session?.username||'';document.querySelectorAll('[data-admin]').forEach(node=>node.hidden=session?.role!=='admin');}
 function selectView(next){view=next;for(const name of ['servers','library','access']){document.getElementById(name+'-view').hidden=name!==next;document.getElementById('show-'+name).setAttribute('aria-current',name===next?'page':'false');}if(next==='access')void loadAccess();}
 function render(){
  const admin=session?.role==='admin';$('#new-server').disabled=!!active;

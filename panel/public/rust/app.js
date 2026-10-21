@@ -52,7 +52,7 @@ async function loadPage({preserveSchedule=false}={}){
   }
 }
 function openPage(value){page=value;all('[data-view]').forEach(element=>element.hidden=element.dataset.view!==page);all('[data-page]').forEach(button=>{if(button.dataset.page===page)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});$('#page-title').textContent=page[0].toUpperCase()+page.slice(1);void guarded(loadPage);}
-function signedIn(value){session=value;$('#auth').hidden=true;$('#shell').hidden=false;$('#account').textContent=value.username+' · '+(value.role==='admin'?'Administrator':'Read-only');all('[data-admin]').forEach(element=>element.hidden=value.role!=='admin');openPage('overview');void refresh();}
+function signedIn(value){$('#session-loading').hidden=true;session=value;$('#auth').hidden=true;$('#shell').hidden=false;$('#account').textContent=value.username+' · '+(value.role==='admin'?'Administrator':'Read-only');all('[data-admin]').forEach(element=>element.hidden=value.role!=='admin');openPage('overview');void refresh();}
 if(registration){$('#auth-title').textContent='Create your Rust account';$('#auth-help').textContent='Choose a username and a password of at least 12 characters.';$('#login button').textContent='Create account';$('#login [name=password]').minLength=12;$('#login [name=password]').autocomplete='new-password';}
 $('#login').addEventListener('submit',async event=>{event.preventDefault();const button=$('#login button');button.disabled=true;try{const data=Object.fromEntries(new FormData(event.target));signedIn(await api(registration?'register':'login',registration?{...data,token:registration}:data));}catch(error){$('#auth-error').textContent=error.message;}finally{button.disabled=false;}});
 all('[data-page]').forEach(button=>button.addEventListener('click',()=>openPage(button.dataset.page)));
@@ -65,5 +65,6 @@ $('#schedule').addEventListener('submit',event=>{event.preventDefault();void gua
 $('#invite').addEventListener('submit',event=>{event.preventDefault();void guarded(async()=>{const result=await api('invitations',{role:event.target.elements.role.value}),url=location.origin+'/#register='+result.token;$('#invitation').hidden=false;$('#invitation').textContent=`Private invitation (expires in 24 hours): ${url}`;});});
 $('#password').addEventListener('submit',event=>{event.preventDefault();void guarded(async()=>{session=await api('password',Object.fromEntries(new FormData(event.target)));event.target.reset();message('Password changed. Other sessions were signed out.');});});
 $('#logout').addEventListener('click',()=>guarded(async()=>{await api('logout',{});session=null;location.reload();}));
-if(!registration)try{signedIn(await api('session'));}catch{}
+if(registration){$('#session-loading').hidden=true;$('#auth').hidden=false;}
+else try{signedIn(await api('session'));}catch{$('#session-loading').hidden=true;$('#auth').hidden=false;}
 setInterval(()=>void refresh(),5000);
