@@ -1,8 +1,8 @@
 import {migrationImage,ownedImage} from './game-images.js';
 import {launchStandaloneMigration} from './standalone-migration.js';
 import fs from 'node:fs/promises';
-import {ownedDocker} from '../fleet/owned-docker.js';
-import {noManagedUpdater} from '../fleet/catalog.js';
+import {ownedDocker} from './owned-docker.js';
+import {noManagedUpdater} from './managed-updater.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import http from 'node:http';
@@ -19,8 +19,8 @@ import {validateGameModule} from './game-module.js';
 // behavior; the core owns persistence, authentication and operation coordination.
 export async function startController(module,{env=process.env,docker=dockerAPI,port=Number(env.PORT||8081),hostname='0.0.0.0'}={}){
   validateGameModule(module);
-  if(env.FLEET_ID)docker=ownedDocker(docker,env);
   const config=module.configuration(env,{migrationBootstrap:true}),{state,library,backupDir}=config;
+  if(env.FLEET_ID)docker=ownedDocker(docker,env,{container:config.container,...module.managed});
   await module.validateInstallation?.(config);
   const token=(await fs.readFile(env.CONTROLLER_TOKEN_FILE||'/run/secrets/controller_token','utf8')).trim();
   for(const dir of [state,library,backupDir])await fs.mkdir(dir,{recursive:true});
@@ -41,8 +41,9 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   await game.init();
   await updater.init();
   let migrationJournal=null;
-  const migrationFile=path.join(module.id==='rust'?state:env.UPDATE_STATE_DIR||'/updates','image-migration.json');
-  if(!env.FLEET_ID&&['factorio','rust'].includes(module.id)){migrationJournal=await readJSON(migrationFile,null);const installed=await host.info().catch(error=>{if(error.status===404&&migrationJournal)return migrationJournal.original;throw error;});migrationPending=!!installed.Config?.Labels?.['com.docker.compose.project']&&(!ownedImage(module.id,installed.Config?.Image)||migrationImage(module.id,installed.Config?.Image)||migrationJournal&&migrationJournal.phase!=='complete');}
+  const legacyMigration=module.managed?.legacyMigration;
+  const migrationFile=legacyMigration?.file(config,env)||path.join(state,'image-migration.json');
+  if(!env.FLEET_ID&&legacyMigration){migrationJournal=await readJSON(migrationFile,null);const installed=await host.info().catch(error=>{if(error.status===404&&migrationJournal)return migrationJournal.original;throw error;});migrationPending=!!installed.Config?.Labels?.['com.docker.compose.project']&&(!ownedImage(module.id,installed.Config?.Image)||migrationImage(module.id,installed.Config?.Image)||migrationJournal&&migrationJournal.phase!=='complete');}
 
   const retention=new BackupRetention({root:backupDir,file:path.join(state,'backup-retention.json'),extension:game.backupExtension||'.zip',
     protectedNames:async()=>[...updater.jobs.filter(job=>job.recovery?.requiresWorldRestore).map(job=>job.backup),(await readJSON(migrationFile,null))?.backup,env.IMAGE_MIGRATION_BACKUP].filter(Boolean),
@@ -66,7 +67,10 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
     assert(!updater.pendingRestore||action==='restore'&&params.name===updater.pendingRestore.backup,'Restore the recorded pre-update backup from Backups before running more server operations.',409);
     assert(!active&&!retentionConfiguring,'Another operation is in progress. Please wait.',409);
     const job={id:crypto.randomUUID(),action,actor,started:new Date().toISOString(),state:'running',message:'Starting…'};
-    active=job;jobs.unshift(job);jobs=jobs.slice(0,100);await writeJSON(path.join(state,'jobs.json'),jobs);
+    const previousJobs=jobs;
+    active=job;jobs=[job,...jobs].slice(0,100);
+    try{await writeJSON(path.join(state,'jobs.json'),jobs);}
+    catch(error){jobs=previousJobs;active=null;throw error;}
     void (async()=>{
       try{await game.beforeJob(job);const result=await actions[action](params,job);if(action==='restore')await updater.restored(params.name);await setJob(job,{state:'succeeded',message:typeof result==='string'?result:result?.message||'Completed.',result,finished:new Date().toISOString()});}
       catch(error){await setJob(job,{state:'failed',message:redact(error.message),finished:new Date().toISOString()});}
@@ -138,7 +142,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
       if(active||updater.busy)return;
       migrationLaunching=true;
       await game.waitIdle();
-      migrationWorker=await launchStandaloneMigration({docker,game:module.id,journal:migrationJournal,names:{game:config.container,controller:env.CONTROLLER_CONTAINER||(module.id==='rust'?'lobby-goblin-rust-controller-'+config.instance:'factorio-panel-controller'),panel:env.PANEL_CONTAINER||(module.id==='rust'?'lobby-goblin-rust-panel-'+config.instance:'factorio-panel')}});
+      migrationWorker=await launchStandaloneMigration({docker,game:module.id,journal:migrationJournal,names:legacyMigration.names(config,env)});
     }
     catch{migrationError='Automatic image migration needs attention. Data was preserved; inspect the migration worker and installation ownership.';}
   },1000);

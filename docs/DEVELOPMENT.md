@@ -18,6 +18,13 @@ memory; there is no Docker or game data access. `MOD_LIBRARY_UI_PORT` selects
 another port; `MOD_LIBRARY_UI_UPDATES=1` seeds an older installed mod for Updates.
 Stop the fixture with Ctrl+C.
 
+The Factorio fixture also accepts `UI_SERVER_SCOPE=/servers/<32-hex-id>` or
+`/hosts/<32-hex-id>/servers/<32-hex-id>`. Open that exact path with a trailing
+slash. With `UI_CREATE_TEST=1`, create a synthetic library world, verify that the
+completion URL keeps the server path, then reload and return to its world library.
+The fixture rejects unscoped requests so a scope regression cannot appear to work.
+The production shared shell/client assets are served by these fixtures too.
+
 `node panel/test/fleet-ui-preview.js` serves the host manager on loopback port
 8098 (`UI_PREVIEW_PORT` overrides it). Sign in as `Preview` or read-only `Viewer`
 with `isolated-panel-preview-password`. SSH installation, code pairing, agent

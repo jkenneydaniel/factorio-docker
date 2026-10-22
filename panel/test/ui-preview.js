@@ -3,10 +3,14 @@
 // real server-management actions are rejected. Optional creation/onboarding flows
 // simulate success in memory only, for browser acceptance of those workflows.
 import http from 'node:http';
+import {web as factorioWeb} from '../games/factorio/web.js';
+import {sharedAssets} from '../core/web-assets.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const scope=process.env.UI_SERVER_SCOPE||'';
+if(scope&&!/^(?:\/hosts\/[a-f0-9]{32})?\/servers\/[a-f0-9]{32}$/.test(scope))throw Error('Invalid isolated server scope.');
 import {emptySetups,changeSetups} from '../world-setups.js';
 import {diagnosticsReport,controllerDiagnostics} from '../diagnostics.js';
 import {defaultRetention,retentionPolicy,retentionSelection} from '../backup-retention.js';
@@ -52,6 +56,7 @@ let playerSample=0;
 function previewPlayers(){playerSample++;return process.env.UI_LIVE_PLAYERS_TEST==='1'?{enabled:true,state:'live',world:snapshot.world,seed:snapshot.seed,updatedAt:new Date().toISOString(),players:[{name:'Preview engineer',x:playerSample*3,y:0,surface:snapshot.surface,color:[90,200,220]}]}:{enabled:false,state:'disabled',players:[]};}
 if(process.env.UI_AUTO_REFRESH_TEST==='1')setTimeout(()=>{snapshot.created=new Date().toISOString();console.log('Preview-only snapshot advanced in memory.');},20000).unref();
 http.createServer(async(req,res)=>{
+  if(scope){if(!req.url.startsWith(scope+'/')){res.writeHead(404);return res.end('Open the scoped disposable server URL.');}req.url=req.url.slice(scope.length);}
   if(req.method==='POST'&&req.url==='/api/backup-retention'&&process.env.UI_RETENTION_TEST==='1'){
     try{
       let text='';for await(const chunk of req)text+=chunk;const body=JSON.parse(text),policy=retentionPolicy(body.policy);let result;
@@ -96,5 +101,5 @@ http.createServer(async(req,res)=>{
   const route=req.url.split('?')[0];if(route==='/api/world-preview-image'){res.writeHead(200,{'content-type':'image/svg+xml'});return res.end(fixtureImage);}
   if(route==='/api/world-preview'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(draftPreview||{state:'idle'}));}
   if(route.startsWith('/api/')){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(route==='/api/live-players'?previewPlayers():route==='/api/map-status'?{created:snapshot.created,automatic:data.map.automatic,active:null}:data[route.slice(5)]||{}));}
-  const files={'/scope.js':['scope.js','text/javascript'],'/game-images.js':['game-images.js','text/javascript'],'/game-update.js':['game-update.js','text/javascript'],'/backup-retention.js':['backup-retention.js','text/javascript'],'/diagnostics.js':['diagnostics.js','text/javascript'], '/':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/map.js':['map.js','text/javascript'],'/world-fields.js':['world-fields.js','text/javascript'],'/world-preview.js':['world-preview.js','text/javascript'],'/world-editor.js':['world-editor.js','text/javascript'],'/style.css':['style.css','text/css'],'/icons.js':['icons.js','text/javascript'],'/onboarding.js':['onboarding.js','text/javascript']};const file=files[route];if(!file){res.writeHead(404);return res.end();}res.writeHead(200,{'content-type':file[1]});res.end(await fs.readFile(path.join(project,'public',file[0])));
+  const files={...sharedAssets,...factorioWeb.assets};const file=files[route];if(!file){res.writeHead(404);return res.end();}let content=await fs.readFile(path.join(project,'public',file[0]));if(scope&&file[1].startsWith('text/html'))content=content.toString().replace(/(href|src)="\/(?!\/)/g,(_,key)=>key+'="'+scope+'/');res.writeHead(200,{'content-type':file[1]});res.end(content);
 }).listen(Number(process.env.UI_PREVIEW_PORT||8089),'127.0.0.1',()=>console.log('Isolated UI fixture listening (no server-management access).'));

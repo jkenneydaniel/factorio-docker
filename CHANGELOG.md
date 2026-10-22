@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Release operation reservations and preserve job history when an initial state
+  write fails, allowing a later retry without restarting management services.
+- Preserve managed-server URL scope after Factorio world creation, registration
+  and setup navigation, including remote-host server pages.
+- Move managed provisioning, creation policies and snapshot content handling into
+  checked game adapters while preserving existing identities and storage formats.
+- Share navigation, account identity, status, progress, feedback, confirmation
+  dialogs and browser transport across fleet, Factorio and Rust interfaces.
+- Centralize route exposure and shared assets; retain installation entry points,
+  cookies, account/world paths, image contracts and historical import exports.
+
 ## 0.3.6-alpha — 2026-10-22
 
 - Add persistent panel-to-agent connections on a configurable dedicated port

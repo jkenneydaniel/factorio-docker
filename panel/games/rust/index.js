@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import {assert,HttpError} from '../../common.js';
 import {Accounts} from '../../core/accounts.js';
 import {createRust} from './controller.js';
+import {managed} from './managed.js';
 
 export function rustConfiguration(env,{migrationBootstrap=false}={}){
   const instance=env.RUST_INSTANCE_ID;
@@ -30,6 +31,7 @@ function updater({current}){
   return {current,jobs:[],busy:false,pendingRestore:null,init:async()=>{},refresh:async()=>status(),status,plan:unavailable,install:unavailable,restored:async()=>{}};
 }
 export const rust={
+  managed,
   id:'rust',name:'Rust',releaseRepository:'jkenneydaniel/lobby-goblin',stopTimeout:-1,
   routes:[...modLibraryRoutes,'/players','/logs','/settings','/mods','/mods-plan','/plugin-config'],configuration:rustConfiguration,validateInstallation,createController:createRust,createUpdater:updater,
   diagnostics:async()=>({game:'rust',checks:[],message:'Inspect Rust status and logs for readiness.'}),

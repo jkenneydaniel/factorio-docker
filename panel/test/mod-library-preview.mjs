@@ -1,6 +1,7 @@
 // Loopback-only browser fixture. All game state and mod changes are synthetic
 // and in memory. There is no Docker socket, controller, account or world access.
 import http from 'node:http';
+import {sharedAssets} from '../core/web-assets.js';
 import fs from 'node:fs/promises';
 import {factorio} from '../games/factorio/index.js';
 import {rust} from '../games/rust/index.js';
@@ -28,7 +29,7 @@ const server=http.createServer(async(req,res)=>{
       if(api==='backups')return reply(res,200,{backups:[],schedule:{},health:{state:'none'},retention:{policy:{enabled:false}}});
       return reply(res,404,{error:'This isolated fixture only supports the mod library.'});
     }
-    const asset=state.module.web.assets[route];if(!asset)return reply(res,404,{error:'Unknown fixture asset.'});
+    const asset={...sharedAssets,...state.module.web.assets}[route];if(!asset)return reply(res,404,{error:'Unknown fixture asset.'});
     let data=await fs.readFile(new URL('../public/'+asset[0],import.meta.url));if(asset[1].startsWith('text/html'))data=Buffer.from(data.toString().replace(/(src|href)="\/(?!\/)/g,'$1="'+prefix+'/'));
     res.writeHead(200,{'content-type':asset[1],'cache-control':'no-store'});res.end(data);
   }catch(error){reply(res,500,{error:error.message});}

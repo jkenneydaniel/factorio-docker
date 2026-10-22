@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
+const clientSource=(await fs.readFile(new URL('../public/client.js',import.meta.url),'utf8')).replace(/^export /gm,'');
+const mountProductShell=()=>({session(){},active(){},status(){},attention(){},operation(){},notify(){},confirm:async()=>false});
 
 // Run each real entry point against a delayed session response. Unrelated
 // server-data loading is stubbed so these tests exercise authentication alone.
@@ -26,10 +28,10 @@ for (const variant of [
     let settle,fail;
     const response=new Promise((resolve,reject)=>{settle=resolve;fail=reject;});
     const document={querySelector:node,querySelectorAll:()=>[]};
-    const context=vm.createContext({document,location:{hash,pathname:'/',origin:'http://test'},history:{replaceState(){}},
+    const context=vm.createContext({mountProductShell,document,location:{hash,pathname:'/',origin:'http://test'},history:{replaceState(){}},
       URLSearchParams,console,fetch:route=>String(route).endsWith('/session')?response:Promise.resolve({ok:true,json:async()=>({role:'admin'})}),
-      mountHosts:()=>({}),hostRoute:(host,route)=>route,serverKey:s=>s.id,serverPath:value=>value,icon:()=>'',cleanWorldPreview(){},clearWorldDraft(){},addEventListener(){},clearInterval(){},setInterval(){},setTimeout(){}});
-    const boot=vm.runInContext('(async()=>{'+source.replace(/^import .*;\r?\n/gm,'')+'\nasync function navigate(){}\nasync function load(){}\nasync function refresh(){}\n})()',context);
+      mountHosts:()=>({}),hostRoute:(host,route)=>route,serverKey:s=>s.id,serverPath:value=>value,pagePath:(hash='')=>'/'+hash,icon:()=>'',cleanWorldPreview(){},clearWorldDraft(){},addEventListener(){},clearInterval(){},setInterval(){},setTimeout(){}});
+    const boot=vm.runInContext('(async()=>{'+clientSource+'\n'+source.replace(/^import .*;\r?\n/gm,'')+'\nasync function navigate(){}\nasync function load(){}\nasync function refresh(){}\n})()',context);
     return {node,boot,settle,fail};
   }
   for(const outcome of ['signed-in','signed-out','network-error'])test(`${variant.dir||'factorio/'} waits for session before showing sign-in (${outcome})`,async()=>{

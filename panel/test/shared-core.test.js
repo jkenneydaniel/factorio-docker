@@ -73,12 +73,29 @@ test('shared controller runs a different game, coordinates jobs, and delegates b
   f.updater.busy=true;assert.equal((await f.request('/jobs',{action:'increment'})).status,409);
 });
 
+test('a failed initial job write releases the controller lock and preserves history',async t=>{
+  const f=await fixture(t);
+  await f.settled(await f.submit('increment'));
+  const before=await (await f.request('/jobs')).json(),writeFile=fs.writeFile;
+  let fail=true;
+  t.mock.method(fs,'writeFile',async(file,...args)=>{
+    if(fail&&String(file).startsWith(path.join(f.state,'jobs.json.'))){fail=false;throw Object.assign(Error('Simulated full disk'),{code:'ENOSPC'});}
+    return writeFile(file,...args);
+  });
+  assert.equal((await f.request('/jobs',{action:'increment'})).status,500);
+  const rejected=await (await f.request('/jobs')).json();
+  assert.equal(rejected.active,null);assert.deepEqual(rejected.jobs,before.jobs);
+  assert.equal((await f.settled(await f.submit('increment'))).state,'succeeded');
+  assert.equal((await (await f.request('/score')).json()).score,2);
+});
+
 test('shared web service uses module assets and cookies and keeps permissions and route allowlists',{timeout:10000},async t=>{
   const f=await fixture(t);
   const web=await startWeb(f.module,{env:{...f.env,CONTROLLER_URL:f.origin},port:0,hostname:'127.0.0.1'});
   t.after(()=>new Promise(resolve=>{web.closeAllConnections();web.close(resolve);}));
   const origin=`http://127.0.0.1:${web.address().port}`;
   assert.equal(await (await fetch(origin)).text(),'<title>Test game</title>');
+  for(const asset of ['/shell.js','/shell.css','/client.js'])assert.equal((await fetch(origin+asset)).status,200,'Shared assets do not depend on a game public directory');
   assert.equal((await fetch(origin+'/map.js')).status,404);
   assert.equal((await fetch(origin+'/api/score')).status,401);
   async function login(username){

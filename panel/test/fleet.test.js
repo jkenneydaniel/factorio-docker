@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import http from 'node:http';
 import {catalog,validateCreation,resources,labels} from '../fleet/catalog.js';import {runWorker} from '../fleet/worker.js';import {publishSnapshot,verifySnapshot,hashFile} from '../fleet/snapshots.js';import {writeArchive} from '../games/rust/archive.js';import {makeZip} from '../core/archive.js';import {ownedDocker} from '../fleet/owned-docker.js';import {dataMount} from '../core/data-mount.js';import {FleetManager} from '../fleet/manager.js';import {startFleetWeb} from '../fleet/web.js';import {writeJSON,readJSON} from '../common.js';import {hashPassword} from '../auth.js';
 import {waitForIdleJob} from './fixtures.js';
+import {selectedGame} from '../games/index.js';
 const fleet='a'.repeat(32),one='b'.repeat(32),two='c'.repeat(32),snap='d'.repeat(32),token='e'.repeat(64);
 const world=makeZip([{name:'world/level.dat',data:Buffer.from('disposable world content')}]);
 async function fixture(t){const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lobby-fleet-test-')));t.after(()=>fs.rm(root,{recursive:true,force:true}));const library=path.join(root,'library');await fs.mkdir(library);return {root,library};}
@@ -46,15 +47,15 @@ test('a managed controller rejects foreign containers, alternate game IDs, unsaf
  const data={Image:'image-id',HostConfig:{NetworkMode:'none',Memory:1024**3,Mounts:[{Type:'volume',Source:'foreign',Target:'/factorio',VolumeOptions:{Subpath:'data/.panel-work/test'}}]}};await assert.rejects(fenced('POST','/containers/create?name=test',data),/outside/);data.HostConfig.Mounts[0].Source=volume;await fenced('POST','/containers/create?name=test',data);assert.equal(calls.at(-1).data.Labels['io.lobby-goblin.instance'],one);assert.equal(calls.at(-1).data.HostConfig.NanoCpus,1e9);
  await assert.rejects(fenced('DELETE','/volumes/foreign'),/cannot operate/);
 });
-async function fakeManager(t){
+async function fakeManager(t,{gameModules}={}){
  const f=await fixture(t),root=await directory(f.root,'state'),volumes=new Map(),containers=new Map(),networks=new Map(),calls=[];const host='host-test';containers.set(host,{Id:'host-id',Image:'sha256:manager-runtime',Config:{Labels:{'io.lobby-goblin.fleet':fleet,'io.lobby-goblin.role':'host-controller'}},State:{Running:true}});
  const docker=async(method,route,data)=>{calls.push({method,route,data});const u=new URL(route,'http://docker'),bits=u.pathname.split('/').filter(Boolean).map(decodeURIComponent);const missing=()=>{throw Object.assign(Error('Not found'),{status:404});};if(route==='/info')return {OSType:'linux',Architecture:'x86_64',ServerVersion:'29.0.0',MemTotal:32*1024**3};if(bits[0]==='images'){const reference=bits[1],repo=reference.split('@')[0].slice(0,reference.split('@')[0].lastIndexOf(':'));return {Id:'sha256:'+'f'.repeat(64),Architecture:'amd64',Os:'linux',RepoDigests:[repo+'@sha256:'+'a'.repeat(64)],Config:{Labels:{'io.lobby-goblin.image-revision':reference.includes('rust-server')?'2':'3','factorio.version':'2.0.77','io.lobby-goblin.compatibility':'1','io.lobby-goblin.game':reference.includes('rust-server')?'rust':'factorio'}}};}if(u.pathname==='/containers/json')return u.searchParams.has('filters')?[]:[{Ports:[{Type:'udp',PublicPort:35000}]}];
  if(method==='POST'&&u.pathname==='/volumes/create'){volumes.set(data.Name,data);return data;}if(bits[0]==='volumes')return volumes.get(bits[1])||missing();
  if(method==='POST'&&u.pathname==='/networks/create'){networks.set(data.Name,{...data,Labels:data.Labels,Containers:{}});return {Id:data.Name};}if(bits[0]==='networks'){const n=networks.get(bits[1])||missing();if(method==='GET')return n;if(bits[2]==='connect')n.Containers['host-id']={};if(bits[2]==='disconnect')delete n.Containers['host-id'];if(method==='DELETE')networks.delete(bits[1]);return null;}
  if(method==='POST'&&u.pathname==='/containers/create'){const name=u.searchParams.get('name');containers.set(name,{...data,Name:'/'+name,Id:name,Config:{Image:data.Image,Labels:data.Labels,Env:data.Env},State:{Running:false,ExitCode:0,OOMKilled:false}});return {Id:name};}
  if(bits[0]==='containers'){const c=containers.get(bits[1])||missing();if(method==='GET')return c;if(bits[2]==='start')c.State.Running=true;if(bits[2]==='stop')c.State.Running=false;if(method==='DELETE')containers.delete(bits[1]);return null;}throw Error('Unexpected fake API '+route);};
- const manager=new FleetManager({docker,root,library:f.library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'manager:test',hostContainer:host,memoryBudgetGiB:16});await manager.init();const instanceRoots=new Map();
- manager.helper=async(item,config)=>{let instance=instanceRoots.get(item.id);if(!instance){instance=await directory(f.root,item.id);instanceRoots.set(item.id,instance);}return runWorker({...config,fleet,id:item.id,game:item.game},{instance,library:f.library});};
+ const manager=new FleetManager({docker,root,library:f.library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'manager:test',hostContainer:host,memoryBudgetGiB:16,gameModules});await manager.init();const instanceRoots=new Map();
+ manager.helper=async(item,config)=>{let instance=instanceRoots.get(item.id);if(!instance){instance=await directory(f.root,item.id);instanceRoots.set(item.id,instance);}return runWorker({...config,fleet,id:item.id,game:item.game},{instance,library:f.library,resolveGame:id=>manager.module(id)});};
  // Exercise the real manager.request transport and ownership checks. The child
  // accepts a start job before the game is ready; creation means handoff accepted.
  const childRequests=[];let beforeStart=async()=>{};
@@ -80,6 +81,14 @@ async function fakeManager(t){
  async function submit(input){const job=await settled(await manager.submit('create',input));assert.equal(job.state,'succeeded',job.message);return manager.server(job.result.serverId);}
  return {...f,manager,submit,settled,calls,containers,volumes,networks,instanceRoots,childRequests,holdStart:callback=>{beforeStart=callback;}};
 }
+test('a failed initial registry write releases the host lock without running an operation',async t=>{
+ const f=await fakeManager(t),before=structuredClone(f.manager.state.jobs),persist=f.manager.persist.bind(f.manager);let fail=true;
+ f.manager.persist=async(...args)=>{if(fail){fail=false;throw Object.assign(Error('Simulated full disk'),{code:'ENOSPC'});}return persist(...args);};
+ await assert.rejects(f.manager.submit('create',{game:'factorio',name:'Rejected'}),/full disk/);
+ assert.equal(f.manager.active,null);assert.deepEqual(f.manager.state.jobs,before);assert.equal(f.manager.state.servers.length,0);assert.equal(f.calls.length,0);
+ assert.equal((await f.submit({game:'factorio',name:'Retry'})).state,'installed');
+});
+
 test('host creation reserves unique storage/secrets/ports and never changes unrelated servers',async t=>{
  const f=await fakeManager(t),first=await f.submit({game:'factorio',name:'First'}),second=await f.submit({game:'factorio',name:'Second',autoStart:false});assert.notEqual(first.volume,second.volume);assert.notEqual(first.controllerToken,second.controllerToken);assert.notEqual(first.rconPassword,second.rconPassword);assert.equal(first.gamePort,35003);assert.equal(second.gamePort,35006);
  const game=f.containers.get(first.container);assert.ok(game.Env.includes('GENERATE_NEW_SAVE=false'),'world switches must never trigger empty-world generation');assert.equal(game.HostConfig.Mounts[0].VolumeOptions.Subpath,'data');assert.equal(game.HostConfig.Memory,2*1024**3);assert.equal(f.containers.get(second.container).HostConfig.RestartPolicy.Name,'no');assert.equal(f.containers.get(first.controller).Image,'sha256:manager-runtime');
@@ -134,4 +143,37 @@ test('saved world presets are scoped by account and server and are removed with 
 test('a higher host budget admits default Rust while existing Factorio limits and runtime are unchanged',async t=>{
  const f=await fakeManager(t),first=await f.submit({game:'factorio',name:'Existing factory',memoryGiB:3});const before=structuredClone(f.containers.get(first.container));
  await f.manager.updateHostSettings({memoryBudgetGiB:24,revision:0});const rust=await f.submit({game:'rust',name:'New island',memoryGiB:12});assert.equal(rust.state,'installed');assert.deepEqual(f.containers.get(first.container),before);assert.equal((await f.manager.hostSettings()).allocatedMemoryGiB,17);
+});
+
+test('a third game provisions TCP ports and its own storage, publishes and clones through generic fleet services',async t=>{
+ const base=selectedGame('factorio');
+ const arena={...base,id:'arena',name:'Arena',managed:{...base.managed,
+  legacyMigration:undefined,previewWorker:undefined,dataTarget:'/arena',backupDirectory:'arena-backups',
+  catalog:{...base.managed.catalog,version:'fixture',image:'arena:fixture',gamePort:7777,
+   creation:{minMemoryGiB:1,maxMemoryGiB:8,maxPlayers:32,defaultPlayers:8,fields:[{key:'tickRate',label:'Tick rate',min:10,max:100,step:10,default:20}]},snapshotHelp:'Copy the saved arena.'},
+  ports:[{key:'gamePort',containerPort:7777,protocol:'tcp',offset:0}],
+  ensureImage:async()=>({reference:'arena:fixture'}),
+  gameEnvironment:item=>({ARENA_TICK_RATE:String(item.tickRate)}),
+  controllerEnvironment:item=>({ARENA_CONTAINER:item.container}),
+  async prepareStorage({data}){await fs.mkdir(path.join(data,'matches'));},
+  async configureStorage({data,config}){await writeJSON(path.join(data,'settings.json'),{tickRate:config.tickRate});},
+  snapshots:{includesPlayerData:false,compatible:(from,to)=>from===to,
+   async collect({backup,content}){await fs.copyFile(backup,path.join(content,'match.json'));},
+   async restore({root,data,manifest}){assert.deepEqual(manifest.files.map(file=>file.name),['match.json']);await fs.copyFile(path.join(root,'match.json'),path.join(data,'matches/current.json'));}},
+ }};
+ const f=await fakeManager(t,{gameModules:[arena]});
+ const first=await f.submit({game:'arena',name:'First match',tickRate:30});
+ const container=f.containers.get(first.container);
+ assert.deepEqual(container.Env,['ARENA_TICK_RATE=30']);assert.equal(container.HostConfig.Mounts[0].Target,'/arena');assert.equal(container.ExposedPorts['7777/tcp']!==undefined,true);
+ assert.deepEqual(await readJSON(path.join(f.instanceRoots.get(first.id),'data/settings.json')),{tickRate:30});
+ const backup=path.join(f.root,'match-backup.json');await writeJSON(backup,{score:42});
+ const record={id:snap,sourceId:first.id,game:'arena',image:first.image,title:'Saved match'};
+ const published=await publishSnapshot({library:f.library,record,backup,module:arena});
+ f.manager.state.snapshots.push({...record,...published});
+ const clone=await f.submit({game:'arena',name:'Independent match',tickRate:40,snapshotId:snap});
+ assert.notEqual(first.volume,clone.volume);assert.notEqual(first.controllerToken,clone.controllerToken);
+ assert.deepEqual(await readJSON(path.join(f.instanceRoots.get(clone.id),'data/matches/current.json')),{score:42});
+ await fs.writeFile(path.join(f.instanceRoots.get(clone.id),'data/matches/current.json'),'changed clone');
+ assert.deepEqual(await readJSON(path.join(f.library,snap,'content/match.json')),{score:42});
+ await assert.rejects(f.manager.submit('create',{game:'arena',name:'Invalid tick rate',tickRate:33}),/Tick rate/);
 });

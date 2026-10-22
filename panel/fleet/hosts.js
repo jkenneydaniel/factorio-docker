@@ -2,7 +2,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert,equalSecret,readJSON,writeJSON,json,requestJSON,readBody} from '../common.js';
 import {validId} from './catalog.js';
-import {selectedGame} from '../games/index.js';
+import {registeredGames} from '../games/index.js';
+import {controllerRoutes} from '../core/routes.js';
 import {proxyResponse} from '../core/proxy.js';
 import {agentVersion} from './agent-update.js';
 import {AgentConnection} from './agent-connection.js';
@@ -29,7 +30,7 @@ export function remoteRoute(method,route){
  if(['snapshot','remove'].includes(match[1]))return method==='POST';
  if(!match[1].startsWith('controller/'))return false;
  const action='/'+match[1].slice(11);
- return ['/status','/diagnostics','/backups','/jobs','/download','/schedule','/backup-retention','/update-status','/update-plan','/update-install',...new Set(['factorio','rust'].flatMap(game=>selectedGame(game).routes))].includes(action);
+ return registeredGames().some(module=>controllerRoutes(module).includes(action));
 }
 
 export class RemoteHosts{

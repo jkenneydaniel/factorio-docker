@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
+const clientSource=(await fs.readFile(new URL('../public/client.js',import.meta.url),'utf8')).replace(/^export /gm,'');
+const mountProductShell=()=>({session(){},active(){},status(){},attention(){},operation(){},notify(){},confirm:async()=>false});
 import {welcomeView} from '../public/fleet/onboarding.js';
 
 const base=new URL('../public/fleet/',import.meta.url),html=await fs.readFile(new URL('index.html',base),'utf8'),source=(await fs.readFile(new URL('app.js',base),'utf8')).replace(/^import .*;\r?\n/gm,'');
@@ -29,8 +31,8 @@ async function fixture({signedIn=false,completed=false,role='admin',invitation=f
     else if(route==='/api/jobs')data={jobs:[],active:null};
     return {ok,json:async()=>data};
   };
-  const context=vm.createContext({document:{querySelector:node,querySelectorAll:()=>[]},location:{origin:'http://localhost:8082',hash:invitation?'#register='+'a'.repeat(43):''},history:{replaceState(){}},welcomeView,mountHosts:()=>({refresh:async()=>[{id:'a'.repeat(32),name:'This host',local:true,connected:true}],render(){},progress(){},pairing(){}}),hostRoute:(host,route)=>route,serverKey:s=>s.id,fetch,setInterval(){},console,FormData:class{constructor(form){return Object.entries(form.values);}}});
-  await vm.runInContext('(async()=>{'+source+'})()',context);
+  const context=vm.createContext({mountProductShell,addEventListener(){},document:{querySelector:node,querySelectorAll:()=>[]},location:{origin:'http://localhost:8082',hash:invitation?'#register='+'a'.repeat(43):''},history:{replaceState(){}},welcomeView,mountHosts:()=>({refresh:async()=>[{id:'a'.repeat(32),name:'This host',local:true,connected:true}],render(){},progress(){},pairing(){}}),hostRoute:(host,route)=>route,serverKey:s=>s.id,fetch,setInterval(){},console,FormData:class{constructor(form){return Object.entries(form.values);}}});
+  await vm.runInContext('(async()=>{'+clientSource+'\n'+source+'})()',context);
   return {node,calls,get completed(){return completed;},submit(){dispatching=true;const form=node('#register');return form.onsubmit({preventDefault(){},get currentTarget(){return dispatching?form:null;}});}};
 }
 

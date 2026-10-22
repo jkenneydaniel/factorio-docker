@@ -1,5 +1,7 @@
+import {mountProductShell} from './shell.js';
+import {createApi,pollEvery} from './client.js';
 import {mountModLibrary} from './mod-library.js';
-import {serverPath} from './scope.js';
+import {serverPath,pagePath} from './scope.js';
 import {icon} from './icons.js';
 import {setupPage,setupReady} from './onboarding.js';
 import {mountMap} from './map.js';
@@ -22,17 +24,15 @@ const date=value=>value?new Date(value).toLocaleString([], {month:'short',day:'n
 const relative=value=>{if(!value)return'No saved data yet';const minutes=Math.max(0,Math.floor((Date.now()-new Date(value))/60000));return minutes<1?'Just now':minutes<60?`${minutes} min ago`:minutes<1440?`${Math.floor(minutes/60)} hr ago`:date(value);};
 let user=null,status=null,currentPage='overview',viewNumber=0,refreshTimer=null,busyJob=null,worldFilter='all';
 const admin=()=>user?.role==='admin';
-async function api(route,{method='GET',body,raw=false,signal}={}){
-  const headers={};if(method!=='GET')headers['x-csrf-token']=user?.csrf||'';
-  if(body!==undefined&&!raw)headers['content-type']='application/json';
-  const response=await fetch(serverPath('/api'+route),{method,credentials:'same-origin',headers,signal,body:body===undefined?undefined:raw?body:JSON.stringify(body)});
-  const result=await response.json();
-  if(!response.ok){if(response.status===401&&!['/login','/register','/registration'].includes(route))showLogin();throw new Error(result.error||'The request could not be completed.');}return result;
-}
-let toastTimer;
-function toast(message,error=false){const element=$('#toast');element.textContent=message;element.className='toast'+(error?' error':'');element.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>{element.hidden=true;},error?10000:6500);}
-async function confirmAction(title,message,label='Continue'){const dialog=$('#confirm-dialog');$('#confirm-title').textContent=title;$('#confirm-message').textContent=message;$('#confirm-yes').textContent=label;dialog.returnValue='';dialog.showModal();return await new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='confirm'),{once:true}));}
-function showLogin(){$('#session-loading').hidden=true;cleanWorldPreview();clearWorldDraft();worldOptions=null;createdWorld=null;worldSearch='';worldFilter='all';panelRelease=null;lastReleasePoll=0;updateState=null;$('#release-notice').hidden=true;user=null;livePositions=null;cleanMap();clearInterval(refreshTimer);clearInterval(liveTimer);$('#app-view').hidden=true;$('#login-view').hidden=false;$('#login-form').hidden=false;$('#register-form').hidden=true;}
+const shell=mountProductShell({game:'Factorio',onboarding:()=>currentPage==='setup',onLogout:()=>$('#logout').click(),navigation:[
+  {id:'overview',label:'Overview'},{id:'worlds',label:'Worlds'},{id:'map',label:'Map'},{id:'players',label:'Players'},
+  {id:'mods',label:'Mods',adminOnly:true},{id:'backups',label:'Backups'},{id:'logs',label:'Activity'},
+  {id:'settings',label:'Settings'},{id:'accounts',label:'Accounts'},{id:'setup',label:'Setup',adminOnly:true},
+]});
+const api=createApi({base:serverPath('/api'),getSession:()=>user,onUnauthorized:()=>showLogin()});
+function toast(message,error=false){shell.notify(message,{error});}
+const confirmAction=(title,message,label='Continue')=>shell.confirm(title,message,label);
+function showLogin(){shell.session(null);$('#session-loading').hidden=true;cleanWorldPreview();clearWorldDraft();worldOptions=null;createdWorld=null;worldSearch='';worldFilter='all';panelRelease=null;lastReleasePoll=0;updateState=null;$('#release-notice').hidden=true;user=null;livePositions=null;cleanMap();clearInterval(refreshTimer);clearInterval(liveTimer);$('#app-view').hidden=true;$('#login-view').hidden=false;$('#login-form').hidden=false;$('#register-form').hidden=true;}
 function invitationToken(value){return String(value).trim().split('#register=').pop();}
 async function showRegistration(token=''){
   showLogin();$('#login-form').hidden=true;$('#register-form').hidden=false;$('#register-form').reset();
@@ -48,16 +48,17 @@ $('#register-form').addEventListener('submit',async event=>{
   event.preventDefault();const form=event.target,button=form.querySelector('button[type="submit"]'),data=new FormData(form);$('#register-error').textContent='';
   if(data.get('password')!==data.get('confirmation')){$('#register-error').textContent='The passwords do not match.';return;}
   button.disabled=true;
-  try{user=await api('/register',{method:'POST',body:{token:invitationToken(data.get('invitation')),username:data.get('username'),password:data.get('password')}});form.reset();history.replaceState(null,'',user.onboarding?.completed===false?'/#setup':'/#overview');await showApp();toast('Your account is ready. Welcome to the factory.');}
+  try{user=await api('/register',{method:'POST',body:{token:invitationToken(data.get('invitation')),username:data.get('username'),password:data.get('password')}});form.reset();history.replaceState(null,'',pagePath(user.onboarding?.completed===false?'#setup':'#overview'));await showApp();toast('Your account is ready. Welcome to the factory.');}
   catch(error){$('#register-error').textContent=error.message;}finally{button.disabled=false;}
 });
 async function showApp(){
+  shell.session(user);
   $('#session-loading').hidden=true;
   $('#login-view').hidden=true;$('#app-view').hidden=false;$('#user-label').textContent=user.username+' · '+(admin()?'Administrator':'Read-only');
   $('#accounts-nav').hidden=false;$('#mods-nav').hidden=!admin();$('#setup-nav').hidden=!admin();
-  if(admin()&&user.onboarding?.completed===false&&!location.hash)history.replaceState(null,'','/#setup');
-  await navigate();clearInterval(refreshTimer);refreshTimer=setInterval(refresh,5000);
-  clearInterval(liveTimer);liveTimer=setInterval(refreshLivePlayers,2000);
+  if(admin()&&user.onboarding?.completed===false&&!location.hash)history.replaceState(null,'',pagePath('#setup'));
+  await navigate();clearInterval(refreshTimer);refreshTimer=pollEvery(refresh,5000);
+  clearInterval(liveTimer);liveTimer=pollEvery(refreshLivePlayers,2000);
 }
 $('#login-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=event.target.querySelector('button');button.disabled=true;$('#login-error').textContent='';
@@ -65,12 +66,13 @@ $('#login-form').addEventListener('submit',async event=>{
   catch(error){$('#login-error').textContent=error.message;}finally{button.disabled=false;}
 });
 for(const id of ['logout','mobile-logout'])$('#'+id).addEventListener('click',async()=>{try{await saveWorldDraft();if(hasUnsavedDraft())return toast('Your draft could not be saved. Download a draft copy before signing out.',true);await api('/logout',{method:'POST',body:{}});showLogin();}catch(error){toast(error.message,true);}});
-addEventListener('hashchange',()=>{if(location.hash.startsWith('#register=')){const token=location.hash.slice(10);history.replaceState(null,'','/');showRegistration(token);}else if(user)navigate();});
+addEventListener('hashchange',()=>{if(location.hash.startsWith('#register=')){const token=location.hash.slice(10);history.replaceState(null,'',pagePath());showRegistration(token);}else if(user)navigate();});
 async function navigate(){
   window.scrollTo(0,0);
   const page=location.hash.slice(1).split('/')[0];
   currentPage=['overview','worlds','map','mods','backups','players','logs','settings','accounts','setup'].includes(page)?page:'overview';
   if(['setup','mods'].includes(currentPage)&&!admin())currentPage='overview';
+  shell.session(user);shell.active(currentPage);
   $('#app-view').classList.toggle('setup-mode',currentPage==='setup');
   document.querySelectorAll('[data-page]').forEach(link=>{const active=link.dataset.page===currentPage;link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
   $('#breadcrumb-page').textContent={overview:'Overview',mods:'Mods',worlds:'Worlds',map:'Map',backups:'Backups',players:'Players',logs:'Activity',settings:'Settings',accounts:'Accounts',setup:'Setup'}[currentPage];
@@ -82,7 +84,7 @@ function jobBanner(){if(status?.imageMigration)return `<div class="warning">${es
 function card(title,body,link=''){return `<section class="card"><div class="card-header"><h2>${title}</h2>${link}</div><div class="card-body">${body}</div></section>`;}
 function empty(title,description=''){return `<div class="empty-state"><div class="empty-symbol">${icon('folder')}</div>${esc(title)}${description?`<p>${esc(description)}</p>`:''}</div>`;}
 function actionButton(label,action,extra='',primary=false){const glyph={save:'device-floppy',restart:'refresh',start:'player-play',stop:'player-stop',backup:'database','refresh-map':'refresh'}[action]||'adjustments';return `<button class="button${primary?' primary':''}" data-action="${action}" ${extra} ${!admin()||busyJob||updateState?.busy||status?.imageMigration?'disabled':''}>${icon(glyph)}${label.replace(/^[^A-Za-z]+/,'')}</button>`;}
-function updateChrome(){if(!status)return;const label=$('#header-status');label.classList.remove('diagnostic-unavailable');label.innerHTML=`<span class="dot ${status.ready?'':'offline'}"></span>${status.ready?(status.paused?'Paused':'Running'):status.running?'Starting':'Stopped'}<span class="header-players"> · ${status.players.length} online</span>`;$('#header-version').textContent='Factorio '+(status.version.match(/\d+\.\d+\.\d+/)?.[0]||status.version);$('#footer-version').textContent=panelRelease?'v'+panelRelease.current:'Local server management';}
+function updateChrome(){if(!status)return;shell.status(status);shell.operation(busyJob||status.activeJob);const label=$('#header-status');label.classList.remove('diagnostic-unavailable');label.innerHTML=`<span class="dot ${status.ready?'':'offline'}"></span>${status.ready?(status.paused?'Paused':'Running'):status.running?'Starting':'Stopped'}<span class="header-players"> · ${status.players.length} online</span>`;$('#header-version').textContent='Factorio '+(status.version.match(/\d+\.\d+\.\d+/)?.[0]||status.version);$('#footer-version').textContent=panelRelease?'v'+panelRelease.current:'Local server management';}
 function activityRows(jobs,limit=5){return jobs.length?jobs.slice(0,limit).map(job=>`<div class="activity-row ${job.state==='failed'?'failed':''}"><div class="activity-icon">${icon(job.state==='succeeded'?'circle-check':job.state==='failed'?'alert-circle':'clock')}</div><div><strong>${esc(({save:'Save completed',backup:'Backup complete',settings:'Settings updated',start:'Server started',stop:'Server stopped',create:'World created',restore:'Backup restored'})[job.action]||pretty(job.action))} <span class="mini-pill">${esc(job.state)}</span></strong><p>${esc(job.message)}</p></div><time>${esc(relative(job.finished||job.started))}</time></div>`).join(''):empty('Nothing to report.','Server actions and completed backups will appear here.');}
 function overview(jobs=[],health=null){
   const s=status,stateLabel=!s.running?'Stopped':!s.ready?'Starting':s.paused?'Paused · waiting for players':'Running',version=s.version.match(/\d+\.\d+\.\d+/)?.[0]||s.version;
@@ -150,7 +152,7 @@ function bindUpdates(){
 async function refreshReleases(force=false){
   if(!admin()||!force&&Date.now()-lastReleasePoll<60000)return;
   lastReleasePoll=Date.now();const signedUser=user;
-  try{const result=await api(force?'/updates/check':'/updates',force?{method:'POST',body:{}}:{});if(user!==signedUser)return;const changed=JSON.stringify(result)!==JSON.stringify(panelRelease);panelRelease=result;$('#release-notice').hidden=!result.available;$('#release-notice').textContent=result.latest?'Panel '+result.latest.tag+' available':'Panel update available';if(changed)refreshReleaseView();}catch(error){if(force)throw error;}
+  try{const result=await api(force?'/updates/check':'/updates',force?{method:'POST',body:{}}:{});if(user!==signedUser)return;const changed=JSON.stringify(result)!==JSON.stringify(panelRelease);panelRelease=result;shell.attention('settings',result.available?'Panel update available':'');$('#release-notice').hidden=!result.available;$('#release-notice').textContent=result.latest?'Panel '+result.latest.tag+' available':'Panel update available';if(changed)refreshReleaseView();}catch(error){if(force)throw error;}
 }
 function settingsPage(settings){return heading('MAKE IT YOURS','The way you like to play.','Server preferences, access and connection details.')+settingsTabs()+readonly()+jobBanner()+`
   <div class="split-layout">${card('Server settings',`<form id="settings-form"><label>Server name<input name="name" value="${esc(settings.name)}" maxlength="100" required ${admin()?'':'disabled'}></label><label>Description<textarea name="description" maxlength="500" ${admin()?'':'disabled'}>${esc(settings.description)}</textarea></label><div class="form-grid"><label>Player limit (0 = unlimited)<input name="max_players" type="number" min="0" max="1000" value="${settings.max_players}" ${admin()?'':'disabled'} required></label><label>Autosave interval (minutes)<input name="autosave_interval" type="number" min="1" max="60" value="${settings.autosave_interval}" ${admin()?'':'disabled'} required></label><label>Rolling autosave slots<input name="autosave_slots" type="number" min="1" max="100" value="${settings.autosave_slots}" ${admin()?'':'disabled'} required></label><label>New game password<input name="game_password" type="password" autocomplete="new-password" placeholder="${settings.passwordSet?'Leave blank to keep current password':'Optional'}" ${admin()?'':'disabled'}></label></div><label class="check-label"><input type="checkbox" name="auto_pause" ${settings.auto_pause?'checked':''} ${admin()?'':'disabled'}>Pause the world when nobody is connected</label><label class="check-label"><input type="checkbox" name="require_user_verification" ${settings.require_user_verification?'checked':''} ${admin()?'':'disabled'}>Require Factorio account identity verification</label>${settings.passwordSet?'<label class="check-label"><input type="checkbox" name="clear_password">Remove the current game password</label>':''}<p class="form-note">Keep account verification off for Switch LAN usernames. Changes create a backup and restart the server when it is running.</p>${admin()?'<button class="button primary">Save & restart</button>':''}</form>`)}
@@ -241,7 +243,7 @@ async function refresh(){
     if(currentPage==='overview'&&!busyJob&&!['INPUT','TEXTAREA','SELECT'].includes(document.activeElement?.tagName)&&!document.querySelector('dialog[open]')){
       const view=viewNumber;const [data,backups]=await Promise.all([api('/jobs'),api('/backups')]);if(view!==viewNumber)return;$('#content').innerHTML=overview(data.jobs,backups.health);bindPage();
     }
-  }catch{}
+  }catch{if(user)shell.status(null);}
 }
 async function startJob(action,params={}){
   if(busyJob)return toast('An operation is already running.');
@@ -250,10 +252,10 @@ async function startJob(action,params={}){
     const jobId=busyJob.id;await render();
     for(;;){
       await new Promise(resolve=>setTimeout(resolve,1000));const data=await api('/jobs'),job=data.jobs.find(item=>item.id===jobId);
-      if(!job){busyJob=null;break;}busyJob=job;
+      if(!job){busyJob=null;shell.operation(null);break;}busyJob=job;shell.operation(job);
       const banner=$('.job-banner span:last-child');if(banner)banner.textContent=job.message;
       if(!['running','queued'].includes(job.state)){
-        busyJob=null;if(job.state==='succeeded'){if(action==='create'){await finishWorldDraft(api);createdWorld={name:params.name,message:job.message};if(currentPage==='worlds')history.replaceState(null,'','/#worlds/created');}if(action==='world-options')useCopiedSettings();}toast(job.message,job.state!=='succeeded');await render();
+        busyJob=null;if(job.state==='succeeded'){if(action==='create'){await finishWorldDraft(api);createdWorld={name:params.name,message:job.message};if(currentPage==='worlds')history.replaceState(null,'',pagePath('#worlds/created'));}if(action==='world-options')useCopiedSettings();}toast(job.message,job.state!=='succeeded');await render();
         if(action==='console'&&$('#console-output'))$('#console-output').textContent=job.result||job.message;
         break;
       }
@@ -324,5 +326,5 @@ function bindWorldRows(){
 }
 $('#close-preview').addEventListener('click',()=>$('#preview-dialog').close());
 document.querySelectorAll('[data-icon]').forEach(el=>{el.innerHTML=icon(el.dataset.icon);});
-if(location.hash.startsWith('#register=')){const token=location.hash.slice(10);history.replaceState(null,'','/');await showRegistration(token);}
+if(location.hash.startsWith('#register=')){const token=location.hash.slice(10);history.replaceState(null,'',pagePath());await showRegistration(token);}
 else try{user=await api('/session');await showApp();}catch{showLogin();}

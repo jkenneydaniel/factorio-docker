@@ -1,3 +1,5 @@
+import {mountProductShell} from './shell.js';
+import {createApi,pollEvery} from './client.js';
 import {mountModLibrary} from './mod-library.js';
 import {serverPath} from './scope.js';
 const $=selector=>document.querySelector(selector),all=selector=>[...document.querySelectorAll(selector)];
@@ -6,13 +8,13 @@ let modStatus=null,frameworkPlan=null,pluginConfig=null;
 let session=null,page='overview',status=null,settings=null,sending=false,refreshing=false,watchedJob=null;
 const registration=new URLSearchParams(location.hash.slice(1)).get('register');
 if(registration)history.replaceState(null,'',location.pathname);
-function message(text,error=false){const element=$(error?'#error':'#feedback');element.textContent=text;element.hidden=!text;}
-async function api(route,body){
-  const response=await fetch(serverPath('/api/'+route),{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json',...(session?{'x-csrf-token':session.csrf}:{})},body:body===undefined?undefined:JSON.stringify(body)});
-  const result=await response.json();if(!response.ok){if(response.status===401&&session){session=null;$('#shell').hidden=true;$('#auth').hidden=false;}throw Error(result.error||'Request failed.');}return result;
-}
+const navigation=[{id:'overview',label:'Overview'},{id:'players',label:'Players'},{id:'mods',label:'Mods',adminOnly:true},{id:'backups',label:'Backups',adminOnly:true},{id:'logs',label:'Activity',adminOnly:true},{id:'settings',label:'Settings',adminOnly:true},{id:'access',label:'Accounts',adminOnly:true}];
+const shell=mountProductShell({game:'Rust',navigation,onLogout:()=>$('#logout').click()});
+function message(text,error=false){const element=$(error?'#error':'#feedback');element.textContent=text;element.hidden=!text;shell.notify(text,{error});}
+const request=createApi({base:serverPath('/api'),getSession:()=>session,onUnauthorized:()=>{session=null;shell.session(null);$('#shell').hidden=true;$('#auth').hidden=false;}});
+const api=(route,body)=>request(route,body===undefined?{}:{method:'POST',body});
 async function guarded(work){try{message('',true);await work();}catch(error){message(error.message,true);}}
-function confirm(title,text){$('#confirm-title').textContent=title;$('#confirm-message').textContent=text;const dialog=$('#confirm');dialog.returnValue='cancel';dialog.showModal();return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue==='confirm'),{once:true}));}
+const confirm=(title,text)=>shell.confirm(title,text);
 function setBusy(){all('[data-action],[data-verify],#backup,#settings button,[data-mod-edit],[data-plugin-operation]').forEach(button=>button.disabled=!status||sending||!!status.activeJob||!!status.imageMigration);if(status){$('[data-action=start]').disabled||=status.running;$('[data-action=stop]').disabled||=!status.running;$('[data-action=restart]').disabled||=!status.running;const save=$('#settings button');if(save)save.disabled||=status.running||!settings?.editable;all('[data-mod-edit]').forEach(button=>button.disabled||=status.running||!modStatus?.available);$('#framework button[type=submit]').disabled||=!modStatus?.imageCapable;all('[data-plugin-operation]').forEach(button=>button.disabled||=button.dataset.pluginOperation==='reload'?!status.ready:status.running);}}
 const bytes=value=>value==null?'—':value>=1024**3?(value/1024**3).toFixed(1)+' GiB':value>=1024**2?(value/1024**2).toFixed(1)+' MiB':value>=1024?(value/1024).toFixed(1)+' KiB':value+' B';
 async function job(action,params={}){
@@ -23,7 +25,7 @@ async function job(action,params={}){
 async function refresh(){
   if(!session||refreshing)return;refreshing=true;
   try{
-    const [value,operations]=await Promise.all([api('status'),api('jobs')]);status=value;
+    const [value,operations]=await Promise.all([api('status'),api('jobs')]);status=value;shell.status(value);shell.operation(operations.active);
     $('#server-name').textContent=value.name;$('#game-address').textContent=value.connection;
     $('#connection-state').textContent=value.ready?'Ready':value.running?'Starting / unavailable':'Stopped';$('#connection-state').classList.toggle('ready',value.ready);
     $('#player-count').textContent=value.players==null?'—':`${value.players} / ${value.maxPlayers??'—'}`;$('#fps').textContent=value.fps==null?'—':Number(value.fps).toFixed(0);$('#memory').textContent=bytes(value.memory);$('#cpu').textContent=value.cpu==null?'—':Number(value.cpu).toFixed(1)+'%';
@@ -31,7 +33,7 @@ async function refresh(){
     $('#connection-warning').textContent=value.imageMigration?.message||value.error||'';$('#connection-warning').hidden=!value.imageMigration&&!value.error;setBusy();
     const watched=operations.jobs.find(job=>job.id===watchedJob);
     if(watched&&!['running','queued'].includes(watched.state)){watchedJob=null;message(watched.message,watched.state!=='succeeded');if(page==='backups')await loadPage({preserveSchedule:true});if(page==='settings'&&watched.action==='save-settings'||page==='mods')await loadPage();}
-  }catch(error){$('#connection-state').textContent='Controller unavailable';$('#connection-state').classList.remove('ready');status=null;all('[data-action],[data-verify],#backup,#settings button,[data-mod-edit],[data-plugin-operation]').forEach(button=>button.disabled=true);$('#connection-warning').textContent=error.message;$('#connection-warning').hidden=false;}
+  }catch(error){shell.status(null);$('#connection-state').textContent='Controller unavailable';$('#connection-state').classList.remove('ready');status=null;all('[data-action],[data-verify],#backup,#settings button,[data-mod-edit],[data-plugin-operation]').forEach(button=>button.disabled=true);$('#connection-warning').textContent=error.message;$('#connection-warning').hidden=false;}
   finally{refreshing=false;}
 }
 async function loadPage({preserveSchedule=false}={}){
@@ -59,10 +61,17 @@ async function loadPage({preserveSchedule=false}={}){
     const result=await api('accounts');$('#accounts').innerHTML=result.users.map(user=>`<div class="row"><strong>${escape(user.username)}</strong><span class="muted">${escape(user.role==='admin'?'Administrator':'Read-only')}</span></div>`).join('');
   }
 }
-function openPage(value){page=value;all('[data-view]').forEach(element=>element.hidden=element.dataset.view!==page);all('[data-page]').forEach(button=>{if(button.dataset.page===page)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});$('#page-title').textContent=page==='mods'?'Mods & plugins':page[0].toUpperCase()+page.slice(1);void guarded(loadPage);}
-function signedIn(value){$('#session-loading').hidden=true;session=value;$('#auth').hidden=true;$('#shell').hidden=false;$('#account').textContent=value.username+' · '+(value.role==='admin'?'Administrator':'Read-only');all('[data-admin]').forEach(element=>element.hidden=value.role!=='admin');openPage('overview');void refresh();}
+function openPage(value){
+  page=navigation.some(item=>item.id===value&&(!item.adminOnly||session?.role==='admin'))?value:'overview';
+  shell.active(page);all('[data-view]').forEach(element=>element.hidden=element.dataset.view!==page);
+  all('[data-page]').forEach(button=>{if(button.dataset.page===page)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});
+  $('#page-title').textContent=navigation.find(item=>item.id===page).label;
+  void guarded(loadPage);
+}
+addEventListener('hashchange',()=>{if(session)openPage(location.hash.slice(1));});
+function signedIn(value){shell.session(value);$('#session-loading').hidden=true;session=value;$('#auth').hidden=true;$('#shell').hidden=false;$('#account').textContent=value.username+' · '+(value.role==='admin'?'Administrator':'Read-only');all('[data-admin]').forEach(element=>element.hidden=value.role!=='admin');openPage(location.hash.slice(1)||'overview');void refresh();}
 if(registration){$('#auth-title').textContent='Create your Rust account';$('#auth-help').textContent='Choose a username and a password of at least 12 characters.';$('#login button').textContent='Create account';$('#login [name=password]').minLength=12;$('#login [name=password]').autocomplete='new-password';}
-$('#login').addEventListener('submit',async event=>{event.preventDefault();const button=$('#login button');button.disabled=true;try{const data=Object.fromEntries(new FormData(event.target));signedIn(await api(registration?'register':'login',registration?{...data,token:registration}:data));}catch(error){$('#auth-error').textContent=error.message;}finally{button.disabled=false;}});
+$('#login').addEventListener('submit',async event=>{event.preventDefault();const button=$('#login button');button.disabled=true;try{const form=event.currentTarget,data=Object.fromEntries(new FormData(form)),user=await api(registration?'register':'login',registration?{...data,token:registration}:data);form.reset();signedIn(user);}catch(error){$('#auth-error').textContent=error.message;}finally{button.disabled=false;}});
 all('[data-page]').forEach(button=>button.addEventListener('click',()=>openPage(button.dataset.page)));
 all('[data-action]').forEach(button=>button.addEventListener('click',()=>guarded(()=>job(button.dataset.action))));
 $('#backup').addEventListener('click',()=>guarded(()=>job('backup')));
@@ -89,4 +98,4 @@ $('#plugin-config').addEventListener('submit',event=>{event.preventDefault();voi
 $('#logout').addEventListener('click',()=>guarded(async()=>{await api('logout',{});session=null;location.reload();}));
 if(registration){$('#session-loading').hidden=true;$('#auth').hidden=false;}
 else try{signedIn(await api('session'));}catch{$('#session-loading').hidden=true;$('#auth').hidden=false;}
-setInterval(()=>void refresh(),5000);
+pollEvery(refresh,5000);

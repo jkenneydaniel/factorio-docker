@@ -5,6 +5,8 @@ import {diagnosticsReport} from '../../diagnostics.js';
 
 export const web={
   Accounts,sessionCookie:'factorio_session',
+  accountExtensions:(accounts,scope)=>({worldSetups:(username,body)=>Accounts.prototype.worldSetups.call(accounts,username,body,scope)}),
+  deleteAccountData:(accounts,user)=>Accounts.prototype.onDelete.call(accounts,user),
   accountRoutes:['/api/world-setups'],
   adminReadRoutes:['/mod-library','/world-options','/world-preview','/world-preview-image'],
   assets:{'/mod-library.js':['mod-library.js','text/javascript; charset=utf-8'],'/mod-library.css':['mod-library.css','text/css; charset=utf-8'],'/scope.js':['scope.js','text/javascript; charset=utf-8'],'/game-images.js':['game-images.js','text/javascript'],'/game-update.js':['game-update.js','text/javascript'],'/backup-retention.js':['backup-retention.js','text/javascript'],'/diagnostics.js':['diagnostics.js','text/javascript'], '/':['index.html','text/html; charset=utf-8'],'/app.js':['app.js','text/javascript; charset=utf-8'],'/map.js':['map.js','text/javascript; charset=utf-8'],'/world-fields.js':['world-fields.js','text/javascript; charset=utf-8'],'/world-preview.js':['world-preview.js','text/javascript; charset=utf-8'],'/world-editor.js':['world-editor.js','text/javascript; charset=utf-8'],'/style.css':['style.css','text/css; charset=utf-8'],'/icons.js':['icons.js','text/javascript; charset=utf-8'],'/onboarding.js':['onboarding.js','text/javascript; charset=utf-8']},

@@ -8,6 +8,7 @@ import {RemoteHosts,remoteRoute} from './hosts.js';
 import {HostSetup} from './host-setup.js';
 import {AgentUpdater,agentVersion} from './agent-update.js';
 import {proxyResponse} from '../core/proxy.js';
+import {controllerRoutes} from '../core/routes.js';
 import {catalog,validId,noManagedUpdater} from './catalog.js';import {docker as dockerAPI} from '../core/docker.js';import {selectedGame} from '../games/index.js';
 import {assert,equalSecret,json,requestJSON,readBody,redact} from '../common.js';import {initializePanel} from '../init.js';
 export async function startFleetController({env=process.env,docker=dockerAPI,port=Number(env.PORT||8091),hostname='0.0.0.0',hostFetch=fetch,setupDependencies}={}){
@@ -45,7 +46,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(!tail&&req.method==='GET')return json(res,200,manager.publicServer(item));
   if(req.method==='POST'&&['snapshot','remove'].includes(tail)){const body=await requestJSON(req);return json(res,202,await manager.submit(tail==='snapshot'?'publish':'remove',{...body,serverId:item.id},req.headers['x-panel-user']||'administrator'));}
   assert(tail.startsWith('controller/')&&item.state!=='removed','This server is unavailable. Its stored data has been preserved.',409);const route='/'+tail.slice(11),module=selectedGame(item.game);
-  assert(['/status','/diagnostics','/backups','/jobs','/download','/schedule','/backup-retention','/update-status','/update-plan','/update-install',...module.routes].includes(route),'Not found.',404);
+  assert(controllerRoutes(module).includes(route),'Not found.',404);
   assert(['GET','POST'].includes(req.method),'Not found.',404);assert(req.method==='GET'||!item.maintenance&&manager.active?.action!=='image-migration','A host operation is using this server. Wait for it to finish.',409);
   await manager.ownedContainer(item.controller,item.id);let body;if(req.method==='POST'){body=await readBody(req,route==='/upload'?128*1024**2:1024**2);if(route==='/jobs'&&req.headers['x-panel-user']){let value;try{value=JSON.parse(body);}catch{assert(false,'Invalid action.');}body=Buffer.from(JSON.stringify({...value,actor:req.headers['x-panel-user']}));}}
   return proxyResponse(req,res,`http://${item.controller}:8081${route}${url.search}`,{headers:{authorization:'Bearer '+item.controllerToken,'content-type':req.headers['content-type']||'application/json','x-panel-user':req.headers['x-panel-user']||'administrator'},body,download:route==='/download',timeout:['/mod-library','/mod-library-plan'].includes(route)?150000:30000});

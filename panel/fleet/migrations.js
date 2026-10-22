@@ -2,6 +2,7 @@ import path from 'node:path';
 import {assert,readJSON,writeJSON,sleep} from '../common.js';
 import {migrationImage,ownedImage,ownedImages} from '../core/game-images.js';
 import {migrateImage,replacementSpec} from '../core/image-migration.js';
+import {selectedGame} from '../games/index.js';
 export async function controllerJob(manager,item,action){
  const queued=await manager.request(item,'/jobs',{action,params:{confirm:true},actor:'automatic image migration'});
  for(let n=0;n<1800;n++){
@@ -12,16 +13,18 @@ export async function controllerJob(manager,item,action){
  throw Error('The pre-migration operation has not completed. Check the server before retrying.');
 }
 export async function migrateFleet(manager){
- const candidates=manager.state.servers.filter(item=>item.state!=='removed'&&(!ownedImage(item.game,item.image)||migrationImage(item.game,item.image)||item.migration?.state==='pending'));
+ const definition=item=>manager.module?.(item.game)||selectedGame(item.game);
+ const candidates=manager.state.servers.filter(item=>item.state!=='removed'&&definition(item).managed.legacyMigration&&(!ownedImage(item.game,item.image)||migrationImage(item.game,item.image)||item.migration?.state==='pending'));
  if(!candidates.length)return;
  assert(!manager.active,'Another host operation is running.',409);
  const job={id:'migration-034',action:'image-migration',actor:'system',state:'running',started:new Date().toISOString(),message:'Migrating existing game images…'};
- manager.active=job;manager.state.jobs.unshift(job);await manager.persist();
+ const previousJobs=manager.state.jobs;manager.active=job;manager.state.jobs=[job,...previousJobs];
+ try{await manager.persist();}catch(error){manager.state.jobs=previousJobs;manager.active=null;throw error;}
  try{for(const item of candidates){
   item.maintenance='Migrating game image';item.migration={state:'pending'};await manager.persist();
   try{
    const file=path.join(manager.root,'migrations',item.id+'.json');await manager.ownedVolume(item.volume,item.id);await manager.ownedNetwork(item.network,item.id);
-   const owned=async info=>{const value=await manager.ownedContainer(info.Id,item.id);assert(value.Config.Labels['io.lobby-goblin.game']===item.game&&info.Mounts?.some(m=>m.Type==='volume'&&m.Name===item.volume&&m.Destination===(item.game==='rust'?'/steamcmd/rust':'/factorio')&&info.HostConfig?.Mounts?.some(v=>v.Source===item.volume&&v.Target===m.Destination&&v.VolumeOptions?.Subpath==='data')),'Game storage does not match its registry.',409);};
+   const owned=async info=>{const value=await manager.ownedContainer(info.Id,item.id);assert(value.Config.Labels['io.lobby-goblin.game']===item.game&&info.Mounts?.some(m=>m.Type==='volume'&&m.Name===item.volume&&m.Destination===definition(item).managed.dataTarget&&info.HostConfig?.Mounts?.some(v=>v.Source===item.volume&&v.Target===m.Destination&&v.VolumeOptions?.Subpath==='data')),'Game storage does not match its registry.',409);};
    await migrateImage({docker:manager.docker,name:item.container,game:item.game,target:ownedImages[item.game],journal:await readJSON(file,null),save:state=>writeJSON(file,state),owned,
     backupStop:async()=>{const backup=await controllerJob(manager,item,'backup');assert(/^Backup created: [A-Za-z0-9_.-]+\.(zip|tar\.gz)$/.test(backup.result),'Migration backup was not verified.',409);await controllerJob(manager,item,'stop');const child=await manager.ownedContainer(item.controller,item.id);if(child.State.Running)await manager.docker('POST','/containers/'+item.controller+'/stop?t=30');return backup.result.slice('Backup created: '.length);},
     configured:async state=>{

@@ -6,8 +6,9 @@ import {checkOrigin,checkPassword,requireAdmin,panelOrigin} from '../auth.js';
 import {validateGameModule} from './game-module.js';
 import {ReleaseChecks} from '../updates.js';
 import {proxyResponse} from './proxy.js';
+import {controllerRoutes} from './routes.js';
+import {sharedAssets} from './web-assets.js';
 
-const sharedRoutes=['status','backups','jobs','download','schedule','backup-retention','update-status','update-plan','update-install'];
 
 export async function startWeb(module,{env=process.env,port=Number(env.PORT||8080),hostname='0.0.0.0',accounts:sharedAccounts,sessions:sharedSessions,controllerToken,listen=true,assetPrefix=''}={}){
   validateGameModule(module);
@@ -119,7 +120,7 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
         return json(res,201,await accounts.invite(body.role,user.username));
       }
       const route=url.pathname.slice(4);
-      assert(web.allowRoute?.(route)||[...sharedRoutes,...module.routes.map(route=>route.slice(1))].includes(route.slice(1)),'Not found.',404);
+      assert(web.allowRoute?.(route)||controllerRoutes(module).includes(route),'Not found.',404);
       if(route.startsWith('/update-'))requireAdmin(user);
       if(['/download',...web.adminReadRoutes].includes(route))requireAdmin(user);
       let body;if(req.method==='POST'){
@@ -128,9 +129,9 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
       }
       return proxyResponse(req,res,controller+route+url.search,{headers:{authorization:`Bearer ${token}`,'content-type':req.headers['content-type']||'application/json','x-panel-user':user.username},body,download:route==='/download',timeout:['/update-install','/mod-library','/mod-library-plan'].includes(route)?150000:30000});
     }
-    const files=web.assets;
+    const files={...sharedAssets,...web.assets};
     assert(req.method==='GET'&&Object.hasOwn(files,url.pathname),'Not found.',404);
-    const [filename,type]=files[url.pathname];let content=await fs.readFile(new URL(filename,publicRoot));
+    const [filename,type]=files[url.pathname];let content=await fs.readFile(new URL(filename,Object.hasOwn(web.assets,url.pathname)?publicRoot:new URL('../public/',import.meta.url)));
     if(assetPrefix){
       assert(/^(?:\/hosts\/[a-f0-9]{32})?\/servers\/[a-f0-9]{32}$/.test(assetPrefix),'Invalid server URL scope.');
       if(type.startsWith('text/html'))content=content.toString().replace(/(href|src)="\/(?!\/)/g,(_,key)=>key+'="'+assetPrefix+'/').replace(/<aside([^>]*)>/,'$&<a class="fleet-back" href="/">← All servers</a>');

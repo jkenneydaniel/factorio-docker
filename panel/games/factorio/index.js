@@ -4,6 +4,7 @@ import {createFactorio} from './controller.js';
 import {UpdateManager} from './update-manager.js';
 import {controllerDiagnostics} from '../../diagnostics.js';
 import {web} from './web.js';
+import {managed} from './managed.js';
 
 export const factorio={
   id:'factorio',name:'Factorio',releaseRepository:'jkenneydaniel/lobby-goblin',stopTimeout:120,
@@ -18,5 +19,6 @@ export const factorio={
     names:{game:env.FACTORIO_CONTAINER||'factorio-server',controller:env.CONTROLLER_CONTAINER||'factorio-panel-controller',panel:env.PANEL_CONTAINER||'factorio-panel'},
   }),
   diagnostics:controllerDiagnostics,
+  managed,
   web,
 };

@@ -57,9 +57,67 @@ for the mapping and deliberate exceptions for runtime deployment templates.
 
 Shared helpers for authentication, JSON persistence, retention and release sources
 retain their existing top-level paths. The Factorio web declaration selects the
-existing frontend files and public URLs. The current frontend keeps its tailored
-Factorio screens and appearance. Rust declares separate assets and screens under
-`panel/public/rust/`, with its own `rust_session` cookie and account storage.
+existing frontend files and public URLs. Game screens remain tailored to each
+game. `panel/public/shell.js`, `shell.css` and `client.js` supply common navigation,
+account identity/sign-out, scoped URLs, status, operation progress, feedback,
+confirmation dialogs and browser transport for fleet, Factorio and Rust. Rust
+retains its `rust_session` cookie and separate standalone account storage.
+
+## Managed game definitions
+
+Each built-in game supplies a version 1 `managed` adapter from its own
+`managed.js`. `core/managed-game.js` checks the contract and derives the public
+catalogue and creation validation from the same definition. The adapter owns:
+
+- Image resolution, published ports, data mount target and backup subdirectory.
+- Resource/player defaults, bounds and additional numeric creation fields.
+- Game and instance-controller environment variables.
+- New-volume preparation and configuration after any snapshot has been restored.
+- Snapshot content collection, restore, compatibility and player-data metadata.
+- Optional historical image-migration participation and standalone paths/names.
+
+`FleetManager`, the storage worker and snapshot coordinator delegate those rules;
+they retain ownership checks, budgets, port reservations, fresh credentials,
+empty-volume requirements, hash verification and atomic snapshot publication.
+The game-specific archive extraction remains inside each game module. Existing
+Factorio ZIPs, Rust identity archives and snapshot manifests keep their formats.
+Legacy migration machinery still recognizes historical image contracts; it is
+not a general migration mechanism for future games.
+
+`core/instance.js` and `core/owned-docker.js` hold shared identities and scoped
+Docker checks. The historical fleet exports remain compatible. Controller route
+exposure comes from `core/routes.js` in the web, fleet and remote gateway.
+Fleet accounts use the core account store and one transaction queue; modules
+provide optional account-data extensions and deletion hooks. Factorio drafts
+and presets keep their existing account/server scope and storage paths.
+
+The third-game fixture in `panel/test/fleet.test.js` provisions TCP ports and
+custom storage, publishes a snapshot and clones independent data through these
+services. It does not register or ship another production game.
+
+## Shared product shell
+
+All three entry points mount the same browser shell. Game navigation declarations
+choose specialized screens; the shell owns the header, navigation presentation,
+current account, status, operation strip, messages and general confirmation
+dialog. Existing screen content, role checks and specialized forms remain with
+their modules. Setup gating is opt-in: fleet waits for setup completion, while
+Factorio hides navigation only inside its unfinished guide and retains "Do this
+later" navigation. Rust has no guide and retains navigation for newly registered
+owners. The shared client owns JSON/raw requests, current-session CSRF,
+session-expiration handling and non-overlapping polling.
+
+The shell uses explicit local/remote server URL scope. Hash changes never remove
+that pathname, including world creation, registration and setup. Standalone
+entry points, cookies and HTTP routes remain compatible. Legacy navigation DOM
+hooks are retained for existing screens, with the shared shell presenting the
+active navigation. Shared assets are allowlisted centrally, including for modules
+that use a separate public asset directory.
+
+Initial job persistence must succeed before an operation starts. Both the game
+controller and host manager restore their previous in-memory history and release
+the operation reservation if that write fails. General job recovery and the
+single-process storage model otherwise retain their existing semantics.
 
 ## Module contract
 
@@ -157,10 +215,14 @@ and provide its own reviewed installation/launcher definition and frontend asset
 Test at least readiness, safe shutdown, save consistency, backup/restore, update
 failure recovery and backend permissions using disposable fixtures first.
 
+Register the game once in `panel/games/index.js`, implement the managed adapter,
+and add contract, lifecycle and snapshot fixtures. Generic fleet provisioning,
+storage workers and shell code should not need game-ID branches.
+
 Do not expose arbitrary module paths or downloadable executable plugins. Do not
 assume another game has a Factorio-style world ZIP, pause state, map exporter or
-achievement consent. Multiple managed servers require per-instance data,
-credentials and operation locks and are a separate change.
+achievement consent. Managed servers use per-instance data, credentials and
+operation locks; existing standalone installations are never adopted implicitly.
 
 ## Rust isolation
 
