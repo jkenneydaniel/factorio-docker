@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import {readBody,requestJSON,json,assert,HttpError,equalSecret} from '../common.js';
-import {checkOrigin,checkPassword,requireAdmin} from '../auth.js';
+import {checkOrigin,checkPassword,requireAdmin,panelOrigin} from '../auth.js';
 import {validateGameModule} from './game-module.js';
 import {ReleaseChecks} from '../updates.js';
 import {proxyResponse} from './proxy.js';
@@ -26,6 +26,7 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
     assert(!(await result.json()).busy,'An update is in progress. Account changes are temporarily paused.',409);
   }
   const allowedHosts=(env.PANEL_HOSTS||'127.0.0.1,localhost').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
+  const origin=panelOrigin(env.PANEL_ORIGIN),secureCookie=origin?.startsWith('https:')?'; Secure':'';
   const sessions=sharedSessions||new Map(),attempts=new Map(),registrationAttempts=new Map();
   async function session(req){
     const id=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith(web.sessionCookie+'='))?.slice(web.sessionCookie.length+1);
@@ -37,7 +38,7 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
   function signedIn(res,username,record){
     const id=crypto.randomBytes(32).toString('base64url');
     const value={username,role:record.role,credentialHash:record.hash,sessionId:crypto.randomUUID(),created:new Date().toISOString(),csrf:crypto.randomBytes(32).toString('base64url'),expires:Date.now()+8*3600000};sessions.set(id,value);
-    return json(res,200,{username,role:value.role,csrf:value.csrf,onboarding:record.onboarding||{completed:true}},{'set-cookie':`${web.sessionCookie}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`});
+    return json(res,200,{username,role:value.role,csrf:value.csrf,onboarding:record.onboarding||{completed:true}},{'set-cookie':`${web.sessionCookie}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800${secureCookie}`});
   }
   const securityHeaders={
     'x-content-type-options':'nosniff','x-frame-options':'DENY','referrer-policy':'no-referrer',
@@ -46,8 +47,9 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
   };
   async function handle(req,res){
     for(const [key,value] of Object.entries(securityHeaders))res.setHeader(key,value);
+    if(secureCookie)res.setHeader('strict-transport-security','max-age=31536000');
     if(req.url==='/health')return json(res,200,{ok:true});
-    checkOrigin(req,allowedHosts);const url=new URL(req.url,`http://${req.headers.host}`);
+    checkOrigin(req,allowedHosts,origin);const url=new URL(req.url,origin||`http://${req.headers.host}`);
     if(await web.dispatch?.(req,res,url,{session,accounts,sessions}))return;
     if(req.method==='POST'&&['/api/registration','/api/register'].includes(url.pathname)){
       const address=req.socket.remoteAddress,now=Date.now();
@@ -92,7 +94,7 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
       }
       if(url.pathname==='/api/updates/check'){requireAdmin(user);assert(req.method==='POST','Not found.',404);return json(res,200,await releases.check({force:true}),{'cache-control':'no-store'});}
       if(url.pathname==='/api/updates'){requireAdmin(user);assert(req.method==='GET','Not found.',404);void releases.check();return json(res,200,releases.result,{'cache-control':'no-store'});}
-      if(req.method==='POST'&&url.pathname==='/api/logout'){sessions.delete(user.id);return json(res,200,{ok:true},{'set-cookie':`${web.sessionCookie}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`});}
+      if(req.method==='POST'&&url.pathname==='/api/logout'){sessions.delete(user.id);return json(res,200,{ok:true},{'set-cookie':`${web.sessionCookie}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookie}`});}
       if(req.method==='POST'&&url.pathname==='/api/password'){
         const key='password:'+user.username,entry=attempts.get(key)||{count:0,reset:Date.now()+600000};
         if(entry.reset<Date.now()){entry.count=0;entry.reset=Date.now()+600000;}assert(entry.count<8,'Too many password attempts. Try again in ten minutes.',429);entry.count++;attempts.set(key,entry);

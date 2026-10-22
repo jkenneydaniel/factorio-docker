@@ -4,8 +4,8 @@
 
 The canonical repository is `jkenneydaniel/lobby-goblin`. Current code maps the
 historical owned repository setting to that name. No checkout, `.env`, account,
-container, world or backup path needs renaming. Panel image defaults for new
-builds use `local/lobby-goblin`; explicit installed image values remain valid.
+container, world or backup path needs renaming. New installs pull the versioned shared runtime from
+`ghcr.io/jkenneydaniel/lobby-goblin`; explicit installed image values remain valid.
 
 Release tooling emits the Lobby Goblin packages below plus historical archive-name
 aliases with matching ZIP roots. Already installed 0.2.x workers require those
@@ -27,6 +27,15 @@ container. Automatic checks notify; an administrator reviews and confirms instal
 Installing v0.3.4 also triggers the documented one-time game image migration
 after the panel update completes. See [image migration](IMAGE_MIGRATION.md). This does not update Docker Desktop, Docker Engine, the
 host OS or mods.
+
+## Installed paths and repository paths
+
+The procedures below run inside an installed release directory. Release bundles
+retain root `Setup.*`, `Fleet.*`, `fleet.compose.yaml` and the historical image
+source locations so older updaters can validate them. In a Git checkout, helper
+scripts live under `scripts/` and image sources under `images/`; see
+[the repository and release layout](REPOSITORY.md). Do not move installed state
+or reset its update baseline as part of source reorganization.
 
 ## Enable once on an existing installation
 
@@ -92,9 +101,12 @@ images. Do not disable HTTPS verification to work around this error.
    The detached worker records recovery copies of source, environment, panel
    account/controller state and secrets in `.panel-data/updates/<job-id>/`.
 4. The worker downloads the ZIP, checksum and installer metadata, validates ZIP
-   contents/paths and the supported state contract, and builds a staged image.
+   contents/paths and the supported state contract. New releases declare the
+   published runtime image: the worker pulls it, validates its version/source/runtime
+   labels and native architecture, and pins its repository digest. Historical
+   releases without this metadata retain the compatible local build path.
    Source files with local edits block installation. The baseline is checked again
-   after the build before source promotion.
+   after image preparation before source promotion.
 5. The installation worker replaces the panel and controller. In v0.3.4, the new
    controller subsequently migrates supported older game images after this update
    completes; that separate migration disconnects players on running servers.
@@ -105,7 +117,8 @@ images. Do not disable HTTPS verification to work around this error.
    browser disconnect is not treated as success.
 
 The source package and selected image stay consistent, so later host startup
-builds the installed source rather than rebuilding old code over a new release.
+uses the installed release image. Explicit development builds use the reconciled
+source instead of accidentally rebuilding older source over a new release.
 Mount/port changes and new services are refused by this installer. Checksum
 verification detects transfer corruption; it is not an independent signature or
 protection against a compromised trusted release publisher. Do not install an
@@ -126,7 +139,7 @@ and `linux/amd64` are supported; ARM retains Docker's amd64 emulation policy.
 
 Our image is built directly from Debian and the official Factorio download,
 without using Factorio Tools as its base. Its build and deliberate publication
-procedure is in [factorio-image/README.md](../factorio-image/README.md). The tag
+procedure is in [factorio-image/README.md](../images/factorio/README.md). The tag
 must be published and publicly pullable before it can be installed.
 
 Review shows the exact target image and explains a same-version change. After
@@ -234,3 +247,22 @@ host, or ARM game-emulation acceptance was run for this work. See VERIFICATION.m
 
 References: [Compose recreation](https://docs.docker.com/reference/cli/docker/compose/up/),
 [GitHub releases](https://docs.github.com/en/rest/releases/releases).
+
+## Runtime image publication and worker cleanup (v0.3.5)
+
+The **Lobby Goblin panel and controller image** workflow tests the shared runtime,
+builds and smoke-tests linux/amd64 and linux/arm64, and publishes their versioned
+GHCR manifest only when deliberately requested or called by release automation.
+The same image supplies the web panel, controller, setup and update worker.
+Existing published tags cannot be overwritten. Make the GHCR package public
+before distributing an installer that depends on it. A publication does not
+replace any running installation. Source-based builds remain available to developers.
+
+New update workers use Docker's automatic container removal. Their durable jobs,
+recovery copies and logs remain under the installation's update storage. A scoped
+sweeper retires verified stopped historical successful workers; failed/interrupted
+workers are retained for 24 hours and their last bounded, redacted log lines are
+saved in the job record before removal. Cleanup verifies job/root/environment,
+labels, data binding and stopped state immediately before a non-forced delete.
+It never deletes Docker volumes or removes a running server. Unknown workers
+without sufficient ownership evidence are kept for manual inspection.

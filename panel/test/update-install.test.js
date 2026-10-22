@@ -228,7 +228,7 @@ test('update review expires, backup failures block workers, and accepted work su
   clock+=16*60000;await assert.rejects(manager.install({planId:plan.id,confirm:true},'admin'),/expired/);
   plan=await manager.plan({kind:'game',target:'2.0.78'});await assert.rejects(manager.install({planId:plan.id,confirm:true},'admin'),/backup failed/);assert.ok(!calls.some(c=>c.route.startsWith('/containers/create')));
   backupFails=false;plan=await manager.plan({kind:'game',target:'2.0.78'});const job=await manager.install({planId:plan.id,confirm:true},'admin');assert.equal(job.state,'running');
-  const created=calls.find(c=>c.route.startsWith('/containers/create')).body;assert.equal(created.Image,f.images.controller);assert.equal(created.HostConfig.AutoRemove,false);assert.equal(created.User,'0:0');
+  const created=calls.find(c=>c.route.startsWith('/containers/create')).body;assert.equal(created.Image,f.images.controller);assert.equal(created.HostConfig.AutoRemove,true);assert.equal(created.User,'0:0');
   const restarted=new UpdateManager(options);await restarted.init();assert.equal(restarted.busy,true);await assert.rejects(restarted.plan({kind:'game',target:'2.0.79'}),/current operation/);
 });
 test('source and host path checks reject symlink escapes and preserve Windows Docker Desktop mapping',async t=>{
@@ -243,4 +243,24 @@ test('panel review rechecks an old controller release cache after a newly detect
   manager.releases.fetcher=async()=>new Response(JSON.stringify([{tag_name:'v0.2.2-alpha',prerelease:true,published_at:'2026-10-16T23:59:00Z',assets:['.zip','.sha256','.update.json'].map(suffix=>({name:prefix+suffix,state:'uploaded'}))}]));
   const plan=await manager.plan({kind:'panel',target:'0.2.2-alpha'});
   assert.equal(plan.target,'0.2.2-alpha');assert.equal(manager.status().jobs.length,0);
+});
+
+test('published runtime updates pull and pin the matching image without a local build or game restart',async t=>{
+ const f=await fixture(t);f.metadata.panelImage='ghcr.io/jkenneydaniel/lobby-goblin:'+f.job.target;
+ const info={Id:'sha256:'+'b'.repeat(64),Os:'linux',Architecture:'arm64',RepoDigests:['ghcr.io/jkenneydaniel/lobby-goblin@sha256:'+'c'.repeat(64)],Config:{Labels:{'org.opencontainers.image.version':f.job.target,'org.opencontainers.image.source':'https://github.com/jkenneydaniel/lobby-goblin','io.lobby-goblin.runtime':'1'}}};
+ const run=async args=>{if(args[0]==='image'&&args[1]==='inspect'){f.calls.push(args);return JSON.stringify([info]);}return f.run(args);};await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);
+ const result=await runUpdate({root:f.root,state:f.state,id:f.job.id,run,fetcher:f.fetcher,own:async()=>{}});assert.equal(result.state,'succeeded',result.message);assert.ok(f.calls.some(args=>args[0]==='pull'&&args[1]===f.metadata.panelImage));assert.ok(!f.calls.some(args=>args[0]==='build'));assert.match(await fs.readFile(path.join(f.root,'.env'),'utf8'),/PANEL_IMAGE=ghcr.io\/jkenneydaniel\/lobby-goblin:0.1.1-alpha@sha256:c{64}/);assert.ok(!f.calls.some(args=>args.includes('stop')&&args.includes('factorio')));
+});
+test('runtime release image mismatches and missing published digests fail before promotion',async t=>{
+ for(const tamper of [info=>{info.Config.Labels['org.opencontainers.image.version']='0.0.0';},info=>{info.Config.Labels['org.opencontainers.image.source']='https://example.com/other';},info=>{info.RepoDigests=[];},info=>{info.Architecture='s390x';}]){
+  const f=await fixture(t);f.metadata.panelImage='ghcr.io/jkenneydaniel/lobby-goblin:'+f.job.target;
+  const info={Id:'sha256:'+'b'.repeat(64),Os:'linux',Architecture:'amd64',RepoDigests:['ghcr.io/jkenneydaniel/lobby-goblin@sha256:'+'c'.repeat(64)],Config:{Labels:{'org.opencontainers.image.version':f.job.target,'org.opencontainers.image.source':'https://github.com/jkenneydaniel/lobby-goblin','io.lobby-goblin.runtime':'1'}}};tamper(info);
+  await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);const result=await runUpdate({root:f.root,state:f.state,id:f.job.id,run:async args=>args[0]==='image'?JSON.stringify([info]):f.run(args),fetcher:f.fetcher,own:async()=>{}});assert.equal(result.state,'failed');assert.match(await fs.readFile(path.join(f.root,'panel/server.js'),'utf8'),/old panel/);assert.ok(!f.calls.some(args=>args.includes('up')||args.includes('stop')));
+ }
+});
+
+test('published multi-platform runtime inspection selects the Docker host manifest when Config is omitted',async()=>{
+ const {inspectPanelImage}=await import('../core/panel-image.js'),calls=[];
+ const value=await inspectPanelImage('ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha','0.3.5-alpha',async args=>{calls.push(args);if(args[0]==='info')return 'aarch64';if(!args.includes('--platform'))return '[{"Id":"index-without-config"}]';return JSON.stringify([{Id:'sha256:'+'a'.repeat(64),Os:'linux',Architecture:'arm64',RepoDigests:['ghcr.io/jkenneydaniel/lobby-goblin@sha256:'+'b'.repeat(64)],Config:{Labels:{'org.opencontainers.image.version':'0.3.5-alpha','org.opencontainers.image.source':'https://github.com/jkenneydaniel/lobby-goblin','io.lobby-goblin.runtime':'1'}}}]);});
+ assert.ok(calls.some(args=>args.includes('linux/arm64')));assert.match(value,/@sha256:b{64}$/);
 });

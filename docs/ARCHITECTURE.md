@@ -15,6 +15,14 @@ preview workers receive only that instance's work subdirectory. Snapshot workers
 copy completed backups, strip credentials, verify hashes and clone into new
 volumes. The source volume is never mounted writable by another game.
 
+## Repository and installed layout
+
+The shared runtime stays under `panel/`. Container build sources for both games
+live under `images/`; host helper scripts live under `scripts/`. Release packaging
+maps these sources to historical installed paths instead of changing installed
+mounts, identifiers or updater validation rules. See [repository layout](REPOSITORY.md)
+for the mapping and deliberate exceptions for runtime deployment templates.
+
 ## Responsibility boundaries
 
 | Component | Owns |

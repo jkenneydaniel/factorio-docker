@@ -1,4 +1,69 @@
+## Unreleased: full isolated Ubuntu installer acceptance, October 22, 2026
+
+- Built the matching Linux amd64 runtime and exercised the real installer in a
+  fresh, isolated Ubuntu 24.04 machine with its own Docker engine and private
+  test registry. Nothing was published or deployed to an existing installation.
+- Real Docker bootstrap, Node-free guided setup, healthy manager startup,
+  administrator registration, onboarding, recovery, rerun preservation and
+  account persistence passed. A separate synthetic workload and its storage
+  stayed unchanged. No game/world was created.
+- Corrected Unix/PowerShell temporary installer helper permissions: explicitly
+  run that helper as root while preserving invoking-user file ownership on Unix.
+- Hosted account flows and certificate persistence passed with a private test CA;
+  public ACME issuance and external reachability remain unverified.
+- Linux regression: **264 passed, 0 failed, 1 skipped** (Lua unavailable).
+- Image artifact, digest and detailed boundaries: [installer acceptance](INSTALLER_ACCEPTANCE.md).
+
 # Release verification
+
+## v0.3.5-alpha preparation: cleanup, published runtime and Rust mods
+
+These are local preparation checks, not a deployment or registry publication.
+No running installation, existing world or live Docker resources were changed.
+
+- Node 24: **245 passed, zero failed, one skipped** (246 total) on macOS and in
+  an isolated Linux container with no network or Docker socket. The macOS skip
+  is the Linux ownership check; Linux passes that check and skips the absent Lua
+  interpreter. Linux launcher fixtures require executable temporary storage;
+  the successful run used an executable tmpfs and ordinary dependency files.
+- Shared runtime images built for **linux/arm64 and linux/amd64**. Both served
+  Factorio and Rust pages/health and included controller/worker entrypoints in
+  disposable, read-only, network-disabled smoke tests. The packaged ZIP matched
+  the ARM64 image byte-for-byte; first-time setup and a safe rerun passed without
+  a Docker socket, network or game. The updated `steam-lg.2` Rust image built.
+- Cleanup tests reject running, foreign, mismatched and raced containers,
+  preserve interrupted migrations, retain failure logs, and use non-forced
+  container deletion without volume flags. A real, uniquely labelled disposable
+  stopped Docker container was removed through the shared cleanup function.
+  No global prune or cleanup of an existing installation was performed.
+- Update tests cover published runtime download/digest pinning, multi-platform
+  Docker inspection, release/source/version mismatch, missing digest and rollback
+  without a game restart. Both example Compose configurations and workflow YAML
+  parsed; launcher syntax checks passed. Registry publication itself has not run.
+- Framework tests cover pinned reviews, changed downloads, archive path/link
+  refusal, stopped-server requirements, external edits, interrupted transactions,
+  recovery/startup blocking, plugins and stale JSON configuration edits. Version 1
+  backups remain supported; version 2 preserves mod files/data and recovery state.
+  Modded backups are refused by world-only cloning to avoid dropping their mods.
+- Actual official Carbon `production_build` and Oxide `2.0.7830` archives were
+  installed in disposable directories, backed up, verified and extracted. Carbon
+  recovery verified **163 files**; Oxide verified **124 files**. Their active loader
+  markers, plugin sources and world sentinel survived extraction; switching to
+  Vanilla restored original DLL sentinels. This proves package/file recovery,
+  not native framework loading. Archive checksums were respectively
+  `ff0e1bb8c81edd2a4a31df39776f231004840af4c2f71ba9acbbe465b9479037` and
+  `a5e9de373b9ee6c6d03232c90c95caf24c40749e4ea40ef6b2a6d8cdaa854cd4`.
+- Playwright exercised the real web/controller/auth routes with synthetic game
+  responses: administrator stop confirmation, framework review/install, plugin
+  upload, JSON load/save, disable and enable. Viewer/admin and CSRF route checks
+  passed separately. The fixture used temporary directories and no Docker socket.
+- **Native Carbon/Oxide loading and compilation have not been validated here.**
+  The game-image publication workflow now requires `rust --fresh --mods` on an
+  amd64 Docker host: both loaders, a compiling/executing/reloading probe plugin,
+  complete modded backup recovery and Vanilla restoration. This gate is configured
+  but has not been executed in this work. Earlier vanilla migration acceptance
+  below does not prove these new framework scenarios. Existing first-party games
+  and their registered controllers are not automatically replaced to enable mods.
 
 ## v0.3.4-alpha preparation: owned images and automatic migration
 
@@ -762,3 +827,30 @@ The temporary game/management containers were removed afterward. These checks
 do not verify an independent Linux host, ARM, rootless Docker, Internet hosting,
 GitHub-hosted workflow execution or an independent security audit. No real user
 save or account is included in a test fixture or source artifact.
+
+## Repository organization — October 22, 2026
+
+This source-only change groups both image builds under `images/`, moves host
+helpers under `scripts/`, places the fleet template under `deploy/fleet/`, and
+consolidates installation/documentation entrypoints. Root standalone Compose and
+Rust's runtime Compose template retain their existing paths. Release packaging
+maps organized sources back to historical installed paths.
+
+Local validation used Node 24.21.0 and the existing locked dependencies:
+
+- `npm test --prefix panel`: 267 passed, zero failures, one Lua/platform skip.
+- `node --test images/factorio/test-build.mjs`: four passed, with simulated Docker.
+- `python3 -B images/factorio/test_runtime.py`: 20 passed.
+- The release fixture validates the compatible ZIP with frozen v0.2.0-alpha and
+  v0.3.3-alpha updater code, extracts both bundle types, checks both bundles'
+  documentation links, exercises packaged setup/image fixtures, and repackages
+  the extracted complete source bundle in temporary directories.
+- Relocated launcher fixtures verify repository-root state paths using a fake
+  Docker executable. Shell syntax and source documentation links also passed.
+- All 231 pre-existing source files were accounted for after relocation. Existing
+  game/bootstrap source, manifests, dependency lockfile and default Compose
+  content were retained; a source snapshot was saved outside the repository.
+
+No Docker daemon, live game storage, running server, deployment, image build or
+publication was used for this verification. Windows launcher runtime, hosted CI
+and real container acceptance were not repeated by this source reorganization.

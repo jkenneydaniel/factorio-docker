@@ -1,0 +1,77 @@
+name: Lobby Goblin panel and controller image
+on:
+  push:
+    paths: ['panel/**', '.github/workflows/panel-image.yml']
+  pull_request:
+    paths: ['panel/**', '.github/workflows/panel-image.yml']
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the versioned runtime image (does not deploy servers)
+        default: false
+        type: boolean
+  workflow_call:
+    inputs:
+      publish:
+        default: false
+        type: boolean
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+      - run: npm ci --prefix panel --ignore-scripts --no-audit --no-fund
+      - run: npm test --prefix panel
+      - name: Select the versioned shared runtime
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node --input-type=module -e "import fs from 'node:fs'; const version=JSON.parse(fs.readFileSync('panel/package.json')).version; if(process.env.RELEASE_TAG && process.env.RELEASE_TAG!=='v'+version)process.exit(1); fs.appendFileSync(process.env.GITHUB_ENV,'RUNTIME_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:'+version+'\n'); if(!fs.readFileSync('panel/Dockerfile','utf8').includes('image.version=\"'+version+'\"'))process.exit(1)"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Build and smoke-test both runtime architectures
+        run: |
+          for arch in amd64 arm64; do
+            docker buildx build --load --platform "linux/$arch" -t "local/lobby-goblin-smoke:$arch" panel
+            docker run --rm --platform "linux/$arch" --network none --user 0:0 --read-only \
+              --tmpfs /tmp:rw,nosuid,size=512m \
+              --mount "type=bind,source=$PWD/panel/test/runtime-image-smoke.mjs,target=/smoke.mjs,readonly" \
+              --entrypoint node "local/lobby-goblin-smoke:$arch" /smoke.mjs
+          done
+      - uses: docker/login-action@v4
+        if: inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Reuse only the same published commit; never overwrite a version
+        if: inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
+        run: |
+          if docker buildx imagetools inspect "$RUNTIME_IMAGE" >/tmp/image-exists 2>/tmp/image-error; then
+            docker pull "$RUNTIME_IMAGE"
+            existing_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$RUNTIME_IMAGE")
+            if [ "$existing_revision" != "$GITHUB_SHA" ]; then echo 'This version belongs to another commit. Increment the panel version.'; exit 1; fi
+            echo 'PUBLISH_RUNTIME=false' >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if ! grep -qi 'manifest unknown\|not found' /tmp/image-error; then cat /tmp/image-error; exit 1; fi
+          echo 'PUBLISH_RUNTIME=true' >> "$GITHUB_ENV"
+      - uses: docker/build-push-action@v7
+        if: env.PUBLISH_RUNTIME == 'true' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
+        with:
+          context: panel
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.RUNTIME_IMAGE }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          provenance: mode=max
+          sbom: true

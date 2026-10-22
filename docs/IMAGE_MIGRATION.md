@@ -5,7 +5,7 @@ Lobby Goblin now maintains both game images:
 | Game | Default image | Game installation |
 | --- | --- | --- |
 | Factorio | `ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.3` | Same Factorio 2.0.77 binary and `/factorio` layout |
-| Rust | `ghcr.io/jkenneydaniel/rust-server:steam-lg.1` | First-party SteamCMD bootstrap; existing binaries in `/steamcmd/rust` are reused |
+| Rust | `ghcr.io/jkenneydaniel/rust-server:steam-lg.2` | First-party SteamCMD bootstrap; existing binaries in `/steamcmd/rust` are reused |
 
 These image tags must be published and publicly pullable before the release's
 download assets are attached. Production migration verifies the platform,
@@ -76,12 +76,12 @@ followed by migration. Future game-version changes remain a separate reviewed
 Factorio update.
 
 For a manual standalone upgrade, reconcile/copy the public source first and
-build/replace **only the panel and controller services**, using `--no-deps`.
+pull/replace **only the panel and controller services**, using `--no-deps`.
 Factorio service names are `panel-controller panel`; Rust names are
 `controller panel`. For example, from the reviewed Rust installation:
 
 ```sh
-docker compose build controller panel
+docker compose pull controller panel
 docker compose up -d --no-deps --no-build controller panel
 ```
 
@@ -108,6 +108,11 @@ verification succeeds. The replacement may remain running after a readiness time
 its status before any recovery action. Resolve the reported condition and restart
 the relevant controller/manager to resume. Completion verifies that the expected
 replacement still exists before clearing the operation gate.
+
+Starting in v0.3.5, a stopped fleet original from a **completed** migration is
+retired after verifying the registered replacement, immutable image ID, ownership,
+mounts and protected backup record. Interrupted migrations remain untouched;
+the configuration journal and backup remain available.
 
 A fleet retained original uses the **same data mount**; it is not an independent
 copy. Never start it alongside the replacement. Standalone originals are removed

@@ -6,6 +6,7 @@ import {spawn} from 'node:child_process';
 import {assert,readJSON,writeJSON,sleep,redact} from '../../common.js';
 import {sourceSnapshot,assertUnmodified,unpackRelease,setEnvironment,daemonPath} from '../../update-source.js';
 import {gameUpdate,gameSources} from '../../public/game-images.js';
+import {panelImage,inspectPanelImage} from '../../core/panel-image.js';
 
 export function commandFailure(args,{output='',code=null,signal=null,timedOut=false,exceeded=false}={}){
   const operation=args[0]==='compose'?'Docker Compose':'Docker '+args[0];
@@ -134,9 +135,18 @@ export async function runUpdate({root,state,id,run=command,fetcher=fetch,wait=sl
       const archive=await download(job.assets['.zip'],32*1024*1024,fetcher);
       const files=unpackRelease(archive,checksum,job.target,metadata);
       for(const [name,data] of files){const target=path.join(stage,name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,data);}
-      await phase('Building the verified release. Your game keeps running…');
-      const image='local/lobby-goblin:update-'+id;
-      await run(['build','--progress=plain','--tag',image,path.join(stage,'panel')],{cwd:root});
+      let image;
+      if(metadata.panelImage){
+        assert(metadata.panelImage===panelImage(job.target),'The panel image does not match this release.');
+        await phase('Downloading the published panel and controller image. Your game keeps running…');
+        await run(['pull',metadata.panelImage]);
+        image=await inspectPanelImage(metadata.panelImage,job.target,run);job.resolvedImage=image;await save();
+      }else{
+        // Older public releases predate runtime images; retain their installer contract.
+        await phase('Building the verified older release. Your game keeps running…');
+        image='local/lobby-goblin:update-'+id;
+        await run(['build','--progress=plain','--tag',image,path.join(stage,'panel')],{cwd:root});
+      }
       // Local edits that arrive while the image builds must also block promotion.
       await assertUnmodified(root,{format:1,files:oldFiles});
       assert(await fs.readFile(path.join(root,'.env'),'utf8')===oldEnv,'Installation settings changed while building. No source was replaced.');

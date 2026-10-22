@@ -1,10 +1,18 @@
+import {welcomeView} from './fleet-onboarding.js';
 const $=selector=>document.querySelector(selector),esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let session=null,servers=[],snapshots=[],games=[],active=null,refreshing=false,view='servers';const live=new Map();
 let hostSettings=null,hostDirty=false,hostSaving=false,hostLoading=false,hostDraftRevision=0;
 async function api(route,body){const response=await fetch('/api'+route,{method:body===undefined?'GET':'POST',headers:{'content-type':'application/json',...(session?{'x-csrf-token':session.csrf}:{})},body:body===undefined?undefined:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw Error(data.error||'The host manager is unavailable.');return data;}
 function error(message,target='#error'){const node=$(target);node.textContent=message;node.hidden=!message;}
 function notice(message){$('#notice').textContent=message;$('#notice').hidden=!message;}
-function authenticated(){$('#session-loading').hidden=true;const signed=!!session;$('#auth').hidden=signed;$('#dashboard').hidden=!signed;$('#account').hidden=!signed;$('#username').textContent=session?.username||'';document.querySelectorAll('[data-admin]').forEach(node=>node.hidden=session?.role!=='admin');if(signed&&hostSettings)renderHostSettings();}
+function needsWelcome(){return session?.role==='admin'&&session.onboarding?.completed===false;}
+function showSignIn(){$('#login').hidden=false;$('#register').hidden=true;$('#register').reset();$('#register-toggle').hidden=false;$('#back-to-login').hidden=true;$('#register-submit').disabled=false;$('#register-submit').textContent='Create account';$('#invitation-field').hidden=false;$('#auth-title').textContent='A home for your servers.';$('#auth-description').textContent='Sign in to create and manage your Factorio and Rust servers.';error('');}
+function authenticated(){$('#session-loading').hidden=true;const signed=!!session;$('#auth').hidden=signed;$('#dashboard').hidden=!signed||needsWelcome();$('#onboarding').hidden=!needsWelcome();$('#account').hidden=!signed;$('#username').textContent=session?.username||'';document.querySelectorAll('[data-admin]').forEach(node=>node.hidden=session?.role!=='admin');if(signed&&hostSettings)renderHostSettings();}
+async function showWelcome(){
+ try{const [status,host]=await Promise.all([api('/status'),api('/host-settings')]);$('#onboarding').innerHTML=welcomeView({username:session.username,origin:location.origin,status,host});
+ $('#retry-installation').onclick=()=>showWelcome();$('#finish-installation').onclick=async()=>{const button=$('#finish-installation');button.disabled=true;try{session.onboarding=await api('/onboarding',{complete:true});authenticated();await load();}catch(e){error(e.message);button.disabled=false;}};error('');
+ }catch(e){$('#onboarding').innerHTML='<h1>Your account is ready.</h1><p>The host could not be checked. Your progress has been saved.</p><button id="retry-installation">Try again</button>';$('#retry-installation').onclick=()=>showWelcome();error(e.message);}
+}
 function selectView(next){view=next;for(const name of ['servers','library','access','host']){document.getElementById(name+'-view').hidden=name!==next;document.getElementById('show-'+name).setAttribute('aria-current',name===next?'page':'false');}if(next==='access')void loadAccess();if(next==='host')void loadHostSettings();}
 function render(){
  const admin=session?.role==='admin';$('#new-server').disabled=!!active;
@@ -14,7 +22,7 @@ function render(){
  document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{const f=$('#remove');f.reset();f.elements.serverId.value=b.dataset.remove;$('#remove-dialog').showModal();});
  document.querySelectorAll('[data-clone]').forEach(b=>b.onclick=()=>openCreate(snapshots.find(s=>s.id===b.dataset.clone)));
 }
-async function refresh(){if(!session||refreshing)return;refreshing=true;try{const [serverResult,library,jobs]=await Promise.all([api('/servers'),api('/snapshots'),api('/jobs')]);servers=serverResult.servers;snapshots=library.snapshots;active=jobs.active;render();$('#jobs').innerHTML=jobs.jobs.slice(0,8).map(j=>`<div class="job"><div><strong>${esc(j.action)}</strong><small>${esc(j.message)}</small></div><span>${esc(j.state)}</span></div>`).join('')||'<p class="hint">Creation and snapshot progress will appear here.</p>';
+async function refresh(){if(!session||refreshing||needsWelcome())return;refreshing=true;try{const [serverResult,library,jobs]=await Promise.all([api('/servers'),api('/snapshots'),api('/jobs')]);servers=serverResult.servers;snapshots=library.snapshots;active=jobs.active;render();$('#jobs').innerHTML=jobs.jobs.slice(0,8).map(j=>`<div class="job"><div><strong>${esc(j.action)}</strong><small>${esc(j.message)}</small></div><span>${esc(j.state)}</span></div>`).join('')||'<p class="hint">Creation and snapshot progress will appear here.</p>';
  for(let n=0;n<servers.length;n+=4)await Promise.all(servers.slice(n,n+4).filter(s=>['installed','starting','attention'].includes(s.state)).map(async s=>{try{const r=await fetch(`/servers/${s.id}/api/status`);if(r.ok)live.set(s.id,await r.json());}catch{}}));render();error('');
  if(view==='host')await loadHostSettings();
  }catch(e){error(e.message);}finally{refreshing=false;}}
@@ -56,9 +64,13 @@ async function loadAccess(){try{const data=await api('/accounts');$('#accounts')
 $('#invite').onsubmit=async e=>{e.preventDefault();try{const r=await api('/invitations',{role:e.currentTarget.elements.role.value});$('#invitation').textContent=location.origin+'/#register='+r.token;$('#invitation').hidden=false;}catch(e){error(e.message);}};
 $('#login').onsubmit=async e=>{e.preventDefault();try{session=await api('/login',Object.fromEntries(new FormData(e.currentTarget)));authenticated();await load();}catch(e){error(e.message);}};
 $('#register-toggle').onclick=()=>{$('#register').hidden=!$('#register').hidden;};
-$('#register').onsubmit=async e=>{e.preventDefault();try{const data=Object.fromEntries(new FormData(e.currentTarget));data.token=data.token.match(/#register=([A-Za-z0-9_-]+)/)?.[1]||data.token;session=await api('/register',data);await api('/onboarding',{complete:true});history.replaceState(null,'','/');authenticated();await load();}catch(e){error(e.message);}};
-$('#logout').onclick=async()=>{try{await api('/logout',{});}finally{session=null;authenticated();}};
-async function load(){const data=await api('/catalog');games=data.games;await refresh();}
-const invitation=location.hash.match(/^#register=([A-Za-z0-9_-]+)$/)?.[1];if(invitation){$('#register').hidden=false;$('#register').elements.token.value=invitation;history.replaceState(null,'','/');}
-try{session=await api('/session');authenticated();await load();}catch{authenticated();}
+$('#back-to-login').onclick=()=>showSignIn();
+$('#register').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,button=$('#register-submit');button.disabled=true;try{const data=Object.fromEntries(new FormData(form));if(data.password!==data.confirmPassword)throw Error('The passwords do not match. Please enter them again.');data.token=data.token.match(/#register=([A-Za-z0-9_-]+)/)?.[1]||data.token;session=await api('/register',data);form.reset();history.replaceState(null,'','/');authenticated();await load();}catch(e){error(e.message);}finally{button.disabled=false;}};
+$('#logout').onclick=async()=>{try{await api('/logout',{});}finally{session=null;showSignIn();authenticated();}};
+async function load(){if(needsWelcome())return showWelcome();const data=await api('/catalog');games=data.games;await refresh();}
+const invitation=location.hash.match(/^#register=([A-Za-z0-9_-]+)$/)?.[1];
+if(invitation){
+ $('#register').hidden=false;$('#login').hidden=true;$('#register-toggle').hidden=true;$('#back-to-login').hidden=false;$('#register').elements.token.value=invitation;history.replaceState(null,'','/');authenticated();
+ try{const details=await api('/registration',{token:invitation});$('#auth-title').textContent=details.owner?'Create your administrator account.':'You’re invited.';$('#auth-description').textContent=details.owner?'Choose your own sign-in details. This private installation link can be used once.':'Create an account to join this panel. Your invitation determines your access.';$('#invitation-field').hidden=true;$('#register-submit').textContent=details.owner?'Create administrator account':'Create account';}catch(e){error(e.message);$('#register-submit').disabled=true;}
+}else try{session=await api('/session');authenticated();await load();}catch{authenticated();}
 setInterval(()=>void refresh(),5000);

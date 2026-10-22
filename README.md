@@ -1,226 +1,84 @@
 # Lobby Goblin
 
-**Your servers. One helpful goblin.** Lobby Goblin is a self-hosted control panel with
-a shared core for accounts, permissions, jobs and backups, plus a separate module for each
-game. The repository is [`jkenneydaniel/lobby-goblin`](https://github.com/jkenneydaniel/lobby-goblin).
-This is an early alpha for trusted home networks.
+**Your servers. One helpful goblin.** A self-hosted game server control panel with
+shared accounts, permissions, jobs and backups, plus dedicated game modules.
+This is an early alpha for trusted administrators. The repository is
+[`jkenneydaniel/lobby-goblin`](https://github.com/jkenneydaniel/lobby-goblin).
 
-| Module | Available controls |
+| Game | Controls |
 | --- | --- |
-| **Factorio** | Worlds and saves, map previews, players, settings, backups and recovery, guided setup, reviewed updates |
-| **Rust** | Status, start/stop/restart, players, logs, settings, identity backups and verification |
+| Factorio | Worlds and saves, map previews, players, settings, backups and recovery, guided setup, reviewed updates |
+| Rust | Status, lifecycle, players, logs, settings, Carbon / Oxide / uMod, plugins, complete backups and verification |
 
-The optional [single-host manager](docs/FLEET.md) creates Factorio and Rust
-servers on demand with isolated volumes, credentials, networks and ports. Its
-shared snapshot library creates independent copies of saved worlds. It runs as
-a separate Docker project alongside existing standalone installations.
+## Install
 
-On Windows, run `.\Fleet.ps1 -Address <your-LAN-address>` to start the new panel
-on port 8082. On amd64 Linux/Mac, run `FLEET_ADDRESS=<your-LAN-address> sh Fleet.sh`.
-The manager has separate registration and does not adopt or restart an existing
-server. Its alpha limits include global administrator/read-only roles, retained
-storage after removal, and no general fleet game-version updater.
+For a new multi-game host manager, start with the [installation guide](docs/INSTALLATION.md).
+Run the installer on the computer that will host the servers:
 
-Standalone setup remains available for one game per installation. See
-[Rust setup and recovery](docs/RUST.md), the [shared-core architecture](docs/ARCHITECTURE.md),
-and the [verification record](docs/VERIFICATION.md) for runtime evidence and limits.
-
-## Existing installations
-
-**v0.3.4-alpha uses Lobby Goblin's own images for both games.** Installing the
-new controller automatically migrates supported older images after a verified
-backup and a clean stop. It keeps the same storage, settings, ports, credentials
-and running/stopped preference. Factorio stays on 2.0.77; Rust reuses its installed
-game binaries. Players on a running managed server will disconnect during this
-one-time migration. Read the [migration and recovery guide](docs/IMAGE_MIGRATION.md)
-before installing this release. Third-party images are migration inputs only.
-
-The new name does not require moving your checkout, worlds or backups. Existing
-Factorio launchers, environment keys, container names, data paths and accounts
-remain supported. Editing or downloading source does not deploy an update.
-Historical release archive names and image labels are accepted for compatibility.
-See [update instructions](docs/UPDATES.md) before deliberately changing an installed
-panel. No game server is restarted by this rename.
-
-## Factorio setup
-
-The following setup instructions apply to Factorio. Rust uses its
-[separate preparation command](docs/RUST.md#prepare-a-new-installation); do not
-merge its Compose file into a Factorio installation.
-
-### Requirements
-
-- Windows, macOS or Linux with Docker Engine/Desktop running Linux containers and
-  Compose v2, on x86-64 or ARM64. The pinned game uses amd64 emulation on ARM64;
-  panel services build natively. See the [platform matrix](docs/SETUP.md#platform-choices).
-- Allow roughly 3 GB of free memory for the stack and an isolated map worker,
-  plus enough disk space for your worlds and backups. Large factories need more.
-- Matching Factorio **2.0.77** clients. This alpha pins the game version and disables
-  optional Space Age mods for base-game/PC/Switch compatibility.
-- Docker Desktop on Windows is the previously verified game host. Mac/Linux/ARM
-  setup configuration is provided; game execution on those hosts is not verified
-  by this change. Rootless Docker, remote daemons and Internet hosting are outside
-  this release’s setup support.
-
-The app and setup run in containers; you do not need Node.js on the host.
-This repository includes no game binaries, mods, personal saves or accounts.
-
-### Guided setup (recommended)
-
-After installing and starting Docker, open the extracted folder and run:
-
-- **Windows:** `.\Setup.ps1` in PowerShell.
-- **Mac:** double-click `Setup.command`, or run `sh Setup.sh` in Terminal.
-- **Linux:** `sh Setup.sh` in Terminal.
-
-Choose a new world, import a save from `import/`, or recover an expired
-registration link. The guide preserves existing data, helps configure the
-connection address and asks before starting the stack (default No).
-Run `sh Setup.sh --check` or `.\Setup.ps1 -Check` for read-only checks.
-No host Node.js installation is needed.
-
-See [host-specific setup and troubleshooting](docs/SETUP.md), including Linux
-ARM64 emulation prerequisites. Setup does not install emulation or open firewalls.
-
-### Manual first-time setup
-
-Download the source or clone this repository. Work in its root directory.
-
-1. Copy `.env.example` to `.env` (`Copy-Item .env.example .env` in PowerShell,
-   or `cp .env.example .env` on Mac/Linux).
-2. Set `SERVER_ADDRESS` to the Docker host's reserved LAN IPv4 address or DNS name.
-   Keep the port out of this value. For access only on the host, leave `localhost`.
-   On native Linux Engine set `DOCKER_SOCKET_GID` to the result of
-   `stat -c %g /var/run/docker.sock`; Docker Desktop uses 0. Leave
-   `FACTORIO_PLATFORM=linux/amd64` so the game and isolated map workers agree.
-   On ARM64, configure Docker’s amd64 emulation first; see the setup guide.
-3. Choose **one** of these setup commands:
-
-   ```sh
-   # New random world, generated when Factorio first starts:
-   docker compose run --rm --build setup --new-world
-   ```
-
-   ```sh
-   # Existing save: first copy your ZIP into an import/ directory in this checkout.
-   docker compose run --rm --build setup --save /workspace/import/world.zip
-   ```
-
-   Setup validates imported ZIP contents and copies the save. It prints a private,
-   single-use registration link, valid for 24 hours. Keep it private. Existing
-   saves/configuration/accounts are preserved on reruns; importing over existing
-   saves is refused. Setup does not start or stop the game.
-4. Start the stack:
-
-   ```sh
-   docker compose up -d --build
-   docker compose ps
-   ```
-
-5. Open the registration link to create your administrator account. The normal
-   panel address is `http://YOUR_SERVER_ADDRESS:8080`. In Factorio choose
-   **Multiplayer → Connect to address**, then `YOUR_SERVER_ADDRESS:34197`.
-
-The initial LAN game pauses when empty, autosaves every five minutes, retains ten
-autosaves, and saves when the last player leaves. Game account verification is
-disabled for LAN usernames; anyone on the allowed network can join the game
-unless you set a game password or whitelist. Panel registration remains private
-and invitation-only. Add a game password under Settings if needed.
-
-If a setup link expires, generate a replacement without changing the world:
-
-```sh
-docker compose run --rm setup --registration-link
+```powershell
+./Install.ps1
 ```
 
-This invalidates previous setup/recovery invitations and retains registered users.
-Do not run setup or start a second stack against another server's data directory.
-
-### Network and startup
-
-Allow TCP 8080 (panel) and UDP 34197 (game) from your trusted LAN. Do not forward
-these ports from your router. The internal controller and RCON ports are not
-published. Reserve the host's IP address in your router so clients keep the same
-connection address. The `.env` file also supports alternate published ports,
-additional allowed panel hostnames and container names.
-
-The Windows helper `Configure-Lan.ps1` opens default ports only on Private
-networks for the local subnet; run it as administrator if necessary. For custom
-ports, configure the firewall yourself. `Start-LanAnnouncer.ps1` is an optional,
-version-specific Windows workaround for PC discovery; direct connection is the
-primary supported path. Switch LAN discovery can differ from PC discovery.
-Use unique LAN usernames and the exact matching game version on all clients.
-
-All three services restart with Docker. Enable Docker Desktop's **Start when you
-sign in** setting on Windows/Mac, or enable the Docker service on Linux. Windows
-Desktop startup requires sign-in. `Configure-Autostart.ps1` and
-`Register-LanAnnouncer.ps1` are optional Windows helpers; they change host startup
-settings only when explicitly run. They are not part of setup.
-
-### Operations and upgrades
-
-Use the panel for saves, backups and world changes. World switches/restores
-disconnect players and create a backup first. To stop the stack with time to save:
-
 ```sh
-docker compose stop
-docker compose start
+sh ./Install.sh
 ```
 
-Before an upgrade, download a verified full backup and keep a copy on a separate
-device. Read the release notes, update the source, then deliberately run
-`docker compose up -d --build`. This can recreate containers and disconnect players.
-Editing source files alone does not update the running app. Do not upgrade the
-Factorio image independently of the clients. No automatic game/mod updates occur.
+On macOS, you can also open `Install.command`. The guide covers private local
+access, experimental hosted HTTPS access, Docker prerequisites and administrator
+registration in your browser. The installer creates a separate installation;
+existing servers, accounts and worlds are not adopted. The host manager requires
+Linux x86-64 containers. See the guide for memory and host requirements.
 
-The panel checks public GitHub releases every six hours and notifies administrators
-in Settings and the sidebar. Administrators can also use **Check for updates** in
-Settings → Updates for a fresh check, limited to once per minute. This checks only
-public release information. Settings → Updates lets an administrator review and
-install supported panel/controller releases or separately upgrade Factorio to a
-chosen newer 2.0.x version, with pre-update backups, persistent progress and recovery.
-See [in-panel updates and one-time enablement](docs/UPDATES.md). Preview releases
-are included by default for this alpha; stable-only and offline modes are available.
+For an existing installation or a dedicated single-game setup:
 
-Keep `data/`, `backups/`, `.panel-data/` and `.env` private. Never upload the entire
-working directory: those folders contain worlds, credentials, invitations and
-server configuration. `.gitignore` excludes them, and the release packaging tool
-uses an explicit source allowlist.
+- [Standalone Factorio](docs/SETUP.md): `sh scripts/standalone/Setup.sh` or
+  `./scripts/standalone/Setup.ps1`. ARM64 hosts require amd64 game emulation.
+- [Standalone Rust](docs/RUST.md): prepare a new, separate installation.
+- [Advanced host-manager launcher](docs/FLEET.md): scripts under `scripts/fleet/`.
 
-The optional [Lobby Goblin game image](factorio-image/README.md) builds
-independently from Debian and the official Factorio headless download. Settings
-→ Updates supports both image sources and reviewed same-version switching.
-Existing installations retain their current source; publishing or updating the
-panel does not migrate the game automatically.
+Commands in this checkout use the organized source paths. Downloadable release
+bundles retain the historical installed paths expected by older updaters. See
+[repository and release layout](docs/REPOSITORY.md) before moving existing files.
 
-## Alpha limits
+## Existing installations and updates
 
-The map, world-preview and ZIP limits below apply to Factorio. Rust has separate
-[platform requirements and streaming archive limits](docs/RUST.md).
+Keep your current installation directory, environment, accounts, worlds and backups.
+Editing or downloading source does not update a running installation. Read the
+[update guide](docs/UPDATES.md) before deliberately installing a release.
 
-- Trusted LAN over HTTP; no built-in TLS or Internet deployment support. The
-  controller has Docker socket access, which effectively grants control of the
-  Docker host. Treat panel administrator access accordingly.
-- Only one stack per checkout. State uses JSON files; multi-controller/replica
-  deployments are unsupported. Web restarts expire browser sessions.
-- Saved maps are sampled overviews of explored Nauvis, capped at 2,048 chunks,
-  80,000 objects and 24 MB. They are not full game graphics.
-- Live player positions are off by default. Enabling them requires explicit
-  acknowledgement that Lua commands disable achievements for that world; the
-  panel creates a verified backup first. Turning tracking off does not undo this.
-- Save uploads: 128 MB. Backup ZIP uncompressed total: 512 MB. ZIP64 and encrypted
-  ZIPs are unsupported. Backups stored on the same host are not disaster recovery.
-- World previews take a few seconds and can delay another management operation
-  until the current preview finishes. Version-specific world options target 2.0.77.
-- Tests cover access controls and destructive-operation recovery, but this alpha
-  has not received an independent security audit.
+Installing a controller with the v0.3.4 migration can replace supported historical
+game images after a verified backup and clean stop. That one-time migration can
+disconnect players; read [image migration and recovery](docs/IMAGE_MIGRATION.md).
+Later game-version updates require their own reviewed operation. Publishing an
+image alone does not deploy it.
 
-See [feature documentation](panel/README.md), [development](docs/DEVELOPMENT.md),
-[release notes](CHANGELOG.md), [security guidance](SECURITY.md), and
-[third-party notices](THIRD_PARTY_NOTICES.md).
+Rust mod management requires the mod-capable image and matching controller mounts;
+existing servers are not restarted merely to enable mods. See
+[Rust mods and recovery](docs/RUST.md#mods-and-plugins).
+
+## Documentation
+
+| Topic | Guide |
+| --- | --- |
+| New installation and administrator onboarding | [Installation](docs/INSTALLATION.md) |
+| Standalone Factorio and platform requirements | [Setup](docs/SETUP.md) |
+| Rust setup, mods and recovery | [Rust](docs/RUST.md) |
+| Multiple servers and shared snapshots | [Single-host manager](docs/FLEET.md) |
+| Source organization and installed compatibility | [Repository layout](docs/REPOSITORY.md) |
+| Shared runtime and game-module boundaries | [Architecture](docs/ARCHITECTURE.md) |
+| Local tests, builds and release preparation | [Development](docs/DEVELOPMENT.md) |
+| Game image sources and compatibility contracts | [Factorio](images/factorio/README.md), [Rust](images/rust/README.md) |
+| Recorded validation and remaining limits | [Verification](docs/VERIFICATION.md), [installer acceptance](docs/INSTALLER_ACCEPTANCE.md) |
+| Features, security and release history | [Panel](panel/README.md), [security](SECURITY.md), [changelog](CHANGELOG.md) |
+
+The panel/controller runtime and the two game images have separate build and
+publication workflows within this repository. Game image versions are independent
+of the panel version. The source definitions and configured workflows do not
+establish publication, deployment or runtime acceptance; consult the verification
+records for the scope of completed checks.
 
 ## License
 
-Original project code is [MIT licensed](LICENSE). Factorio, Rust and external game
-images have separate terms. This is an unofficial project, unaffiliated with Wube
-or Facepunch Studios.
+Original project code is [MIT licensed](LICENSE). Factorio, Rust and external
+components have separate terms; see [third-party notices](THIRD_PARTY_NOTICES.md).
+This is an unofficial project, unaffiliated with Wube or Facepunch Studios.

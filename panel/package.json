@@ -1,11 +1,11 @@
 {
   "name": "lobby-goblin",
-  "version": "0.3.4-alpha",
+  "version": "0.3.5-alpha",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js games/rust/image/test-runtime.test.mjs"
+    "test": "node test/run.mjs"
   },
   "engines": {
     "node": ">=24"
