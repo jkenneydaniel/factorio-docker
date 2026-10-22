@@ -2,7 +2,7 @@
 
 Lobby Goblin has a shared web/controller core and built-in Factorio and Rust
 modules. Factorio remains the default for standalone installations. The opt-in
-[single-host manager](FLEET.md) provisions isolated instances of either module;
+[host manager](FLEET.md) provisions isolated instances of either module;
 it is a separate Compose project and never adopts an existing standalone server.
 Modules remain built in rather than downloadable plugins.
 
@@ -14,6 +14,22 @@ secrets. Instance Docker calls verify ownership labels and the exact data mount;
 preview workers receive only that instance's work subdirectory. Snapshot workers
 copy completed backups, strip credentials, verify hashes and clone into new
 volumes. The source volume is never mounted writable by another game.
+
+[Remote hosts](REMOTE_HOSTS.md) use a persistent TLS 1.3 HTTP/2 connection opened
+by the panel on the agent’s configurable dedicated port (default 24443).
+`fleet/agent-identity.js` persists the certificate identity and includes its
+fingerprint in the one-time pairing code; `fleet/agent-connection.js` verifies
+that pin before sending credentials, multiplexes streamed responses, keeps the
+connection alive and reconnects without replaying interrupted commands. Existing
+HTTPS pairings remain compatible.
+`fleet/hosts.js` stores outgoing credentials privately and incoming hashes; the
+agent gateway exposes only approved host/game routes. `host-install.js` creates
+an agent-only installation without accounts. `fleet/host-setup.js` binds SSH
+fingerprint review to the administrator and exact plan, then installs/pairs with
+credentials held only in memory. `fleet/agent-update*.js` journal and replace the
+two management containers while leaving game containers and storage in place.
+Agent-only startup skips automatic game-image migration. Remote game URLs are
+scoped by host and server; accounts and sessions remain in the main panel.
 
 ## Repository and installed layout
 
@@ -97,6 +113,13 @@ Game actions are serialized by the core's operation lock. Module workers must
 respect that lock and updater reservations. HTTP mutations retain the existing
 administrator/CSRF checks in the web service and bearer authentication in the
 internal controller. Declaring a frontend control never grants backend access.
+
+The [mod library](MOD_LIBRARY.md) shares review pinning, file journals, recovery
+and UI under `panel/core/mod-*` and `panel/public/mod-library.*`. Game adapters
+own upstream metadata, dependencies, paths and lifecycle semantics. Factorio
+requires a stopped process; Rust can explicitly opt into framework hot apply.
+Both reuse the core job lock and web administrator/CSRF checks. Read-only review
+never performs lifecycle actions.
 
 ## Existing installations
 

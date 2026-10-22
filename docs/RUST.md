@@ -188,6 +188,15 @@ at the same time. Vanilla removes managed framework patches and restores the
 original game DLLs. Switching preserves both frameworks' plugin and data folders.
 It does not translate framework-specific plugins or configuration.
 
+The [live mod library](MOD_LIBRARY.md) provides **Browse**, **Installed** and
+**Updates** for public uMod plugins. Each change requires administrator review.
+Choose to leave Rust stopped, automatically save/stop/apply/start, or apply plugins
+while Rust stays ready. Hot changes request load/reload/unload; inspect Logs for
+compilation results. Updates preserve disabled state and plugin data/configuration.
+There are no background plugin updates.
+
+Open **Framework, uploads & configuration** for the existing manual tools below.
+
 Stop Rust first, choose the framework and select **Review installation**. Review
 shows the official Linux release/version and SHA-256 checksum. Confirmation pins
 that download for 15 minutes. Archives are checked before files change; links,
@@ -198,7 +207,7 @@ afterward and inspect its logs. A failed transaction restores previous files whe
 safe; otherwise startup is blocked until **Recover framework** restores them.
 
 Upload the original `.cs` filename from an author you trust (maximum 512 KiB).
-Plugins execute server code. Install/update, enable, disable and remove require
+Plugins execute server code. These manual install/update, enable, disable and remove tools require
 stopped Rust; previous sources are retained. Removal keeps plugin data/config.
 Reload uses the selected framework's reload command while Rust is ready.
 Existing plugin JSON configuration can be loaded and saved with stale-edit

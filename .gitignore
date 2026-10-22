@@ -23,6 +23,7 @@ Thumbs.db
 !.env.fleet.example
 .fleet-test/
 lobby-goblin-installation/
+lobby-goblin-host/
 
 __pycache__/
 *.pyc

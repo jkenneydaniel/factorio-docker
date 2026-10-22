@@ -1,3 +1,4 @@
+import {mountModLibrary} from './mod-library.js';
 import {serverPath} from './scope.js';
 import {icon} from './icons.js';
 import {setupPage,setupReady} from './onboarding.js';
@@ -53,7 +54,7 @@ $('#register-form').addEventListener('submit',async event=>{
 async function showApp(){
   $('#session-loading').hidden=true;
   $('#login-view').hidden=true;$('#app-view').hidden=false;$('#user-label').textContent=user.username+' · '+(admin()?'Administrator':'Read-only');
-  $('#accounts-nav').hidden=false;$('#setup-nav').hidden=!admin();
+  $('#accounts-nav').hidden=false;$('#mods-nav').hidden=!admin();$('#setup-nav').hidden=!admin();
   if(admin()&&user.onboarding?.completed===false&&!location.hash)history.replaceState(null,'','/#setup');
   await navigate();clearInterval(refreshTimer);refreshTimer=setInterval(refresh,5000);
   clearInterval(liveTimer);liveTimer=setInterval(refreshLivePlayers,2000);
@@ -68,11 +69,11 @@ addEventListener('hashchange',()=>{if(location.hash.startsWith('#register=')){co
 async function navigate(){
   window.scrollTo(0,0);
   const page=location.hash.slice(1).split('/')[0];
-  currentPage=['overview','worlds','map','backups','players','logs','settings','accounts','setup'].includes(page)?page:'overview';
-  if(currentPage==='setup'&&!admin())currentPage='overview';
+  currentPage=['overview','worlds','map','mods','backups','players','logs','settings','accounts','setup'].includes(page)?page:'overview';
+  if(['setup','mods'].includes(currentPage)&&!admin())currentPage='overview';
   $('#app-view').classList.toggle('setup-mode',currentPage==='setup');
   document.querySelectorAll('[data-page]').forEach(link=>{const active=link.dataset.page===currentPage;link.classList.toggle('active',active);if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
-  $('#breadcrumb-page').textContent={overview:'Overview',worlds:'Worlds',map:'Map',backups:'Backups',players:'Players',logs:'Activity',settings:'Settings',accounts:'Accounts',setup:'Setup'}[currentPage];
+  $('#breadcrumb-page').textContent={overview:'Overview',mods:'Mods',worlds:'Worlds',map:'Map',backups:'Backups',players:'Players',logs:'Activity',settings:'Settings',accounts:'Accounts',setup:'Setup'}[currentPage];
   await render();
 }
 function heading(eyebrow,title,description,actions=''){return `<div class="page-heading"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1><p>${description}</p></div><div class="button-group">${actions}</div></div>`;}
@@ -192,6 +193,7 @@ async function render({preserveMap=false}={}){
     if(currentPage==='backups'){const data=await api('/backups');html=backupPage(data.backups,data.schedule,data.health,data.retention);}
     if(currentPage==='map'){mapData=await api('/map');html=mapPage(mapData);}
     if(currentPage==='players')html=playersPage();
+    if(currentPage==='mods')html=heading('MODS','Make this factory yours.','Browse current releases and review every change before applying it.')+jobBanner()+'<div id="mod-library"></div>';
     if(currentPage==='logs'){const [jobs,logs]=await Promise.all([api('/jobs'),api('/logs')]);html=logsPage(jobs.jobs,logs.text);}
     if(currentPage==='settings'&&location.hash==='#settings/diagnostics'){diagnosticReport=await api('/diagnostics');html=heading('GUIDED DIAGNOSTICS','Let’s find the next step.','Check the panel, Docker, storage and game readiness.')+settingsTabs()+diagnosticsPage(diagnosticReport);}
     else if(currentPage==='settings')html=location.hash==='#settings/updates'?heading('UPDATES','Stay up to date, on your terms.','Review changes. Choose when to install.')+settingsTabs()+jobBanner()+releaseView():settingsPage(await api('/settings'));
@@ -259,6 +261,7 @@ async function startJob(action,params={}){
   }catch(error){busyJob=null;toast(error.message,true);await render();}
 }
 function bindPage(){
+  if(currentPage==='mods'&&admin())mountModLibrary($('#mod-library'),{api:(route,body)=>api(route,body===undefined?{}:{method:'POST',body}),job:startJob,busy:()=>!!busyJob||!!updateState?.busy||!!status?.imageMigration});
   bindUpdates();
   $('#run-diagnostics')?.addEventListener('click',()=>render());
   $('#download-diagnostics')?.addEventListener('click',()=>downloadJSON(diagnosticReport,'lobby-goblin-support-report.json'));

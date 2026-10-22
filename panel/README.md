@@ -4,8 +4,11 @@ Lobby Goblin v0.3.4-alpha runs as two containers built from the same image:
 a browser-facing web service and an internal controller. A third container runs
 the selected game. See the [root setup guide](../README.md) before starting.
 
-The optional [single-host manager](../docs/FLEET.md) creates several isolated
-servers and shares verified world snapshots through one account/session system.
+The optional [host manager](../docs/FLEET.md) creates isolated servers and shares
+verified world snapshots through one account/session system. It also connects
+[remote game hosts](../docs/REMOTE_HOSTS.md) through manual pairing or SSH setup
+on a dedicated, configurable port (24443 by default). It
+offers a host selector during creation and reviews matching agent updates.
 
 The features below describe the Factorio module. Rust has its own
 [controls, installation guide and recovery evidence](../docs/RUST.md).
@@ -13,6 +16,13 @@ The features below describe the Factorio module. Rust has its own
 The shared core and built-in game modules are described in
 [architecture and compatibility](../docs/ARCHITECTURE.md). Existing entrypoints,
 configuration, URLs and persistent formats remain compatible.
+
+## Mod library
+
+Administrators can browse live catalogues, inspect installed mods and review
+updates for Factorio and Rust. Choose to leave the server stopped or automatically
+save/stop/apply/start; Rust also supports explicitly applying plugins while ready.
+Factorio requires a restart. See [mod sources, account setup and recovery](../docs/MOD_LIBRARY.md).
 
 ## Accounts
 

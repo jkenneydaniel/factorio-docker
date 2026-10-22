@@ -1,13 +1,29 @@
 # Development and release
 
-Use Node.js 24 or newer. Install the locked WebSocket dependency before testing;
-container builds install it automatically. Host setup remains independent of npm.
+Use Node.js 24 or newer. Install the locked WebSocket and SSH dependencies before
+testing; container builds install them automatically. Manual installation remains
+independent of npm; automatic SSH setup runs from the installed panel runtime.
 Keep the full checkout layout when testing: Rust image fixtures are under
 `images/rust/`, outside the panel runtime directory. See [repository layout](REPOSITORY.md).
 See [the shared-core/module contract](ARCHITECTURE.md) before adding game behavior.
 The [Rust module guide](RUST.md) documents its separate, prepare-only installation.
 `node panel/test/rust-ui-preview.js` serves a synthetic Rust panel on loopback
 port 8090 with mock game/host transports and disposable storage.
+
+`node panel/test/mod-library-preview.mjs` serves both real mod-library interfaces
+on loopback port 8096. Use `/servers/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/#mods` for
+Factorio and `/servers/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/` for Rust, then open
+**Mods & plugins**. Accounts, catalogues, jobs and changes are synthetic and in
+memory; there is no Docker or game data access. `MOD_LIBRARY_UI_PORT` selects
+another port; `MOD_LIBRARY_UI_UPDATES=1` seeds an older installed mod for Updates.
+Stop the fixture with Ctrl+C.
+
+`node panel/test/fleet-ui-preview.js` serves the host manager on loopback port
+8098 (`UI_PREVIEW_PORT` overrides it). Sign in as `Preview` or read-only `Viewer`
+with `isolated-panel-preview-password`. SSH installation, code pairing, agent
+updates and creation are synthetic; no real SSH/Docker/game resources are used.
+`node --test panel/test/remote-hosts.test.js` additionally exercises disposable
+loopback controllers, the actual SSH handshake and fake-Docker update rollback.
 
 ```sh
 npm ci --prefix panel --ignore-scripts

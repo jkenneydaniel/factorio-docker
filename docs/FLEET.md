@@ -1,9 +1,16 @@
-# Single-host server manager
+# Multi-game host manager
 
 Fleet mode is a separate, opt-in Docker project. It never adopts an existing
 Factorio or Rust installation, mounts its data, changes its ports, or restarts
 it. Standalone `compose.yaml` remains available. The checkout template is `deploy/fleet/compose.yaml`; extracted releases retain
 `fleet.compose.yaml`. Use it by itself, with its own `.env.fleet` and fresh identity. Do not merge Compose files.
+
+The same panel can manage other game-host machines. **Hosts → Add host** supports
+manual agent installation with a pairing code or automatic installation over
+SSH. The agent handles ongoing operations and reviewed version alignment without
+SSH. The panel holds a pairing-secured connection to each agent on a configurable
+dedicated port (24443 by default); public, private and VPN addresses are supported.
+See [remote host setup, networking and recovery](REMOTE_HOSTS.md).
 
 v0.3.4 automatically migrates this manager's registered older images after a
 verified backup and clean stop. It preserves each server's storage and previous
@@ -37,13 +44,13 @@ hostname; game and panel ports default to all interfaces for LAN use.
 
 The manager has a new account database. Existing standalone accounts are not
 copied. Invitations create administrators or read-only users; these roles apply
-to all servers in this host manager. Per-server user ACLs are not implemented.
+to all local and paired servers in this host manager. Per-server user ACLs are not implemented.
 Keep the invitation private; it expires after 24 hours. It is stored at
 `/web-state/registration-link.txt` in the controller for an interrupted setup.
 
 ## Create and manage
 
-Choose Create server, game, name, CPU, memory, player limit and an optional seed.
+Choose Create server, host, game, name, CPU, memory, player limit and an optional seed.
 Rust also offers map size. Port allocation starts at UDP 35000 and checks Docker
 port use; Rust gets a separate query port. Port clashes outside Docker fail
 creation safely. RCON is never published. Each server has its own volume,
@@ -58,7 +65,9 @@ settings, players, logs, saves and backups. Rust keeps lifecycle, settings,
 players, logs, Carbon/Oxide, plugins and verified complete backups. Existing
 registered controllers and game images need a separately reviewed upgrade to
 enable mods; updating the host manager does not restart them. Standalone panel/image installation
-updates are refused in managed mode; a fleet-aware updater is future work.
+updates are refused in managed mode. Agent-only management services have their
+own reviewed updater; game-controller/image upgrades and full-panel manager
+updates remain separate operations.
 
 Creation progress appears under Host operations. Rust's first Steam download can
 take several minutes. Opening its panel shows logs while the game's initial
@@ -69,7 +78,7 @@ the creation setting; manually stopped `unless-stopped` games remain stopped.
 
 ## Host memory settings
 
-Open **Host settings** in the host manager to see the configured budget, total
+Open **This host’s settings** in the host manager to see the configured budget, total
 allocated memory, remaining allocation capacity, Docker memory capacity and each
 server's game/controller limits. These are configured allocations, not current
 RAM use. Stopped and incomplete servers count; removed servers do not. Every
@@ -84,11 +93,13 @@ memory capacity minus 2 GiB (up to a maximum budget of 128 GiB). Leave additiona
 headroom for other workloads. Docker/WSL limits and individual server memory
 limits are managed separately. Read-only accounts can view allocations.
 
-## Shared snapshot library
+## Snapshot library on each host
 
 Publish snapshot first asks the source controller for a completed, verified
 backup. Factorio confirms a save; Rust saves, stops, archives and resumes. The
 library then copies only immutable backup content into a separate library volume.
+The combined library labels each snapshot's host. Cloning stays on that host;
+cross-host transfer is not implemented.
 Factorio snapshots contain its active world ZIP and mod files. Rust snapshots
 contain the identity's world and player databases, maps and related files, but
 exclude the entire `cfg` directory. Neither format copies server configuration,

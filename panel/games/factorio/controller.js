@@ -1,3 +1,5 @@
+import {createFactorioModLibrary} from './mod-library.js';
+import {modLibraryRoutes,validateLibraryAction} from '../../core/mod-library.js';
 import {dataMount} from '../../core/data-mount.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -17,7 +19,7 @@ import {validateConfiguration} from './world-settings.js';
 import {WorldPreviews,renderWorldPreview,cleanPreviewWorkers} from './world-preview.js';
 import {engineMapSettings,mergeSettings} from './engine-settings.js';
 
-export async function createFactorio(ctx){
+export async function createFactorio(ctx,{modFetcher=fetch}={}){
 const {data,state,backups,container,library,backupDir}=ctx.config;
 const {host,docker}=ctx;const info=host.info,control=host.control;
 const rcon=(command,name=container)=>query(command,name,docker);
@@ -26,6 +28,7 @@ const backup=(...args)=>ctx.backups.create(...args);
 const stageMessage=(...args)=>ctx.stageMessage(...args);
 const runJob=(...args)=>ctx.runJob(...args);
 const saves=path.join(data,'saves'),settingsFile=path.join(data,'config/server-settings.json');
+const modLibrary=createFactorioModLibrary(ctx,{fetcher:modFetcher,start:async()=>{await modLibrary.assertReady();await control('start');await ready();},stop:async()=>{await control('stop');const server=await info();assert(!server.State.Running&&server.State.ExitCode===0&&!server.State.OOMKilled,'Factorio did not stop cleanly. Check its logs.',409);}});
 const worldDefaults=await readJSON(new URL('../../world-defaults.json',import.meta.url));
 const autoMapFile=path.join(state,'map-refresh.json');
 const snapshotMetadata=new SnapshotMetadata(path.join(state,'map.json'));
@@ -210,10 +213,11 @@ async function settingsUpdate(params){
   return 'Server settings saved.';
 }
 const actions={
+  ...modLibrary.actions,
   save:()=>saveNow(),
-  start:async()=>{await control('start');await ready();return 'Factorio is running.';},
+  start:async()=>{await modLibrary.assertReady();await control('start');await ready();return 'Factorio is running.';},
   stop:async params=>{assert(params.confirm===true,'Confirm stopping the server.');await control('stop');return 'Factorio stopped and saved.';},
-  restart:async params=>{assert(params.confirm===true,'Confirm restarting the server.');await control('restart');await ready();return 'Factorio restarted and loaded its latest save.';},
+  restart:async params=>{await modLibrary.assertReady();assert(params.confirm===true,'Confirm restarting the server.');await control('restart');await ready();return 'Factorio restarted and loaded its latest save.';},
   'live-tracking':async(params,job)=>{
     await livePlayers.validate(params);
     if(params.enabled){await stageMessage(job,'Backing up the world before enabling live tracking…');await backup('before-live-player-tracking');}
@@ -255,8 +259,9 @@ async function status(){
   statusCache={state:server.State.Status,running,ready:rconReady,paused:running&&rconReady&&players.length===0&&settings.auto_pause,players,playtime,seed,version:version||server.Config.Image.split(':').at(-1),image:server.Config.Image,currentWorld,lastSaveAt,saveVerified:!!lastSave,cpu,memory,autosaveMinutes:settings.autosave_interval,autosaveSlots:settings.autosave_slots,autoPause:settings.auto_pause,connection:ctx.env.GAME_ADDRESS||'localhost:34197',name:settings.name,activeJob:ctx.active,schedule:ctx.schedule};statusAt=Date.now();return statusCache;
 }
 async function handle(req,res,url){
+  if(modLibraryRoutes.includes(url.pathname))return modLibrary.handle(req,res,url);
   if(['/world-preview','/world-preview-image'].includes(url.pathname)){
-    const owner=req.headers['x-panel-user'];assert(typeof owner==='string'&&/^[A-Za-z0-9][A-Za-z0-9_\-]{2,31}$/.test(owner),'Preview needs an administrator session.',403);
+    const owner=req.headers['x-panel-user'];assert(typeof owner==='string'&&(/^[A-Za-z0-9][A-Za-z0-9_\-]{2,31}$/.test(owner)||/^remote:[a-f0-9]{32}:[A-Za-z0-9][A-Za-z0-9_\-]{2,31}$/.test(owner)),'Preview needs an administrator session.',403);
     if(req.method==='GET'&&url.pathname==='/world-preview')return json(res,200,worldPreviews.status(owner));
     if(req.method==='GET'&&url.pathname==='/world-preview-image'){const png=worldPreviews.image(owner,url.searchParams.get('id'));res.writeHead(200,{'content-type':'image/png','cache-control':'no-store','content-length':png.length});return res.end(png);}
     assert(req.method==='POST'&&url.pathname==='/world-preview','Not found.',404);
@@ -327,6 +332,7 @@ async function pollSavedMap(){
 return {actions,status,handle,validateBackup,
 backupVerified:result=>`Backup integrity verified: ${result.worlds} world saves and ${result.files} files. This checks archive contents, not a game-load restore.`,
 validateAction(body){
+    validateLibraryAction(body.action,body.params);
     if(body.action==='create'&&body.params?.configuration!==undefined)validateConfiguration(body.params.configuration);
     if(body.action==='refresh-map')assert(!body.params||Object.keys(body.params).length===0,'Manual map refresh does not accept source overrides.');
     if(body.action==='live-tracking'&&body.params?.enabled)assert(body.params.confirm===true,'Acknowledge that live tracking disables achievements.');
@@ -356,7 +362,7 @@ for(const job of ctx.jobs)if(job.action==='refresh-map'&&job.state==='interrupte
 }
 },
 async start(){ctx.every(()=>void worldPreviews.tick(),500);ctx.every(pollSavedMap,Number(ctx.env.MAP_SAVE_POLL_MS||2000));await pollSavedMap();},
-async beforeJob(job){if(worldPreviews.running)await stageMessage(job,'Waiting for the current map preview to finish…');await worldPreviews.waitIdle();},
+async beforeJob(job){if(!['stop','mod-library-recover'].includes(job?.action))await modLibrary.assertReady();if(worldPreviews.running)await stageMessage(job,'Waiting for the current map preview to finish…');await worldPreviews.waitIdle();},
 async afterJob(job,params){if(job.action==='refresh-map'&&params.automatic){autoMap.finish(params.automatic,job.state==='succeeded',job.state==='failed'?job.message:null);await persistAutoMap().catch(error=>console.error('Map queue persistence failed:',redact(error.message)));}},
 waitIdle:()=>worldPreviews.waitIdle(),
 invalidate(){statusCache=null;statusAt=0;statusMetadata.clear();},

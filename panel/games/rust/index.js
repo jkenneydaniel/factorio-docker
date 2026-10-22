@@ -1,3 +1,4 @@
+import {modLibraryRoutes} from '../../core/mod-library.js';
 import path from 'node:path';
 import {ownedImage,legacyImage} from '../../core/game-images.js';
 import fs from 'node:fs/promises';
@@ -30,9 +31,9 @@ function updater({current}){
 }
 export const rust={
   id:'rust',name:'Rust',releaseRepository:'jkenneydaniel/lobby-goblin',stopTimeout:-1,
-  routes:['/players','/logs','/settings','/mods','/mods-plan','/plugin-config'],configuration:rustConfiguration,validateInstallation,createController:createRust,createUpdater:updater,
+  routes:[...modLibraryRoutes,'/players','/logs','/settings','/mods','/mods-plan','/plugin-config'],configuration:rustConfiguration,validateInstallation,createController:createRust,createUpdater:updater,
   diagnostics:async()=>({game:'rust',checks:[],message:'Inspect Rust status and logs for readiness.'}),
-  web:{Accounts,sessionCookie:'rust_session',accountRoutes:[],adminReadRoutes:['/logs','/settings','/mods','/plugin-config'],
-    assets:{'/scope.js':['scope.js','text/javascript; charset=utf-8'],'/':['rust/index.html','text/html; charset=utf-8'],'/app.js':['rust/app.js','text/javascript; charset=utf-8'],'/style.css':['rust/style.css','text/css; charset=utf-8']},
+  web:{Accounts,sessionCookie:'rust_session',accountRoutes:[],adminReadRoutes:['/mod-library','/logs','/settings','/mods','/plugin-config'],
+    assets:{'/mod-library.js':['mod-library.js','text/javascript; charset=utf-8'],'/mod-library.css':['mod-library.css','text/css; charset=utf-8'],'/scope.js':['scope.js','text/javascript; charset=utf-8'],'/':['rust/index.html','text/html; charset=utf-8'],'/app.js':['rust/app.js','text/javascript; charset=utf-8'],'/style.css':['rust/style.css','text/css; charset=utf-8']},
     diagnosticsReport:(version,controller)=>({version,controller}),validateOnboarding:value=>assert(value.ready,'Wait for Rust to become ready.',409)},
 };

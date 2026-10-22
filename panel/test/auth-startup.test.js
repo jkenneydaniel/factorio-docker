@@ -28,7 +28,7 @@ for (const variant of [
     const document={querySelector:node,querySelectorAll:()=>[]};
     const context=vm.createContext({document,location:{hash,pathname:'/',origin:'http://test'},history:{replaceState(){}},
       URLSearchParams,console,fetch:route=>String(route).endsWith('/session')?response:Promise.resolve({ok:true,json:async()=>({role:'admin'})}),
-      serverPath:value=>value,icon:()=>'',cleanWorldPreview(){},clearWorldDraft(){},addEventListener(){},clearInterval(){},setInterval(){},setTimeout(){}});
+      mountHosts:()=>({}),hostRoute:(host,route)=>route,serverKey:s=>s.id,serverPath:value=>value,icon:()=>'',cleanWorldPreview(){},clearWorldDraft(){},addEventListener(){},clearInterval(){},setInterval(){},setTimeout(){}});
     const boot=vm.runInContext('(async()=>{'+source.replace(/^import .*;\r?\n/gm,'')+'\nasync function navigate(){}\nasync function load(){}\nasync function refresh(){}\n})()',context);
     return {node,boot,settle,fail};
   }

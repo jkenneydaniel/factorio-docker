@@ -160,7 +160,7 @@ test('Rust preparation refuses existing destinations and creates an independent 
   assert.ok(!env.includes('FACTORIO'));assert.ok(!compose.includes('factorio-server'));assert.match(compose,/GAME_MODULE: rust/);assert.ok(!compose.includes('28016:28016'));
   const secret=await fs.readFile(path.join(directory,'control/secrets/rust-rcon-password'),'utf8');assert.match(await fs.readFile(path.join(directory,'rust.env'),'utf8'),new RegExp(secret.trim()));
   assert.ok((await fs.stat(path.join(directory,'panel/core/controller.js'))).isFile());assert.ok((await fs.stat(path.join(directory,'panel/public/rust/app.js'))).isFile());
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory,'panel/package-lock.json'),'utf8')).packages[''].dependencies,{ws:'8.22.0'});
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory,'panel/package-lock.json'),'utf8')).packages[''].dependencies,JSON.parse(await fs.readFile(new URL('../package.json',import.meta.url),'utf8')).dependencies);
   await assert.rejects(prepareRust({directory,image}),/EEXIST/);await assert.rejects(prepareRust({directory:path.resolve('nested-rust'),image}),/outside the Factorio checkout/);
   assert.deepEqual(await fs.readdir(path.join(directory,'backups')),['.lobby-goblin-rust.json']);
 });

@@ -1,3 +1,5 @@
+import {createRustModLibrary} from './mod-library.js';
+import {modLibraryRoutes,validateLibraryAction} from '../../core/mod-library.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {assert,json,sleep,requestJSON} from '../../common.js';
@@ -55,7 +57,8 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
     throw Error('Rust did not become ready in time. It may still be loading; check status and logs before retrying.');
   }
   const mods=createModManager({root:config.installRoot,state:config.state,fetcher:modFetcher,assertStopped:async()=>{assert(!(await owned()).State?.Running,'Stop Rust before changing mod files.',409);},command:async value=>{assert(started(await owned(),await serverInfo()),'Wait for Rust to finish startup.',409);return command(value);}});
-  async function start(){const info=await owned();await mods.assertReady();if(!info.State?.Running)await host.control('start');await ready();return 'Rust is ready.';}
+  const modLibrary=createRustModLibrary(ctx,{mods,owned,start,stop,command,ready:async()=>{const current=await owned();assert(current.State?.Running&&started(current,await serverInfo()),'Wait for Rust to be ready before applying plugins while running.',409);},fetcher:modFetcher});
+  async function start(){const info=await owned();await modLibrary.assertReady();await mods.assertReady();if(!info.State?.Running)await host.control('start');await ready();return 'Rust is ready.';}
   async function stop(){
     const info=await owned();if(!info.State?.Running)return 'Rust is already stopped.';
     // Fail closed if a running server cannot save. Docker's unlimited graceful
@@ -89,19 +92,21 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
       connection:env.RUST_GAME_ADDRESS||'localhost:28015',identity:config.identity,...metrics,error,activeJob:ctx.active};return recent;
   }
   return {
-    actions:{start,stop,restart:async()=>{await stop();await start();return 'Rust restarted and is ready.';},
+    actions:{...modLibrary.actions,start,stop,restart:async()=>{await stop();await start();return 'Rust restarted and is ready.';},
       'install-framework':async params=>{const image=await docker('GET','/images/'+encodeURIComponent((await owned()).Image)+'/json');assert(image.Config?.Labels?.['io.lobby-goblin.rust-mods']==='1','Framework management requires the mod-capable Rust image (steam-lg.2 or newer). Upgrade that game image before installation.',409);return mods.install(params.planId);},'recover-framework':()=>mods.recover(),plugin:params=>mods.plugin(params),'plugin-config':params=>mods.configuration(params.name,params),
       'save-settings':async params=>{await owned();assert(!(await owned()).State?.Running,'Stop Rust before saving settings.',409);await saveSettings(settingsFile,params.values,params.revision);return 'Settings saved. They take effect when Rust starts.';}},
     status,recentStatus:()=>recent,locations:[{id:'rust-identity',title:'Rust identity',path:identityRoot}],
     backupExtension:'.tar.gz',writeBackup:backup,verifyBackupFile:verifyArchive,
     backupVerified:result=>`Rust archive verified: ${result.files} files, including a world save. Archive integrity checked; game-load recovery is a separate test.`,
     validateAction(body){
+      validateLibraryAction(body.action,body.params);
       if(['install-framework','recover-framework','plugin','plugin-config'].includes(body.action))validateModAction(body.action,body.params);
       if(['stop','restart','backup'].includes(body.action))assert(body.params?.confirm===true,'Confirm the Rust server interruption first.');
       if(body.action==='save-settings'){validateSettings(body.params?.values);assert(typeof body.params?.revision==='string','Reload settings first.');}
     },
     validateSchedule(value){if(value.enabled)assert(value.confirmDowntime===true,'Confirm that scheduled backups briefly stop Rust.');},
     async handle(req,res,url){
+      if(modLibraryRoutes.includes(url.pathname))return modLibrary.handle(req,res,url);
       if(url.pathname==='/mods-plan'){assert(req.method==='POST','Not found.',404);await owned();assert(!ctx.active,'Wait for the current operation.',409);return json(res,200,await mods.plan((await requestJSON(req)).framework));}
       if(req.method==='GET'&&url.pathname==='/mods'){const info=await owned(),image=config.installRoot?await docker('GET','/images/'+encodeURIComponent(info.Image)+'/json'):null,capable=image?.Config?.Labels?.['io.lobby-goblin.rust-mods']==='1';return json(res,200,{...await mods.status(),imageCapable:capable,editable:!info.State?.Running&&!ctx.active,message:capable?(await mods.status()).message:'Framework installation requires the mod-capable Rust image (steam-lg.2 or newer) and the controller storage mount. Existing game containers are not restarted automatically.'});}
       if(req.method==='GET'&&url.pathname==='/plugin-config'){await owned();return json(res,200,await mods.configuration(url.searchParams.get('name')));}
@@ -122,6 +127,6 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
       assert(false,'Not found.',404);
     },
     async init(){password=(await fs.readFile(config.passwordFile,'utf8')).trim();assert(/^[A-Za-z0-9_-]{32,128}$/.test(password),'Rust requires a 32–128 character generated WebRCON secret.');},
-    async start(){},async beforeJob(){await owned();},async afterJob(){},async waitIdle(){},invalidate(){recent=null;},
+    async start(){},async beforeJob(job){await owned();if(!['stop','mod-library-recover'].includes(job?.action))await modLibrary.assertReady();},async afterJob(){},async waitIdle(){},invalidate(){recent=null;},
   };
 }

@@ -14,13 +14,19 @@ using [standalone setup](SETUP.md) for those installations.
 Run the installer **on the computer that will host Lobby Goblin**:
 
 - **This computer:** private panel access at `http://localhost:8082`.
-- **Hosted server:** panel access at an HTTPS domain. Run the same installer in
-  an SSH session on that machine. Point the domain's DNS at it first.
+- **Hosted server:** panel access using a public IP address or DNS hostname,
+  with an automatically renewing Let’s Encrypt certificate. Run the same
+  installer in an SSH session on that machine. A hostname needs DNS pointing
+  to it; an IP address does not.
 
-This installer manages game servers on that machine's Docker engine. A central
-panel connecting several machines, SSH host enrollment from the panel, provider
-provisioning and outbound agent pairing are future work. Installing the panel on
-a remote server does not make a home Docker engine reachable automatically.
+This installer creates the main panel and manages games on its local Docker
+engine. To add other machines, use **Hosts → Add host**: install and connect an
+agent over SSH or install it manually and pair with a code. A separate remote
+panel is not required. Agents use a persistent, pairing-secured connection on a
+configurable dedicated port (24443 by default), including on private/VPN networks.
+See [remote game hosts](REMOTE_HOSTS.md). Provider
+provisioning and outbound relays are not included; installing a panel remotely
+does not make a home Docker engine reachable automatically.
 
 The current host manager requires x86-64 Linux containers, Docker Engine 26+,
 Compose 2.24+ and the configured memory budget plus at least 2 GiB of management
@@ -139,11 +145,44 @@ silently fall back to an older runtime or build one from local source.
 
 ## Hosted reachability
 
-Hosted mode adds Caddy with persistent certificate storage and HTTP-to-HTTPS
-redirects. DNS A/AAAA records must resolve to this server and TCP ports 80/443
-must reach it. Correct or remove stale IPv6 records. Existing services using
+Hosted mode adds Caddy with persistent certificate/account storage and
+HTTP-to-HTTPS redirects. Set `--domain` to either your public IP or a DNS
+hostname; the existing option name is retained for compatibility. Setup
+explicitly uses Let’s Encrypt for both, with no fallback to an untrusted
+local certificate.
+
+- **Public IP:** IPv4 and IPv6 are supported for HTTPS. IP certificates use
+  Let’s Encrypt’s `shortlived` profile and last 160 hours (about six days).
+  Caddy renews them automatically, beginning in the latter half of their
+  lifetime or as directed by the issuer. No DNS record is required.
+- **Hostname:** DNS A/AAAA records must resolve to this server. Correct or
+  remove stale IPv6 records. Caddy obtains and renews its certificate
+  automatically using Let’s Encrypt’s default profile.
+- **Private access:** private, loopback, link-local and reserved IP addresses
+  cannot get Let’s Encrypt certificates. Use local mode, or arrange your own
+  trusted HTTPS gateway for a private network. Automated private-CA/VPN
+  setup is not included.
+
+TCP ports 80/443 must reach the gateway from the public Internet for issuance
+and renewal; it also needs outbound HTTPS access to Let’s Encrypt. Keep the
+gateway running and preserve its `gateway-data` volume. Existing services using
 those ports need a separately reviewed proxy configuration; setup never stops
-them or edits firewall rules. See [Caddy's HTTPS prerequisites](https://caddyserver.com/docs/automatic-https).
+them or edits firewall rules. Renewals replace gateway certificates without
+restarting management or game containers.
+
+For example, substitute your own public IPv4 address for `PUBLIC_IP`:
+
+```sh
+sh ./Install.sh --prepare --mode hosted --domain PUBLIC_IP --address PUBLIC_IP --directory ./goblin
+```
+
+For IPv6 HTTPS, supply a bare or bracketed IPv6 address as `--domain`.
+The generated URL includes the required brackets. Game listeners currently
+use IPv4, so provide a separate IPv4 address or game hostname with `--address`.
+The HTTPS gateway must be reachable over the address family you choose.
+
+See [Let’s Encrypt’s IP certificate announcement](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability)
+and [Caddy’s HTTPS prerequisites](https://caddyserver.com/docs/automatic-https).
 
 The application port remains bound to loopback; only the gateway exposes the
 panel publicly. Controllers, Docker and RCON are not published. Game ports need
