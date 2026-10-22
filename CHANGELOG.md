@@ -8,6 +8,7 @@
 - Publish one versioned, multi-platform GHCR image for the panel, controllers and setup tools. Setup pulls it; new release installations verify and pin its registry digest instead of building it on the host.
 - Add Rust Carbon and Oxide / uMod installation, framework recovery, C# plugin installation/enable/disable/reload/removal and JSON configuration editing. Changes require a stopped server and preserve world and plugin data.
 - Introduce the mod-capable Rust bootstrap `steam-lg.2` and complete modded backups, including loader files, plugin data and offline recovery copies. Existing first-party games are not automatically restarted to adopt this optional capability.
+- Keep managed Carbon at its reviewed framework checksum by disabling its boot-time framework and hook self-updates; preserve other Carbon settings and require reviewed framework updates.
 
 ## 0.3.4-alpha — 2026-10-21
 

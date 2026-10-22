@@ -27,6 +27,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name || github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24.22.0'
@@ -53,13 +54,16 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Reuse only the same published commit; never overwrite a version
+      - name: Reuse only identical runtime source; never overwrite a version
         if: inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
         run: |
           if docker buildx imagetools inspect "$RUNTIME_IMAGE" >/tmp/image-exists 2>/tmp/image-error; then
             docker pull "$RUNTIME_IMAGE"
             existing_revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$RUNTIME_IMAGE")
-            if [ "$existing_revision" != "$GITHUB_SHA" ]; then echo 'This version belongs to another commit. Increment the panel version.'; exit 1; fi
+            if ! [[ "$existing_revision" =~ ^[a-f0-9]{40}$ ]]; then echo 'The published runtime has no valid source revision.'; exit 1; fi
+            published_tree=$(git rev-parse --verify "$existing_revision:panel")
+            current_tree=$(git rev-parse --verify "$GITHUB_SHA:panel")
+            if [ "$published_tree" != "$current_tree" ]; then echo 'This version belongs to different panel source. Increment the panel version.'; exit 1; fi
             echo 'PUBLISH_RUNTIME=false' >> "$GITHUB_ENV"
             exit 0
           fi

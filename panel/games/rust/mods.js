@@ -145,7 +145,7 @@ export function createModManager({root,state,assertStopped,command,fetcher=fetch
    // Include the exact active loader/DLL bytes and selection marker alongside
    // original files and downloaded packages, so recovery needs no network.
    const active=path.join(storage,'backup-active');await fs.rm(active,{recursive:true,force:true});await fs.mkdir(active,{mode:0o700});
-   for(const entry of record.files){const data=await bytes(entry.name);assert(data&&sha256(data)===entry.sha256,'Managed framework file changed; reconcile it before backing up: '+entry.name);await write(entry.name,data,{base:active});}
+   for(const entry of record.files){const data=await bytes(entry.name);assert(data&&sha256(data)===entry.sha256,'Managed framework files changed; reconcile them before backing up.');await write(entry.name,data,{base:active});}
    await write('.lobby-goblin-mods.json',Buffer.from(JSON.stringify({format:1,status:'complete',framework:record.framework})),{base:active});extras.push({prefix:'mod-state',root:storage});
   }
   return extras;

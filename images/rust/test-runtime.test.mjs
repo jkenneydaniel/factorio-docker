@@ -26,3 +26,32 @@ test('startup health proof requires a complete game line and never combines unre
  const s=startupEvidence();assert.equal(s.observe('Server start'),false);assert.equal(s.observe('unrelated diagnostic\n','stderr'),false);assert.equal(s.observe('up complete\n'),true);assert.equal(s.observe('later log\n'),true);
  assert.equal(startupEvidence().observe('WebRCON ready\n'),false);assert.equal(startupEvidence().observe('Server startup complete'),false);assert.equal(startupEvidence().observe('chat: Server startup complete\n'),false);
 });
+
+async function carbonFixture(t){
+ const f=await fixture(t);await fs.mkdir(path.join(f.root,'carbon/managed'),{recursive:true});
+ for(const name of ['libdoorstop.so','carbon/managed/Carbon.Preloader.dll'])await fs.writeFile(path.join(f.root,name),'reviewed loader');
+ await fs.writeFile(path.join(f.root,'.lobby-goblin-mods.json'),JSON.stringify({format:1,status:'complete',framework:'carbon'}));return f;
+}
+test('managed Carbon disables framework and hook downloads before boot without changing reviewed loaders',async t=>{
+ const f=await carbonFixture(t);await startup(f.env,f.root);
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(f.root,'carbon/config.json'),'utf8')),{SelfUpdating:{Enabled:false,HookUpdates:false}});
+ for(const name of ['libdoorstop.so','carbon/managed/Carbon.Preloader.dll'])assert.equal(await fs.readFile(path.join(f.root,name),'utf8'),'reviewed loader');
+});
+test('Carbon pinning preserves existing settings and becomes read-only after its first preparation',async t=>{
+ const f=await carbonFixture(t),target=path.join(f.root,'carbon/config.json');
+ await fs.writeFile(target,JSON.stringify({Language:'de',SelfUpdating:{Enabled:true,HookUpdates:true,RedirectUri:'preserved'},Compiler:{EnableProxy:false}}),{mode:0o640});
+ await startup(f.env,f.root);const prepared=await fs.readFile(target,'utf8');
+ assert.deepEqual(JSON.parse(prepared),{Language:'de',SelfUpdating:{Enabled:false,HookUpdates:false,RedirectUri:'preserved'},Compiler:{EnableProxy:false}});
+ assert.equal((await fs.stat(target)).mode&0o777,0o640);await fs.utimes(target,1,1);await startup(f.env,f.root);
+ assert.equal(await fs.readFile(target,'utf8'),prepared);assert.equal((await fs.stat(target)).mtimeMs,1000);
+});
+test('Carbon preparation refuses malformed, oversized and linked configuration without changing outside files',async t=>{
+ const f=await carbonFixture(t),target=path.join(f.root,'carbon/config.json');
+ for(const value of ['{broken','[]','null','{"SelfUpdating":[]}','{"SelfUpdating":"enabled"}',JSON.stringify({large:'x'.repeat(512*1024)})]){
+  await fs.writeFile(target,value);await assert.rejects(startup(f.env,f.root));assert.equal(await fs.readFile(target,'utf8'),value);
+ }
+ await fs.unlink(target);const outside=path.join(f.root,'outside.json');await fs.writeFile(outside,'{}');await fs.symlink(outside,target);
+ await assert.rejects(startup(f.env,f.root),/regular file/);assert.equal(await fs.readFile(outside,'utf8'),'{}');
+ await fs.unlink(target);await fs.rename(path.join(f.root,'carbon'),path.join(f.root,'outside-carbon'));await fs.symlink(path.join(f.root,'outside-carbon'),path.join(f.root,'carbon'));
+ await assert.rejects(startup(f.env,f.root),/linked/);assert.equal(await fs.stat(path.join(f.root,'outside-carbon/config.json')).catch(()=>null),null);
+});

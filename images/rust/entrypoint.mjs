@@ -2,10 +2,27 @@
 import fs from 'node:fs/promises';
 import {writeFileSync,unlinkSync} from 'node:fs';
 import path from 'node:path';
+import {randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createWebRcon} from './transport.js';
 const check=(value,message)=>{if(!value)throw Error(message);};
+async function pinCarbon(root){
+ const directory=path.join(root,'carbon'),target=path.join(directory,'config.json');
+ check((await fs.lstat(directory)).isDirectory()&&await fs.realpath(directory)===directory,'Carbon configuration directory cannot be linked');
+ const stat=await fs.lstat(target).catch(error=>{if(error.code!=='ENOENT')throw error;return null;});
+ check(!stat||stat.isFile()&&stat.size<=512*1024&&await fs.realpath(target)===target,'Carbon configuration must be a regular file of at most 512 KiB');
+ const config=stat?JSON.parse(await fs.readFile(target,'utf8')):{};
+ check(config&&typeof config==='object'&&!Array.isArray(config),'Invalid Carbon configuration');
+ const updating=config.SelfUpdating??{};
+ check(updating&&typeof updating==='object'&&!Array.isArray(updating),'Invalid Carbon self-update configuration');
+ if(updating.Enabled===false&&updating.HookUpdates===false)return;
+ // Managed frameworks stay at the reviewed package checksum. Carbon otherwise
+ // replaces its own DLLs at boot, invalidating verified backup and recovery.
+ config.SelfUpdating={...updating,Enabled:false,HookUpdates:false};
+ const temporary=target+'.lg-'+randomUUID();
+ try{await fs.writeFile(temporary,JSON.stringify(config,null,2)+'\n',{flag:'wx',mode:stat?stat.mode&0o777:0o644});await fs.rename(temporary,target);}finally{await fs.rm(temporary,{force:true});}
+}
 export async function startup(env=process.env,root='/steamcmd/rust'){
  check(/^[A-Za-z0-9_-]{1,64}$/.test(env.RUST_SERVER_IDENTITY||''),'Invalid Rust identity');
  check(/^[A-Za-z0-9_-]{32,128}$/.test(env.RUST_RCON_PASSWORD||''),'A generated RCON password is required');
@@ -35,6 +52,7 @@ export async function startup(env=process.env,root='/steamcmd/rust'){
   check(marker.format===1&&marker.status==='complete'&&['none','oxide','carbon'].includes(marker.framework),'Framework installation is incomplete; recover it from Mods before starting');
   if(marker.framework==='carbon'){
    for(const name of ['libdoorstop.so','carbon/managed/Carbon.Preloader.dll']){const target=path.join(root,name);check((await fs.lstat(target)).isFile()&&await fs.realpath(target)===target,'Carbon loader is missing or linked');}
+   await pinCarbon(root);
    Object.assign(modEnv,{TERM:'xterm',LD_PRELOAD:path.join(root,'libdoorstop.so'),DOORSTOP_ENABLED:'1',DOORSTOP_TARGET_ASSEMBLY:path.join(root,'carbon/managed/Carbon.Preloader.dll')});
   }
   if(marker.framework==='oxide'){const target=path.join(root,'RustDedicated_Data/Managed/Oxide.Rust.dll');check((await fs.lstat(target)).isFile()&&await fs.realpath(target)===target,'Oxide loader is missing or linked');}
