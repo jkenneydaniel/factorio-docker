@@ -20,7 +20,7 @@ export function remoteGateway({env,controller,token}){
    const key=req.socket.remoteAddress,entry=attempts.get(key)||{count:0,expires:now+600000};assert(entry.count<30&&(attempts.has(key)||attempts.size<2000),'Too many pairing attempts. Retry in ten minutes.',429);entry.count++;attempts.set(key,entry);
   }
   const bearer=req.headers.authorization;assert(pair||typeof bearer==='string'&&/^Bearer [A-Za-z0-9_-]{43}$/.test(bearer),'Remote host authentication is required.',401);
-  if(!pair&&env.AGENT_TRANSPORT==='persistent'&&req.method==='POST'){
+  if(!pair&&req.method==='POST'){
    const authorization=await fetch(controller+'/remote/v1/authorize',{headers:{authorization:'Bearer '+token,'x-host-token':bearer.slice(7)},redirect:'error',signal:AbortSignal.timeout(5000)});await authorization.body?.cancel();assert(authorization.ok,'This panel is not paired or its access was revoked.',authorization.status===401?401:502);
   }
   const body=req.method==='POST'?await readBody(req,route.endsWith('/upload')?128*1024**2:1024**2):undefined;

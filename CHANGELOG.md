@@ -19,6 +19,8 @@
   restart. Existing manual framework/upload tools remain available.
 - Resume a previously running game after a failed mod preparation when the
   administrator chose automatic restart; preserve failed-job and recovery details.
+- Authenticate paired-panel POST requests before buffering upload or JSON bodies
+  on legacy HTTPS agents and hosted panels as well as persistent agents.
 
 ## 0.3.5-alpha — 2026-10-22
 

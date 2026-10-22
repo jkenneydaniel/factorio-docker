@@ -63,7 +63,7 @@ test('agent-only pairing and scoped creation work through HTTPS-origin gateways 
  assert.equal((await call('/accounts')).status,404);assert.equal((await call('/hosts')).status,404);assert.equal((await call('/servers',{method:'POST',body:'{}',headers:{origin:'https://wrong.test'}})).status,403);assert.equal((await call('/status',{headers:{authorization:'Bearer invalid'}})).status,401);
  assert.equal((await wireFetch('http://127.0.0.1:'+f.edge.address().port+'/',{headers:{host:'host.example.test'}})).status,404);
  f.setOffline(true);const offline=await f.central.hosts.list();assert.equal(offline.hosts[0].connected,true);assert.equal(offline.hosts[1].connected,false);f.setOffline(false);
- await f.remote.hosts.enrollment({operation:'revoke',id:outgoing.pairId});assert.equal((await call('/status')).status,401);assert.ok(f.central.calls.every(c=>c.method==='GET'));assert.ok(f.remote.calls.every(c=>c.method==='GET'));
+ await f.remote.hosts.enrollment({operation:'revoke',id:outgoing.pairId});assert.equal((await call('/status')).status,401);assert.equal((await call('/servers',{method:'POST',body:'{}'})).status,401);assert.ok(f.central.calls.every(c=>c.method==='GET'));assert.ok(f.remote.calls.every(c=>c.method==='GET'));
 });
 test('central login keeps remote reads, administrator changes and CSRF checks scoped to host and server',async t=>{
  const f=await pair(t),auth=path.join(f.central.root,'accounts');await fs.mkdir(auth);await writeJSON(path.join(auth,'users.json'),{Admin:{...hashPassword('test-admin-long-password'),role:'admin'},Viewer:{...hashPassword('test-viewer-long-password'),role:'viewer'}});
