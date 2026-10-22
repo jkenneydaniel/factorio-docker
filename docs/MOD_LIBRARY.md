@@ -80,6 +80,11 @@ start and other game operations until recovery. Stop the server and use
 **Recover mod change**. Recovery restores previous sources and leaves the server
 stopped. If a file was edited outside the transaction, automatic rollback
 preserves it; explicit recovery keeps an extra private copy before restoring.
+If preparation fails before any reviewed files are applied, automatic mode
+resumes a server that this operation cleanly stopped. An already stopped server
+remains stopped, and incomplete transactions still require recovery before
+startup. A failed restart is reported explicitly while preserving the original
+preparation error.
 A startup failure after successful installation leaves the new files installed
 and reports that the server did not become ready. Inspect Logs before retrying.
 

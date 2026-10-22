@@ -73,10 +73,19 @@ export function createModLibrary({state,provider,adapter,assertStopped,canPlan=(
     const plan=await readJSON(path.join(directory,'plan.json'),null),context=await inventory();
     assert(plan&&now()-plan.created<900000&&plan.scope===context.scope&&plan.revision===modRevision(context),'The installation changed or this review expired. Review the mod again.',409);
     const changes=[];for(const file of plan.files){safeModFile(file.name);const data=file.sha256===null?null:await fs.readFile(path.join(directory,String(file.index)));assert(data===null||digest(data)===file.sha256,'Reviewed download failed verification.',409);changes.push({...file,data});}
-    await adapter.prepare(plan.mode);await adapter.assertApplying(plan.mode);
-    const store=await adapter.store(context),previous=await records(),transaction={mode:plan.mode,id:crypto.randomUUID(),phase:'applying',scope:context.scope,records:previous,files:[]},history=path.join(storage,'history',transaction.id);await realDirectory(history,{create:true});
-    for(const [index,file] of changes.entries()){const before=context.files.get(file.name);if(before)await fs.writeFile(path.join(history,String(index)),before.data,{flag:'wx',mode:0o600});transaction.files.push({name:file.name,index,before:before?digest(before.data):null,after:file.sha256,mode:before?.mode??file.mode});}
-    await adapter.assertApplying(plan.mode);assert(modRevision(await inventory())===plan.revision,'Mod files changed after review.',409);await writeJSON(journalFile,transaction);
+    let stoppedForInstall=false,store,previous,transaction;
+    try{
+      stoppedForInstall=await adapter.prepare(plan.mode)===true;await adapter.assertApplying(plan.mode);
+      store=await adapter.store(context);previous=await records();transaction={mode:plan.mode,id:crypto.randomUUID(),phase:'applying',scope:context.scope,records:previous,files:[]};
+      const history=path.join(storage,'history',transaction.id);await realDirectory(history,{create:true});
+      for(const [index,file] of changes.entries()){const before=context.files.get(file.name);if(before)await fs.writeFile(path.join(history,String(index)),before.data,{flag:'wx',mode:0o600});transaction.files.push({name:file.name,index,before:before?digest(before.data):null,after:file.sha256,mode:before?.mode??file.mode});}
+      await adapter.assertApplying(plan.mode);assert(modRevision(await inventory())===plan.revision,'Mod files changed after review.',409);await writeJSON(journalFile,transaction);
+    }catch(error){
+      // No mod files have changed yet. Restore only a server we cleanly stopped,
+      // and retain the startup gate if a transaction journal needs recovery.
+      if(stoppedForInstall)try{await assertReady();await adapter.finish(plan.mode);}catch{throw Error('Mod preparation failed before applying the reviewed files, and the server could not be restarted. Check Mods and Logs before starting it again.',{cause:error});}
+      throw error;
+    }
     try{
       for(const file of changes){await adapter.assertApplying(plan.mode);const current=await store.read(file.name),expected=context.files.get(file.name);assert((current?digest(current.data):null)===(expected?digest(expected.data):null),'Mod files changed during installation.',409);await store.write(file.name,file.data,file.mode);}
       const next={...previous};for(const release of plan.releases)next[context.scope+'/'+release.id]={...release,source:provider.source};if(plan.operation==='remove')delete next[context.scope+'/'+plan.mod];

@@ -18,7 +18,7 @@ export function createFactorioModLibrary(ctx,{fetcher=fetch,start,stop}={}){
     store:async()=>store,
     policy:async()=>({running:!!(await ctx.host.info()).State?.Running,hotAvailable:false}),
     reviewMode:async mode=>{assert(mode!=='hot','Factorio requires a restart for mod changes.',409);if(mode==='stopped')await assertStopped();},
-    prepare:async mode=>{if(mode==='restart'&&(await ctx.host.info()).State?.Running)await stop();},
+    prepare:async mode=>{if(mode!=='restart'||!(await ctx.host.info()).State?.Running)return false;await stop();return true;},
     assertApplying:assertStopped,finish:async mode=>{if(mode==='restart')await start();},
     async accountStatus(){return {connected:!!(await credentials())?.token};},
     async account(body){

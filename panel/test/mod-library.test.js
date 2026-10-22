@@ -27,16 +27,16 @@ async function factorio(t){
   const packages=new Map(),mods=new Map();
   function release(name,version,dependencies=['base >= 2.0.0']){const info={name,version,title:name,factorio_version:'2.0',dependencies},data=makeZip([{name:name+'_'+version+'/info.json',data:Buffer.from(JSON.stringify(info))},{name:name+'_'+version+'/control.lua',data:Buffer.from('-- fixture')}]),value={version,info_json:info,sha1:digest(data,'sha1'),download_url:'/download/'+name+'/'+version};packages.set(value.download_url,data);const mod=mods.get(name)||{name,title:name,summary:'A useful fixture',owner:'fixture',downloads_count:42,releases:[]};mod.releases.push(value);mod.latest_release=value;mods.set(name,mod);return value;}
   release('dependency','1.0.0');release('example','1.0.0',['base >= 2.0.0','dependency >= 1.0.0']);
-  let running=false,corrupt=false,starts=0,stops=0,startError=false;const calls=[];
+  let running=false,corrupt=false,starts=0,stops=0,startError=false,afterStop=async()=>{};const calls=[];
   const fetcher=async input=>{const url=new URL(input);calls.push(url.pathname);if(url.pathname==='/api/mods')return Response.json({results:[...mods.values()]});if(url.pathname.startsWith('/api/mods/')){const id=decodeURIComponent(url.pathname.split('/')[3]);return mods.has(id)?Response.json(mods.get(id)):new Response('',{status:404});}if(packages.has(url.pathname))return new Response(corrupt?Buffer.from('tampered'):packages.get(url.pathname));return new Response('',{status:404});};
   const ctx={config:{data,state},host:{info:async()=>({State:{Running:running},Image:'fixture-image',Config:{Image:'fixture:2.0.77'}})},docker:async()=>({Config:{Labels:{'factorio.version':'2.0.77'}}}),active:null,imageMigrationPending:false,updater:{busy:false}};
-  const library=createFactorioModLibrary(ctx,{fetcher,start:async()=>{starts++;if(startError)throw Error('fixture startup failure');running=true;},stop:async()=>{stops++;running=false;}});
+  const library=createFactorioModLibrary(ctx,{fetcher,start:async()=>{starts++;if(startError)throw Error('fixture startup failure');running=true;},stop:async()=>{stops++;running=false;await afterStop();}});
   const connect=()=>request(library,'/mod-library-account',{username:'fixture',token:'fixture_token_12345678901234567890'});
-  return {root,data,state,library,ctx,release,mods,calls,connect,run:value=>running=value,corrupt:()=>corrupt=true,failStart:()=>startError=true,lifecycle:()=>({running,starts,stops})};
+  return {root,data,state,library,ctx,release,mods,calls,connect,run:value=>running=value,corrupt:()=>corrupt=true,failStart:()=>startError=true,onStop:work=>afterStop=work,lifecycle:()=>({running,starts,stops})};
 }
 async function rust(t){
   const root=await temporary(t),game=path.join(root,'game'),state=path.join(root,'state');await fs.mkdir(path.join(game,'RustDedicated_Data/Managed'),{recursive:true});await fs.mkdir(state);await fs.mkdir(path.join(game,'server'),{recursive:true});await fs.writeFile(path.join(game,'server/world.sav'),'WORLD SENTINEL');
-  let version='1.0.0',running=false,commands=[],starts=0,stops=0,failReload=false,externalEdit=false;
+  let version='1.0.0',running=false,commands=[],starts=0,stops=0,failReload=false,externalEdit=false,afterStop=async()=>{};
   const source=()=>Buffer.from('[Info("Example", "Fixture", "'+version+'")]\nclass Example : RustPlugin {}');
   const metadata=()=>({name:'Example',slug:'example',title:'Example plugin',description:'Fixture plugin',author:'Fixture',distribution:'download',status_detail:{value:1},games_detail:[{slug:'rust'}],latest_release_version:version,latest_release_version_checksum:digest(source(),'sha1')});
   const archive=makeZip([{name:'RustDedicated_Data/Managed/Assembly-CSharp.dll',data:Buffer.from('patched fixture')},{name:'RustDedicated_Data/Managed/Oxide.Rust.dll',data:Buffer.from('framework fixture')}]);
@@ -46,8 +46,8 @@ async function rust(t){
   const mods=createModManager({root:game,state,assertStopped:stopCheck,command,fetcher});await mods.install((await mods.plan('oxide')).id);
   await fs.mkdir(path.join(game,'oxide/plugins'),{recursive:true});
   const ctx={config:{installRoot:game,state},active:null,updater:{busy:false},imageMigrationPending:false};
-  const library=createRustModLibrary(ctx,{mods,owned,fetcher,command,ready:async()=>assert(running,'Rust is not ready'),start:async()=>{starts++;running=true;},stop:async()=>{stops++;running=false;}});
-  return {root,game,state,library,ctx,fetcher,mods,commands,version:value=>version=value,run:value=>running=value,failReload:()=>failReload=true,editOnReload:()=>externalEdit=true,lifecycle:()=>({running,starts,stops})};
+  const library=createRustModLibrary(ctx,{mods,owned,fetcher,command,ready:async()=>assert(running,'Rust is not ready'),start:async()=>{starts++;running=true;},stop:async()=>{stops++;running=false;await afterStop();}});
+  return {root,game,state,library,ctx,fetcher,mods,commands,version:value=>version=value,run:value=>running=value,failReload:()=>failReload=true,editOnReload:()=>externalEdit=true,onStop:work=>afterStop=work,lifecycle:()=>({running,starts,stops})};
 }
 test('Factorio catalogue needs no upstream account, downloads need a private account, and review never mutates game files',async t=>{
   const f=await factorio(t),browse=await view(f.library,'browse');assert.equal(browse.items.length,2);assert.equal(browse.account.connected,false);
@@ -140,4 +140,45 @@ test('both real web modules restrict library reads, reviews and account changes 
     assert.equal(proxied,before,'Unauthorized requests must not reach the controller');
     assert.equal((await fetch(origin+'/api/mod-library',{headers:{cookie:admin.cookie}})).status,200);assert.equal((await fetch(origin+'/api/mod-library-plan',{method:'POST',headers:{origin,cookie:admin.cookie,'x-csrf-token':admin.csrf,'content-type':'application/json'},body:'{}'})).status,200);
   }
+});
+
+for(const [game,fixture] of [['Factorio',factorio],['Rust',rust]]){
+ test(game+' resumes a server it stopped when recovery-copy setup fails before mod writes',async t=>{
+  const f=await fixture(t);if(f.connect)await f.connect();f.run(true);
+  const storage=path.join(f.state,game==='Rust'?'mods/mod-library':'mod-library'),plan=await f.library.plan({id:'example',mode:'restart'});
+  await fs.writeFile(path.join(storage,'history'),'BLOCK HISTORY CREATION');
+  await assert.rejects(f.library.install(plan.id),/Mod directories/);
+  assert.deepEqual(f.lifecycle(),{running:true,starts:1,stops:1});assert.equal((await view(f.library)).items.length,0);await f.library.assertReady();
+  assert.equal(await fs.readFile(game==='Rust'?path.join(f.game,'server/world.sav'):path.join(f.data,'saves/world.zip'),'utf8'),'WORLD SENTINEL');
+ });
+ test(game+' leaves an already stopped server stopped when pre-transaction setup fails',async t=>{
+  const f=await fixture(t);if(f.connect)await f.connect();
+  const storage=path.join(f.state,game==='Rust'?'mods/mod-library':'mod-library'),plan=await f.library.plan({id:'example',mode:'restart'});
+  await fs.writeFile(path.join(storage,'history'),'BLOCK HISTORY CREATION');
+  await assert.rejects(f.library.install(plan.id),/Mod directories/);assert.deepEqual(f.lifecycle(),{running:false,starts:0,stops:0});
+ });
+ test(game+' resumes after a post-stop revision mismatch without replacing outside edits',async t=>{
+  const f=await fixture(t);if(f.connect)await f.connect();f.run(true);
+  const plan=await f.library.plan({id:'example',mode:'restart'}),changed=game==='Rust'?path.join(f.game,'oxide/plugins/Outside.cs'):path.join(f.data,'mods/mod-settings.dat');
+  f.onStop(()=>fs.writeFile(changed,'OUTSIDE EDIT'));
+  await assert.rejects(f.library.install(plan.id),/Mod files changed after review/);assert.deepEqual(f.lifecycle(),{running:true,starts:1,stops:1});
+  assert.equal(await fs.readFile(changed,'utf8'),'OUTSIDE EDIT');await f.library.assertReady();
+ });
+}
+test('a failed restart after pre-transaction failure reports the stopped state and preserves the original failure',async t=>{
+ const f=await factorio(t);await f.connect();f.run(true);f.failStart();
+ const plan=await f.library.plan({id:'example',mode:'restart'});await fs.writeFile(path.join(f.state,'mod-library/history'),'BLOCK HISTORY CREATION');
+ await assert.rejects(f.library.install(plan.id),error=>/before applying.*files.*could not be restarted/i.test(error.message)&&/Mod directories/.test(error.cause?.message));
+ assert.deepEqual(f.lifecycle(),{running:false,starts:1,stops:1});await f.library.assertReady();
+});
+
+test('pre-transaction cleanup never bypasses an existing recovery gate to restart the game',async t=>{
+ const f=await factorio(t);await f.connect();f.run(true);
+ const storage=path.join(f.state,'mod-library'),plan=await f.library.plan({id:'example',mode:'restart'});
+ f.onStop(async()=>{await fs.writeFile(path.join(storage,'history'),'BLOCK HISTORY CREATION');await fs.writeFile(path.join(storage,'transaction.json'),JSON.stringify({phase:'applying'}));});
+ await assert.rejects(f.library.install(plan.id),/could not be restarted/);assert.deepEqual(f.lifecycle(),{running:false,starts:0,stops:1});await assert.rejects(f.library.assertReady(),/needs recovery/);
+});
+test('a Rust hot-apply preparation failure leaves the server online without a lifecycle action',async t=>{
+ const f=await rust(t);f.run(true);const plan=await f.library.plan({id:'example',mode:'hot'});await fs.writeFile(path.join(f.state,'mods/mod-library/history'),'BLOCK HISTORY CREATION');
+ await assert.rejects(f.library.install(plan.id),/Mod directories/);assert.deepEqual(f.lifecycle(),{running:true,starts:0,stops:0});assert.equal((await view(f.library)).items.length,0);assert.deepEqual(f.commands,[]);
 });

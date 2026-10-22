@@ -1,3 +1,15 @@
+## Unreleased: PR 9 feedback, October 22, 2026
+
+- Node 24 regression: **332 passed, zero failed, one skipped** (333 total).
+- Both games resume a server cleanly stopped by automatic mod installation if
+  preparation fails before the transaction starts. Already stopped games remain
+  stopped, Rust hot mode stays online, and pending recovery still blocks startup.
+- Nine added fault-injection regressions cover failed recovery-copy setup,
+  post-stop file revisions, failed restarts and recovery gates. They first
+  reproduced the relevant failure paths; world sentinels remain unchanged.
+- Full release/updater, permission and transport checks passed. All lifecycle
+  actions are synthetic; no real game host, running server or world was touched.
+
 ## Unreleased: final diff review, October 22, 2026
 
 - Node 24 regression: **323 passed, zero failed, one skipped** (324 total).

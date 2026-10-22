@@ -15,7 +15,7 @@ export function createRustModLibrary(ctx,{mods,owned,start,stop,command,ready,fe
     async store(context){assert(installRoot&&frameworks[context.scope],'Install Oxide or Carbon before changing plugins.',409);return createModStore(path.join(installRoot,frameworks[context.scope].plugins),{accept:name=>/\.cs(?:\.disabled)?$/.test(name)});},
     policy:async()=>({running:!!(await owned()).State?.Running,hotAvailable:true}),
     async reviewMode(mode){const status=await mods.status();assert(frameworks[status.framework],'Install Oxide or Carbon first.',409);if(mode==='stopped')await assertStopped();if(mode==='hot'){await ready();assert(await realDirectory((await adapter.store({scope:status.framework})).root),'The framework plugin folder is not ready. Choose automatic stop/start.',409);}},
-    async prepare(mode){if(mode==='restart'&&(await owned()).State?.Running)await stop();},
+    async prepare(mode){if(mode!=='restart'||!(await owned()).State?.Running)return false;await stop();return true;},
     assertApplying:async mode=>{if(mode==='hot'){await mods.assertReady();await ready();}else await assertStopped();},
     finish:async mode=>{if(mode==='restart')await start();},
     async afterApply(plan,context){const prefix=context.scope==='carbon'?'c.':'oxide.';for(const file of plan.files){if(!file.name.endsWith('.cs'))continue;const name=file.name.slice(0,-3),operation=file.sha256===null?'unload':context.files.has(file.name)?'reload':'load';const output=await command(prefix+operation+' '+name);assert(!/failed|error|exception/i.test(output),'Plugin reload reported an error. Check Logs.',409);}},
