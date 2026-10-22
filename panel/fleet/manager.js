@@ -56,7 +56,7 @@ export class FleetManager{
   }
  }
  async submit(action,input,actor='administrator'){
-  assert(!this.active&&!this.settingsUpdating,'Wait for the current host operation to finish.',409);
+  assert(!this.active&&!this.settingsUpdating&&!this.agentUpdating,'Wait for the current host operation to finish.',409);
   if(action==='create')input=validateCreation(input);
   else if(action==='publish'){const s=this.server(input.serverId);assert(!s.migration||s.migration.state==='complete','Complete the game image migration before publishing snapshots.',409);assert(s.state!=='removed'&&input.confirm===true,'Confirm the save and possible server interruption.');assert(typeof input.title==='string'&&input.title.trim().length>=1&&input.title.length<=80&&!/[\x00-\x1f]/.test(input.title),'Use a snapshot title of 1–80 characters.');input={serverId:s.id,title:input.title.trim(),confirm:true};}
   else if(action==='remove'){const s=this.server(input.serverId);assert(s.state!=='removed'&&input.confirm===true&&input.name===s.name,'Type the server name to remove its containers.');input={serverId:s.id,confirm:true};}

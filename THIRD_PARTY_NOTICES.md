@@ -23,6 +23,9 @@ respective owners.
   dependencies. Their licenses and component notices remain in their images.
 - [ws](https://github.com/websockets/ws) is the MIT-licensed Rust WebRCON client.
   Its license is included with the installed dependency in the panel image.
+- [ssh2](https://github.com/mscdex/ssh2) is the MIT-licensed SSH client used for
+  administrator-requested host installation. Its license and dependency notices
+  are included with the installed packages in the panel image.
 
 The compact world preset in `panel/world-defaults.json` contains the panel's
 exposed configuration keys and numeric/boolean standard values. It is generated

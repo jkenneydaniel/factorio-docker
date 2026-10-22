@@ -29,7 +29,7 @@ async function fixture({signedIn=false,completed=false,role='admin',invitation=f
     else if(route==='/api/jobs')data={jobs:[],active:null};
     return {ok,json:async()=>data};
   };
-  const context=vm.createContext({document:{querySelector:node,querySelectorAll:()=>[]},location:{origin:'http://localhost:8082',hash:invitation?'#register='+'a'.repeat(43):''},history:{replaceState(){}},welcomeView,fetch,setInterval(){},console,FormData:class{constructor(form){return Object.entries(form.values);}}});
+  const context=vm.createContext({document:{querySelector:node,querySelectorAll:()=>[]},location:{origin:'http://localhost:8082',hash:invitation?'#register='+'a'.repeat(43):''},history:{replaceState(){}},welcomeView,mountHosts:()=>({refresh:async()=>[{id:'a'.repeat(32),name:'This host',local:true,connected:true}],render(){},progress(){},pairing(){}}),hostRoute:(host,route)=>route,serverKey:s=>s.id,fetch,setInterval(){},console,FormData:class{constructor(form){return Object.entries(form.values);}}});
   await vm.runInContext('(async()=>{'+source+'})()',context);
   return {node,calls,get completed(){return completed;},submit(){dispatching=true;const form=node('#register');return form.onsubmit({preventDefault(){},get currentTarget(){return dispatching?form:null;}});}};
 }

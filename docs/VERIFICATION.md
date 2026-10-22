@@ -1,3 +1,119 @@
+## Unreleased: PR 9 feedback, October 22, 2026
+
+- Node 24 regression: **332 passed, zero failed, one skipped** (333 total).
+- Both games resume a server cleanly stopped by automatic mod installation if
+  preparation fails before the transaction starts. Already stopped games remain
+  stopped, Rust hot mode stays online, and pending recovery still blocks startup.
+- Nine added fault-injection regressions cover failed recovery-copy setup,
+  post-stop file revisions, failed restarts and recovery gates. They first
+  reproduced the relevant failure paths; world sentinels remain unchanged.
+- Full release/updater, permission and transport checks passed. All lifecycle
+  actions are synthetic; no real game host, running server or world was touched.
+
+## Unreleased: final diff review, October 22, 2026
+
+- Node 24 regression: **323 passed, zero failed, one skipped** (324 total).
+- Corrected remote Factorio previews to accept the paired panel/user namespace
+  while retaining separate preview sessions for local users and different panels.
+  The regression uses a blocked preview queue and no game workers or Docker.
+- Corrected agent recovery to launch its detached helper from the current owned,
+  cached runtime. Recovery no longer depends on downloading an unavailable target
+  image; the regression refuses all image/registry operations and preserves games.
+- The complete suite retains mod-library, pairing, streaming, permissions,
+  installer, release privacy and frozen updater compatibility checks. Syntax and
+  staged diff checks passed. All new host activity used disposable fixtures.
+- No deployment, real game host, running server or world was accessed or changed.
+
+## Unreleased: persistent agent connections, October 22, 2026
+
+- Node 24 local regression: **321 passed, zero failed, one skipped** (322 total).
+  Nine dedicated transport tests use disposable TLS/HTTP/2 servers and synthetic
+  Docker only: stable private identity, certificate pinning before credentials,
+  connection reuse, multiplexed large downloads/uploads, byte-bounded backpressure,
+  cancellation, truncated transfers, reconnect without command replay, stalled-handshake shutdown,
+  manual pairing, panel restart, live-session revocation and pinned health probes.
+- Fresh preparations default to TCP 24443, accept a configurable dedicated port
+  and private/VPN addresses, and publish no agent ports 80/443. Existing HTTPS
+  manifests, pairings and canonical installation records remain compatible.
+  SSH setup carries the complete fingerprint-bearing pairing code. Fake Docker
+  update checks preserve the agent port, transport environment and identity mount.
+- Chrome verified the private-address/custom-port setup review and dedicated-port
+  manual guidance using the synthetic loopback UI. No installation was submitted.
+- Source/runtime packaging, privacy checks and frozen v0.2.0/v0.3.3 updater
+  compatibility passed. Syntax and diff checks passed.
+- No Docker daemon, real SSH host, game process or world was accessed. The
+  updated runtime image was not built or published. Native container startup,
+  external routing/firewalls and Windows/macOS agent launcher acceptance remain
+  separate checks. Nothing was deployed. New agents use pairing-pinned TLS;
+  the earlier ACME record below still applies to hosted panels and legacy agents.
+  See [connection setup and limits](REMOTE_HOSTS.md).
+
+## Unreleased: public IP and hostname HTTPS, October 22, 2026
+
+- Node 24 local regression: **311 passed, zero failed, one skipped** (312 total).
+  Nine HTTPS tests cover public IPv4/IPv6 and hostname configuration, private and
+  reserved address rejection, explicit Let’s Encrypt/short-lived IP profiles,
+  persistent certificate storage, no-SNI policy, exact origin checks, Secure
+  registration cookies, manual/SSH preparation and unchanged older manifests.
+- The official Caddy 2.11.7 macOS ARM64 archive passed its published SHA-512
+  checksum. Its `validate` command accepted the generated hostname, IPv4 and IPv6
+  configurations with all network access denied. This did not start a gateway
+  or request certificates.
+- Chrome used the disposable loopback preview: private-IP rejection and public
+  IPv4/IPv6 setup reviews passed; IPv6 URLs use brackets. No setup was installed.
+- Source/runtime packaging and frozen v0.2.0/v0.3.3 updater compatibility passed.
+  The release privacy guard remains intact; RFC 1918 validation fixtures use
+  numeric octets rather than literal private deployment addresses.
+- No Docker daemon, real SSH host, game process or world was accessed. Public
+  ACME issuance, automatic renewal over time, external reachability and native
+  container gateway startup still require separate disposable acceptance.
+  Nothing was published or deployed. See [HTTPS setup](INSTALLATION.md#hosted-reachability).
+
+## Unreleased: remote game hosts, October 22, 2026
+
+- Node 24 local regression: **302 passed, zero failed, one skipped** (303 total),
+  including the preserved live mod library and frozen updater compatibility checks.
+- Thirteen host tests cover expiring/single-use pairing, retry after a lost
+  response, revocation, private credential persistence, scoped game routes,
+  administrator/viewer/CSRF checks, manual preparation and unchanged reruns,
+  SSH review ownership/expiry, and generated script syntax.
+- The actual SSH client/server ran only on disposable loopback fixtures. Probing
+  sent no authentication; confirmed fingerprints allowed the synthetic command;
+  changed fingerprints prevented authentication and execution.
+- Fake Docker checks cover management-only replacement, unhealthy rollback,
+  foreign ownership refusal, stale/expired update reviews, immutable runtime
+  verification, interrupted recovery, overlapping requests and lost start replies.
+  Game/container sentinels and storage remain unchanged.
+- Desktop Chrome checks passed manual pairing, SSH review/confirmation,
+  synthetic setup progress, reviewed agent alignment, remote Rust creation
+  destination, scoped Factorio controls and viewer-only host access.
+- Release bundles contain all agent/runtime files, import the agent modules and
+  retain compatibility with frozen v0.2.0/v0.3.3 updater validators.
+- No real Docker daemon, remote host, game process or existing world was used.
+  Real SSH bootstrap, agent container replacement, public HTTPS and Windows/macOS
+  agent launchers remain outside this acceptance. Nothing was published or
+  deployed. See [setup and operational limits](REMOTE_HOSTS.md).
+
+## Unreleased: live mod library, October 22, 2026
+
+- Node 24 local regression: **289 passed, zero failed, one skipped** (290 total).
+  The skip is the Linux ownership check on macOS. Syntax and diff checks passed.
+- Eighteen dedicated mod-library tests cover Factorio dependencies, compatible
+  updates, conflicts, private download credentials, stale/expired reviews,
+  checksum failures, explicit stop/start, Rust hot command dispatch, disabled
+  updates, Carbon paths/commands, permissions, outside edits and interrupted
+  recovery. World/settings/configuration sentinels remain unchanged in fixtures.
+- Both real web modules reject unauthenticated/viewer library access and reject
+  mutations without administrator CSRF verification. Frozen updater validators
+  and extracted runtime/package checks include the new library files.
+- Desktop Chrome checks used the actual Factorio/Rust UI with loopback-only,
+  synthetic in-memory catalogues and jobs. Browsing, searching, Installed,
+  Updates, lifecycle choice, review/cancel/confirm and simulated hot update passed.
+- No Docker engine, game process, running server or existing world was accessed.
+  Native dependency/game compatibility, asynchronous compilation and real plugin
+  reload still need separate disposable runtime acceptance. These checks do not
+  establish deployment or live gameplay acceptance. See [usage and limits](MOD_LIBRARY.md).
+
 ## Unreleased: full isolated Ubuntu installer acceptance, October 22, 2026
 
 - Built the matching Linux amd64 runtime and exercised the real installer in a

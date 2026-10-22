@@ -3,11 +3,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import net from 'node:net';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createInterface} from 'node:readline/promises';
 import {sourceFile} from './source-layout.js';
+import {httpsAddress,httpsOrigin,httpsGateway} from './https.js';
 
 export const INSTALLER_FORMAT=1;
 const sourceRoot=fileURLToPath(new URL('../',import.meta.url));
@@ -17,25 +17,26 @@ const digest=text=>crypto.createHash('sha256').update(text).digest('hex');
 const exists=async file=>{try{return await fs.lstat(file);}catch(error){if(error.code==='ENOENT')return null;throw error;}};
 
 export function optionsFor(input={},version){
-  const mode=input.mode??'local',address=input.address??'localhost',domain=input.domain??'',port=Number(input.port??8082),memory=Number(input.memory??4);
+  const mode=input.mode??'local',address=input.address??'localhost',domain=mode==='hosted'?httpsAddress(input.domain):input.domain??'',port=Number(input.port??8082),memory=Number(input.memory??4);
   insist(['local','hosted'].includes(mode),'Choose local or hosted installation.');
-  insist(hostname(address),'Use a game hostname or IPv4 address without a scheme, path or port.');
+  insist(hostname(address),'Use a game hostname or IPv4 address without a scheme, path or port. For IPv6 HTTPS, set a separate --address for games.');
   insist(Number.isInteger(port)&&port>=1024&&port<=65535,'Choose a panel port between 1024 and 65535.');
   insist(Number.isInteger(memory)&&memory>=2&&memory<=128,'Choose a memory budget between 2 and 128 GiB.');
-  if(mode==='hosted')insist(hostname(domain)&&domain.includes('.')&&!net.isIP(domain)&&!domain.endsWith('.localhost')&&!domain.endsWith('.local'),'Hosted setup needs a public DNS hostname, such as games.example.com.');
-  else insist(!domain,'A domain is only used with --mode hosted.');
+  if(mode!=='hosted')insist(!domain,'An HTTPS address is only used with --mode hosted.');
   const image=input.image||'ghcr.io/jkenneydaniel/lobby-goblin:'+version;
   insist(/^ghcr\.io\/jkenneydaniel\/lobby-goblin(?::[A-Za-z0-9_.-]+|@sha256:[a-f0-9]{64})$/.test(image),'Use a versioned Lobby Goblin runtime image from its official registry.');
-  return {mode,address,domain,port,memory,image,origin:mode==='hosted'?'https://'+domain:'http://localhost:'+port};
+  return {mode,address,domain,port,memory,image,origin:mode==='hosted'?httpsOrigin(domain):'http://localhost:'+port};
 }
 
 export function installationFiles(options,template,id=crypto.randomBytes(16).toString('hex')){
   insist(/^[a-f0-9]{32}$/.test(id),'Invalid installation identity.');
   const o=options,project='lobby-goblin-fleet-'+id;
   const env=[['FLEET_ID',id],['FLEET_IMAGE',o.image],['FLEET_ADDRESS',o.address],['FLEET_PANEL_PORT',o.port],['FLEET_PANEL_BIND','127.0.0.1'],['FLEET_GAME_BIND','0.0.0.0'],['FLEET_GAME_PORT_BASE',35000],['FLEET_MEMORY_GIB',o.memory]].map(([key,value])=>key+'='+value).join('\n')+'\n';
-  const overrides={services:{'fleet-controller':{environment:{FLEET_PANEL_URL:o.origin}},'fleet-web':{environment:{PANEL_HOSTS:[o.domain,'localhost','127.0.0.1'].filter(Boolean).join(','),PANEL_ORIGIN:o.origin}}}};
+  const overrides={services:{'fleet-controller':{environment:{FLEET_PANEL_URL:o.origin}},'fleet-web':{environment:{PANEL_HOSTS:[o.domain?new URL(o.origin).hostname:'','localhost','127.0.0.1'].filter(Boolean).join(','),PANEL_ORIGIN:o.origin}}}};
   if(o.mode==='hosted'){
-    overrides.services.gateway={image:'caddy:2.11.7-alpine',restart:'unless-stopped',command:['caddy','reverse-proxy','--from',o.domain,'--to','fleet-web:8080'],ports:['80:80/tcp','443:443/tcp'],volumes:['gateway-data:/data','gateway-config:/config'],networks:['management'],depends_on:{'fleet-web':{condition:'service_healthy'}},logging:{driver:'json-file',options:{'max-size':'5m','max-file':'2'}}};
+    const {command,configs,definition}=httpsGateway(o.domain,'fleet-web:8080');
+    overrides.services.gateway={image:'caddy:2.11.7-alpine',restart:'unless-stopped',command,configs,ports:['80:80/tcp','443:443/tcp'],volumes:['gateway-data:/data','gateway-config:/config'],networks:['management'],depends_on:{'fleet-web':{condition:'service_healthy'}},logging:{driver:'json-file',options:{'max-size':'5m','max-file':'2'}}};
+    overrides.configs=definition;
     overrides.volumes={'gateway-data':{name:project+'-https-data',labels:{'io.lobby-goblin.fleet':id}},'gateway-config':{name:project+'-https-config',labels:{'io.lobby-goblin.fleet':id}}};
   }
   const files={'.env.install':env,'fleet.compose.yaml':template,'install.compose.json':JSON.stringify(overrides,null,2)+'\n'};
@@ -120,7 +121,7 @@ async function startPreparedInstallation(directory,manifest,{execute=run,host,lo
   insist(JSON.stringify(await readInstallation(directory))===JSON.stringify(manifest),'The installation record changed. Review it before starting.');
   log('Starting only the new host manager. No game server is created.');
   await docker(['up','-d','--no-build','--wait','--wait-timeout','180'],{inherit:true});
-  log('Manager containers are ready. Open '+manifest.options.origin+'. Hosted DNS and certificate reachability still need to be confirmed from your browser.');
+  log('Manager containers are ready. Open '+manifest.options.origin+'.'+(manifest.options.mode==='hosted'?' Confirm HTTPS reachability from your browser; the gateway obtains and renews its Let’s Encrypt certificate automatically.':''));
   log(await docker(['exec','-T','fleet-controller','cat','/web-state/registration-link.txt']));
   return {started:true};
 }
@@ -139,7 +140,7 @@ export function parseArguments(args){
 
 export async function main(args=process.argv.slice(2),{execute=run,log=console.log}={}){
   const input=parseArguments(args);
-  if(input.help){log('Lobby Goblin installation\n  Install.sh / Install.ps1              Guided setup\n  --check                              Read-only Docker checks\n  --prepare                            Write a fresh installation; do not start\n  --start                              Explicitly install a fresh manager\n  --directory PATH                     Dedicated installation directory\n  --mode local|hosted                   Local access or hosted HTTPS\n  --address HOST                       Game address friends will use\n  --domain games.example.com            Hosted HTTPS domain (DNS required)\n  --port 8082 --memory 4                Panel port and host game budget (GiB)\n  --registration-link                   Explicitly replace the admin invitation\n  --image REGISTRY:VERSION              Matching published runtime version\n\nRun this on the target machine. Existing installations and worlds are never adopted.');return;}
+  if(input.help){log('Lobby Goblin installation\n  Install.sh / Install.ps1              Guided setup\n  --check                              Read-only Docker checks\n  --prepare                            Write a fresh installation; do not start\n  --start                              Explicitly install a fresh manager\n  --directory PATH                     Dedicated installation directory\n  --mode local|hosted                   Local access or hosted HTTPS\n  --address HOST                       Game hostname or IPv4 address\n  --domain HOST                        HTTPS public IP or DNS hostname\n  --port 8082 --memory 4                Panel port and host game budget (GiB)\n  --registration-link                   Explicitly replace the admin invitation\n  --image REGISTRY:VERSION              Matching published runtime version\n\nHosted HTTPS automatically obtains and renews Let’s Encrypt certificates.\nTCP 80/443 must reach this machine. DNS is needed only for hostnames.\nRun this on the target machine. Existing installations and worlds are never adopted.');return;}
   if(input.check){insist(Object.keys(input).every(key=>['check','directory'].includes(key)),'--check cannot change installation settings.');const host=await checkHost({execute});if(input.directory)await readInstallation(path.resolve(input.directory));log(`Docker ${host.version}, Compose ${host.compose}, ${host.memoryGiB} GiB. No files changed or containers started.`);return;}
   const directory=path.resolve(input.directory||'lobby-goblin-installation'),existing=await readInstallation(directory);
   const version=JSON.parse(await fs.readFile(new URL('./package.json',import.meta.url),'utf8')).version;
@@ -152,10 +153,13 @@ export async function main(args=process.argv.slice(2),{execute=run,log=console.l
     const rl=createInterface({input:process.stdin,output:process.stdout});
     try{
       log('Welcome to Lobby Goblin. Set up a new host, then create your administrator account in the browser.');
-      const mode=await rl.question('1) This computer (private access)\n2) A hosted server (HTTPS domain)\nChoose [1]: ');
+      const mode=await rl.question('1) This computer (private access)\n2) A hosted server (HTTPS public IP or hostname)\nChoose [1]: ');
       insist(['','1','2'].includes(mode),'Choose 1 or 2.');
       input.mode=mode==='2'?'hosted':'local';
-      if(input.mode==='hosted')input.domain=await rl.question('Panel domain (point its DNS at this server first): ');
+      if(input.mode==='hosted'){
+        input.domain=await rl.question('Panel public IP or DNS hostname: ');
+        log('Let’s Encrypt certificates renew automatically. TCP 80/443 must reach this machine. For a hostname, point its DNS here first.');
+      }
       input.address=(await rl.question('Game hostname or IPv4 address [localhost]: '))||'localhost';
       input.memory=(await rl.question('Game memory budget in GiB, leaving 2+ GiB for management [4]: '))||'4';
       options=optionsFor(input,version);

@@ -1,3 +1,3 @@
 // Explicit URL scope lets several server tabs coexist without selection cookies.
-const prefix=location.pathname.match(/^\/servers\/[a-f0-9]{32}(?=\/|$)/)?.[0]||'';
+const prefix=location.pathname.match(/^(?:\/hosts\/[a-f0-9]{32})?\/servers\/[a-f0-9]{32}(?=\/|$)/)?.[0]||'';
 export const serverPath=value=>prefix+value;

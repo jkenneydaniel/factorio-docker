@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- Add persistent panel-to-agent connections on a configurable dedicated port
+  (24443 by default), with pairing-pinned TLS identities, concurrent transfers,
+  heartbeats and reconnection. Support public, private and VPN addresses while
+  preserving existing HTTPS pairings and reviewed installation files.
+- Support public IPs and hostnames for hosted panel HTTPS with automatically
+  renewing Let’s Encrypt certificates, using short-lived certificates for IPs.
+- Add remote game hosts with manual agent installation/code pairing or reviewed
+  SSH installation, scoped server controls and host selection during creation.
+- Show agent/panel version alignment and offer administrator-confirmed agent
+  updates with health checks and recovery, without replacing game containers.
+- Add live Factorio Mod Portal and uMod libraries with Browse, Installed and
+  Updates, administrator review, pinned downloads, dependency checks and recovery.
+- Offer explicit automatic save/stop/apply/start for mod changes. Rust also offers
+  running plugin load/reload/unload through Oxide or Carbon; Factorio requires a
+  restart. Existing manual framework/upload tools remain available.
+
 ## 0.3.5-alpha (unreleased)
 
 - Organize both game images under `images/`, supporting launchers under `scripts/`, and fleet templates under `deploy/fleet/`. Simplify the documentation while preserving historical release paths and compatibility with existing updaters.

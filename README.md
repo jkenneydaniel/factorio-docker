@@ -7,8 +7,8 @@ This is an early alpha for trusted administrators. The repository is
 
 | Game | Controls |
 | --- | --- |
-| Factorio | Worlds and saves, map previews, players, settings, backups and recovery, guided setup, reviewed updates |
-| Rust | Status, lifecycle, players, logs, settings, Carbon / Oxide / uMod, plugins, complete backups and verification |
+| Factorio | Worlds and saves, map previews, players, settings, backups and recovery, live mod library, guided setup, reviewed updates |
+| Rust | Status, lifecycle, players, logs, settings, Carbon / Oxide / uMod, live plugin library, complete backups and verification |
 
 ## Install
 
@@ -24,10 +24,17 @@ sh ./Install.sh
 ```
 
 On macOS, you can also open `Install.command`. The guide covers private local
-access, experimental hosted HTTPS access, Docker prerequisites and administrator
+access, experimental hosted HTTPS using a public IP or hostname with automatic
+Let’s Encrypt renewal, Docker prerequisites and administrator
 registration in your browser. The installer creates a separate installation;
 existing servers, accounts and worlds are not adopted. The host manager requires
 Linux x86-64 containers. See the guide for memory and host requirements.
+
+To run games on other machines, use **Hosts → Add host**. Choose automatic
+installation over SSH or manually install the agent and enter its pairing code.
+The panel can run locally or remotely; daily management and reviewed agent
+updates use the persistent, pairing-secured agent connection on a configurable
+dedicated port (24443 by default). See [remote game hosts](docs/REMOTE_HOSTS.md).
 
 For an existing installation or a dedicated single-game setup:
 
@@ -63,7 +70,9 @@ existing servers are not restarted merely to enable mods. See
 | New installation and administrator onboarding | [Installation](docs/INSTALLATION.md) |
 | Standalone Factorio and platform requirements | [Setup](docs/SETUP.md) |
 | Rust setup, mods and recovery | [Rust](docs/RUST.md) |
-| Multiple servers and shared snapshots | [Single-host manager](docs/FLEET.md) |
+| Browse, install and update mods or plugins | [Live mod library](docs/MOD_LIBRARY.md) |
+| Multiple servers and shared snapshots | [Host manager](docs/FLEET.md) |
+| SSH setup, pairing and agent updates | [Remote game hosts](docs/REMOTE_HOSTS.md) |
 | Source organization and installed compatibility | [Repository layout](docs/REPOSITORY.md) |
 | Shared runtime and game-module boundaries | [Architecture](docs/ARCHITECTURE.md) |
 | Local tests, builds and release preparation | [Development](docs/DEVELOPMENT.md) |

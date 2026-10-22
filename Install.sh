@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 source_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+installer_script=install.js
+if [ "${1:-}" = --host-agent ]; then installer_script=host-install.js; shift; fi
 # sudo is needed for Docker bootstrap, but the resulting files belong to the
 # invoking user in both the native Node and temporary-container setup paths.
 installer_uid=$(id -u)
@@ -24,10 +26,10 @@ if [ "${1:-}" = --install-docker ]; then
   sh "$docker_installer" --install
 fi
 if command -v node >/dev/null 2>&1 && node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 22 ? 0 : 1)' 2>/dev/null; then
-  exec node "$source_root/panel/install.js" "$@"
+  exec node "$source_root/panel/$installer_script" "$@"
 fi
 if [ "${1:-}" = --help ]; then
-  printf '%s\n' 'Lobby Goblin installer: run without arguments for guided setup.' '--prepare / --start / --check; --mode local|hosted; --domain HOST; --address HOST; --memory GiB; --directory PATH' 'Linux: --install-docker as the first option explicitly installs missing Docker on supported Ubuntu hosts.' 'See docs/INSTALLATION.md. Node 22+ is optional when Docker is installed.'
+  printf '%s\n' 'Lobby Goblin installer: run without arguments for guided setup.' '--prepare / --start / --check; --mode local|hosted; --domain HOST; --address HOST; --memory GiB; --directory PATH' 'Linux: --install-docker as the first option explicitly installs missing Docker on supported Ubuntu hosts.' 'Use --host-agent first for game-host setup; see docs/REMOTE_HOSTS.md. Node 22+ is optional when Docker is installed.'
   exit 0
 fi
 command -v docker >/dev/null 2>&1 || { printf '%s\n' 'Install Docker Desktop (Mac) or Docker Engine (Linux), or run sudo sh Install.sh --install-docker on a fresh supported Ubuntu server.' >&2; exit 1; }
@@ -60,6 +62,6 @@ for choice do
   [ "$choice" != --directory ] || directory_next=yes
 done
 runtime_version=$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' "$source_root/panel/package.json")
-set -- --rm --user 0:0 --env "GOBLIN_INSTALL_UID=$GOBLIN_INSTALL_UID" --env "GOBLIN_INSTALL_GID=$GOBLIN_INSTALL_GID" --mount "type=bind,source=$source_root,target=/installer,readonly" --mount "type=bind,source=$work_root,target=$work_root" --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock --workdir "$work_root" --entrypoint node "ghcr.io/jkenneydaniel/lobby-goblin:$runtime_version" /installer/panel/install.js "$@"
+set -- --rm --user 0:0 --env "GOBLIN_INSTALL_UID=$GOBLIN_INSTALL_UID" --env "GOBLIN_INSTALL_GID=$GOBLIN_INSTALL_GID" --mount "type=bind,source=$source_root,target=/installer,readonly" --mount "type=bind,source=$work_root,target=$work_root" --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock --workdir "$work_root" --entrypoint node "ghcr.io/jkenneydaniel/lobby-goblin:$runtime_version" "/installer/panel/$installer_script" "$@"
 if [ -t 0 ]; then set -- -it "$@"; fi
 exec docker run "$@"

@@ -1,14 +1,16 @@
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$InstallArguments)
 $ErrorActionPreference = 'Stop'
+$installerScript = 'install.js'
+if ($InstallArguments.Count -gt 0 -and $InstallArguments[0] -eq '--host-agent') { $installerScript = 'host-install.js'; $InstallArguments = @($InstallArguments | Select-Object -Skip 1) }
 if (Get-Command node -ErrorAction SilentlyContinue) {
     $nodeVersion = & node --version
     if ($LASTEXITCODE -eq 0 -and $nodeVersion -match '^v(\d+)\.' -and [int]$Matches[1] -ge 22) {
-        & node (Join-Path $PSScriptRoot 'panel/install.js') @InstallArguments
+        & node (Join-Path $PSScriptRoot ('panel/' + $installerScript)) @InstallArguments
         exit $LASTEXITCODE
     }
 }
 if ($InstallArguments -contains '--help') {
-    Write-Host 'Lobby Goblin: run Install.ps1 for guided setup. Use --prepare, --start or --check. See docs/INSTALLATION.md.'
+    Write-Host 'Lobby Goblin: run Install.ps1 for guided setup. Use --prepare, --start or --check. Use --host-agent first for game-host setup. See docs/INSTALLATION.md and docs/REMOTE_HOSTS.md.'
     exit 0
 }
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw 'Install and start Docker Desktop with Linux containers, then rerun Install.ps1.' }
@@ -33,7 +35,7 @@ for ($i = 0; $i -lt $InstallArguments.Count; $i++) {
 }
 if ($PSScriptRoot.Contains(',') -or (Get-Location).Path.Contains(',')) { throw 'Use a directory without commas, or install Node 22+ to run the installer directly.' }
 $version = (Get-Content (Join-Path $PSScriptRoot 'panel/package.json') -Raw | ConvertFrom-Json).version
-$dockerArgs = @('run','--rm','--user','0:0','--mount',"type=bind,source=$PSScriptRoot,target=/installer,readonly",'--mount',"type=bind,source=$((Get-Location).Path),target=/workspace",'--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock','--workdir','/workspace','--entrypoint','node',"ghcr.io/jkenneydaniel/lobby-goblin:$version",'/installer/panel/install.js') + $InstallArguments
+$dockerArgs = @('run','--rm','--user','0:0','--mount',"type=bind,source=$PSScriptRoot,target=/installer,readonly",'--mount',"type=bind,source=$((Get-Location).Path),target=/workspace",'--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock','--workdir','/workspace','--entrypoint','node',"ghcr.io/jkenneydaniel/lobby-goblin:$version",('/installer/panel/' + $installerScript)) + $InstallArguments
 if (-not [Console]::IsInputRedirected) { $dockerArgs = @('run','-it') + $dockerArgs[1..($dockerArgs.Count-1)] }
 & docker @dockerArgs
 exit $LASTEXITCODE
