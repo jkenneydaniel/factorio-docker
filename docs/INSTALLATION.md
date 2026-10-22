@@ -84,6 +84,9 @@ Or start guided setup with that installation step:
 sudo sh ./Install.sh --install-docker
 ```
 
+When run through `sudo`, setup keeps newly prepared installation files owned by
+the invoking user, so later installer runs can use that account.
+
 Existing Docker is reused. The bootstrap does not upgrade/restart an existing
 daemon, remove conflicting container runtimes or add users to the Docker group.
 It stops for manual review when conflicting packages or repository files exist.

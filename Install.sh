@@ -1,6 +1,19 @@
 #!/bin/sh
 set -eu
 source_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# sudo is needed for Docker bootstrap, but the resulting files belong to the
+# invoking user in both the native Node and temporary-container setup paths.
+installer_uid=$(id -u)
+installer_gid=$(id -g)
+if [ "$installer_uid" -eq 0 ]; then
+  installer_uid=${SUDO_UID:-$installer_uid}
+  installer_gid=${SUDO_GID:-$installer_gid}
+fi
+for owner_id in "$installer_uid" "$installer_gid"; do
+  case "$owner_id" in ''|*[!0-9]*) printf '%s\n' 'Invalid installer ownership ID.' >&2; exit 1 ;; esac
+  [ "${#owner_id}" -le 9 ] || { printf '%s\n' 'Invalid installer ownership ID.' >&2; exit 1; }
+done
+export GOBLIN_INSTALL_UID="$installer_uid" GOBLIN_INSTALL_GID="$installer_gid"
 if [ "${1:-}" = --install-docker ]; then
   for choice do
     case "$choice" in --check|--help|-h) printf '%s\n' 'Do not combine --install-docker with --check or --help. Inspect prerequisites separately before installing.' >&2; exit 1 ;; esac
@@ -47,6 +60,6 @@ for choice do
   [ "$choice" != --directory ] || directory_next=yes
 done
 runtime_version=$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' "$source_root/panel/package.json")
-set -- --rm --user 0:0 --env "GOBLIN_INSTALL_UID=$(id -u)" --env "GOBLIN_INSTALL_GID=$(id -g)" --mount "type=bind,source=$source_root,target=/installer,readonly" --mount "type=bind,source=$work_root,target=$work_root" --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock --workdir "$work_root" --entrypoint node "ghcr.io/jkenneydaniel/lobby-goblin:$runtime_version" /installer/panel/install.js "$@"
+set -- --rm --user 0:0 --env "GOBLIN_INSTALL_UID=$GOBLIN_INSTALL_UID" --env "GOBLIN_INSTALL_GID=$GOBLIN_INSTALL_GID" --mount "type=bind,source=$source_root,target=/installer,readonly" --mount "type=bind,source=$work_root,target=$work_root" --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock --workdir "$work_root" --entrypoint node "ghcr.io/jkenneydaniel/lobby-goblin:$runtime_version" /installer/panel/install.js "$@"
 if [ -t 0 ]; then set -- -it "$@"; fi
 exec docker run "$@"

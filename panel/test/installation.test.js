@@ -178,6 +178,27 @@ test('native launcher prepares a separate installation without requiring Docker'
   const result=spawnSync(launcher,args,{encoding:'utf8',env:{...process.env,PATH:path.dirname(process.execPath)+path.delimiter+process.env.PATH}});
   assert.equal(result.status,0,result.stdout+result.stderr);assert.match(result.stdout,/Nothing started/);assert.equal((await readInstallation(directory)).options.mode,'local');
 });
+test('sudo bootstrap passes the invoking owner to native and Docker-backed installers',{skip:process.platform==='win32'},async t=>{
+  const root=await fixture(t),bin=path.join(root,'bin'),log=path.join(root,'calls');await fs.mkdir(bin);
+  await fs.copyFile(path.join(sourceRoot,'Install.sh'),path.join(root,'Install.sh'));
+  await fs.mkdir(path.join(root,'scripts/install'),{recursive:true});await fs.mkdir(path.join(root,'panel'));
+  await fs.writeFile(path.join(root,'panel/package.json'),JSON.stringify({version},null,2)+'\n');
+  await fs.writeFile(path.join(root,'scripts/install/Install-Docker.sh'),'printf "bootstrap %s\\n" "$*" >> "$INSTALL_FIXTURE_LOG"\n');
+  const stubs={
+    id:'printf "%s\\n" "$INSTALL_FIXTURE_UID"',
+    node:'if [ "$1" = -e ]; then exit "$INSTALL_FIXTURE_FALLBACK"; fi\nprintf "native %s:%s\\n" "$GOBLIN_INSTALL_UID" "$GOBLIN_INSTALL_GID" >> "$INSTALL_FIXTURE_LOG"',
+    docker:'printf "docker %s\\n" "$*" >> "$INSTALL_FIXTURE_LOG"',
+  };
+  for(const [name,body] of Object.entries(stubs)){await fs.writeFile(path.join(bin,name),'#!/bin/sh\n'+body+'\n');await fs.chmod(path.join(bin,name),0o755);}
+  for(const fallback of ['0','1'])for(const uid of ['0','501']){
+    await fs.writeFile(log,'');
+    const result=spawnSync('/bin/sh',[path.join(root,'Install.sh'),'--install-docker','--prepare','--directory','manager'],{cwd:root,encoding:'utf8',env:{...process.env,PATH:bin+':/usr/bin:/bin',DOCKER_HOST:'unix:///fixture.sock',INSTALL_FIXTURE_LOG:log,INSTALL_FIXTURE_FALLBACK:fallback,INSTALL_FIXTURE_UID:uid,SUDO_UID:'12345',SUDO_GID:'12346'}});
+    assert.equal(result.status,0,result.stderr);const calls=await fs.readFile(log,'utf8'),owner=uid==='0'?['12345','12346']:['501','501'];
+    assert.match(calls,/^bootstrap --install\n/);
+    if(fallback==='0')assert.match(calls,new RegExp('native '+owner.join(':')+'\\n'));
+    else {assert.ok(calls.includes('--env GOBLIN_INSTALL_UID='+owner[0]+' --env GOBLIN_INSTALL_GID='+owner[1]));assert.ok(calls.includes('ghcr.io/jkenneydaniel/lobby-goblin:'+version));}
+  }
+});
 test('Docker-backed Unix launcher keeps checks read-only and refuses destinations outside its mount',{skip:process.platform==='win32'},async t=>{
   const root=await fixture(t),bin=path.join(root,'bin'),log=path.join(root,'calls');await fs.mkdir(bin);
   const stubs={node:'exit 1',docker:'printf "%s\\n" "$*" >> "$INSTALL_FIXTURE_LOG"\ncase "$1" in context) printf "unix:///var/run/docker.sock\\n" ;; info) printf \'linux|x86_64|29.1.0|[]\\n\' ;; compose) printf "2.40.0\\n" ;; esac'};

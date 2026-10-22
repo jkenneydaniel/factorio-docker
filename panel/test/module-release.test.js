@@ -10,6 +10,7 @@ import {sourceSnapshot,unpackRelease} from '../update-source.js';
 import {legacySlug} from '../branding.js';
 import {unpackRelease as unpack020} from './fixtures/updater-v0.2.0-alpha.mjs';
 import {unpackRelease as unpack033} from './fixtures/updater-v0.3.3-alpha.mjs';
+import {verifyImageContents} from './installer-image-smoke.js';
 
 const run=promisify(execFile),project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 
@@ -67,8 +68,9 @@ test('compatible release bundles contain an importable core/module runtime and p
     for(const name of freshRoots)assert.ok(!files.has(name),'Historical updater must not receive new root files');
     const install=path.join(root,'install');await fs.mkdir(install);
     for(const [name,data] of files){const target=path.join(install,name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,data);}
-    // Build the runtime filesystem described by local COPY directives, without
-    // contacting Docker or pulling/building/replacing any image.
+    // Model the checkout build context, rather than the compatibility archive:
+    // independent image sources are packaged at old paths but do not ship in
+    // the shared runtime. No Docker engine or image operations are used here.
     const image=path.join(root,'image');await fs.mkdir(image);
     const dockerfile=await fs.readFile(path.join(install,'panel/Dockerfile'),'utf8');
     for(const line of dockerfile.split('\n')){
@@ -76,11 +78,19 @@ test('compatible release bundles contain an importable core/module runtime and p
       const names=line.slice('COPY --chown=node:node '.length).trim().split(/\s+/),dest=names.pop();
       for(const name of names){
         if(name.startsWith('*.')){
-          for(const file of await fs.readdir(path.join(install,'panel')))if(file.endsWith(name.slice(1)))await fs.copyFile(path.join(install,'panel',file),path.join(image,file));
-        }else await fs.cp(path.join(install,'panel',name),path.join(image,dest),{recursive:true});
+          for(const file of await fs.readdir(path.join(source,'panel')))if(file.endsWith(name.slice(1)))await fs.copyFile(path.join(source,'panel',file),path.join(image,file));
+        }else await fs.cp(path.join(source,'panel',name),path.join(image,dest),{recursive:true});
       }
     }
     await run(process.execPath,['--input-type=module','-e',"import {selectedGame} from './games/index.js'; import {startController} from './core/controller.js'; import {startWeb} from './core/web.js'; import './setup.js'; import './update-worker.js'; import './games/rust/setup.js'; if(selectedGame().id!=='factorio'||selectedGame('rust').id!=='rust'||typeof startController!=='function'||typeof startWeb!=='function')throw Error('Incomplete runtime');"],{cwd:image,timeout:5000});
+    // Exercise the same image/package comparison used by CI, including its
+    // historical Rust image sources and rejection of changed runtime bytes.
+    if(await fs.stat(path.join(source,'images/rust')).catch(()=>null))assert.equal(await fs.stat(path.join(image,'games/rust/image')).catch(()=>null),null);
+    await verifyImageContents(files,image);
+    const runtimeFile=path.join(image,'games/rust/controller.js'),original=await fs.readFile(runtimeFile);
+    await fs.appendFile(runtimeFile,'\n// changed runtime fixture\n');
+    await assert.rejects(verifyImageContents(files,image),/Image\/package mismatch/);
+    await fs.writeFile(runtimeFile,original);
     // Exercise the exported setup function; the CLI prerequisite checks need
     // Docker, so no CLI, engine, socket or game process is used here.
     const prepare="import fs from 'node:fs/promises'; import {setup} from './setup.js'; const root=process.argv[1]; await setup(root,['--new-world'],{log:()=>{}}); const files=['.panel-data/auth/users.json','.panel-data/secrets/controller-token','.panel-data/registration-link.txt','data/config/server-settings.json']; const before=await Promise.all(files.map(f=>fs.readFile(root+'/'+f,'utf8'))); await setup(root,['--new-world'],{log:()=>{}}); const after=await Promise.all(files.map(f=>fs.readFile(root+'/'+f,'utf8'))); if(JSON.stringify(before)!==JSON.stringify(after))throw Error('Setup changed existing state'); if((await fs.readdir(root+'/data/saves')).length)throw Error('Prepare-only setup created a world');";
