@@ -254,7 +254,10 @@ The **Lobby Goblin panel and controller image** workflow tests the shared runtim
 builds and smoke-tests linux/amd64 and linux/arm64, and publishes their versioned
 GHCR manifest only when deliberately requested or called by release automation.
 The same image supplies the web panel, controller, setup and update worker.
-Existing published tags cannot be overwritten. Make the GHCR package public
+Existing published tags cannot be overwritten. A release can reuse an existing
+runtime only when its recorded source revision has the identical complete
+`panel/` Git tree, allowing separate game-image fixes without changing runtime
+bytes. Changed runtime source requires a new version. Make the GHCR package public
 before distributing an installer that depends on it. A publication does not
 replace any running installation. Source-based builds remain available to developers.
 

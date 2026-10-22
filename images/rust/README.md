@@ -30,7 +30,11 @@ Carbon or Oxide / uMod. Framework packages are not bundled or downloaded at boot
 The controller writes `.lobby-goblin-mods.json` after verified installation. A
 pending marker blocks startup. Carbon's Doorstop loader environment is applied
 only to the Rust child, never SteamCMD or the supervisor. Existing game binaries
-and worlds are reused. See [mod management](../../docs/RUST.md#mods-and-plugins).
+and worlds are reused. Managed Carbon disables its framework and hook self-updates
+before startup so its DLLs stay at the reviewed package checksum and remain
+verifiable for backup, recovery and framework switching. Other Carbon settings
+are preserved; framework updates go through the panel's review/install flow.
+See [mod management](../../docs/RUST.md#mods-and-plugins).
 
 From the repository root, on a disposable Linux amd64 Docker host:
 
