@@ -6,6 +6,7 @@ import {assert,readJSON,writeJSON} from '../../common.js';
 import {ReleaseChecks} from '../../updates.js';
 import {daemonPath} from '../../update-source.js';
 import {gameUpdate} from '../../public/game-images.js';
+import {cleanupUpdateWorkers} from '../../core/container-cleanup.js';
 
 const busyStates=new Set(['preparing','running','recovering']);
 export class UpdateManager{
@@ -25,6 +26,12 @@ export class UpdateManager{
       let worker=null;
       for(const slug of ['lobby-goblin',legacySlug]){worker=await this.docker('GET',`/containers/${slug}-update-${job.id}/json`).catch(e=>{if(e.status===404)return null;throw e;});if(worker)break;}
       if(!worker?.State?.Running){const latest=await readJSON(path.join(this.root,job.id+'.json'),job);if(!busyStates.has(latest.state))continue;job.state='failed';job.message='Update worker was interrupted. Review recovery details before retrying.';job.finished=new Date(this.now()).toISOString();await writeJSON(path.join(this.root,job.id+'.json'),job);}
+    }
+    if(!this.reserved&&!this.cleaning&&this.now()-(this.lastCleanup||0)>=60000){
+      this.cleaning=true;this.lastCleanup=this.now();
+      try{await cleanupUpdateWorkers({docker:this.docker,root:this.root,jobs:(await Promise.all(names.map(n=>readJSON(path.join(this.root,n),null)))).filter(Boolean),now:this.now});}
+      catch(error){console.error('Update container cleanup deferred:',error.message);}
+      finally{this.cleaning=false;}
     }
     return this.status();
   }
@@ -92,7 +99,7 @@ export class UpdateManager{
       const source=plan.root+'/.panel-data/updates';
       await this.docker('POST','/containers/create?'+new URLSearchParams({name:'lobby-goblin-update-'+job.id}),{
         Image:current.images.controller,User:'0:0',Entrypoint:['node','/app/update-worker.js'],Cmd:[],Env:['UPDATE_JOB='+job.id,'UPDATE_ROOT='+plan.root,'UPDATE_STATE=/updates'],Labels:{'lobby-goblin.update':job.id,'com.lobby-goblin.project':plan.project},
-        HostConfig:{AutoRemove:false,ReadonlyRootfs:true,CapDrop:['ALL'],CapAdd:['CHOWN','DAC_OVERRIDE','FOWNER'],SecurityOpt:['no-new-privileges:true'],Memory:1536*1024*1024,Tmpfs:{'/tmp':'rw,nosuid,size=512m'},Mounts:[{Type:'bind',Source:'/var/run/docker.sock',Target:'/var/run/docker.sock'},{Type:'bind',Source:plan.root,Target:plan.root},{Type:'bind',Source:source,Target:'/updates'}],LogConfig:{Type:'json-file',Config:{'max-size':'2m','max-file':'2'}}}
+        HostConfig:{AutoRemove:true,ReadonlyRootfs:true,CapDrop:['ALL'],CapAdd:['CHOWN','DAC_OVERRIDE','FOWNER'],SecurityOpt:['no-new-privileges:true'],Memory:1536*1024*1024,Tmpfs:{'/tmp':'rw,nosuid,size=512m'},Mounts:[{Type:'bind',Source:'/var/run/docker.sock',Target:'/var/run/docker.sock'},{Type:'bind',Source:plan.root,Target:plan.root},{Type:'bind',Source:source,Target:'/updates'}],LogConfig:{Type:'json-file',Config:{'max-size':'2m','max-file':'2'}}}
       });
       await this.docker('POST',`/containers/lobby-goblin-update-${job.id}/start`);
       await fs.unlink(path.join(this.root,'plan-'+input.planId+'.json'));

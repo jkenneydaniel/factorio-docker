@@ -188,9 +188,10 @@ test('Rust web enforces viewer/admin and CSRF boundaries on the real proxy',{tim
   const origin=`http://127.0.0.1:${server.address().port}`;assert.match(await(await fetch(origin)).text(),/LOBBY GOBLIN/);assert.equal((await fetch(origin+'/map.js')).status,404);
   const login=async username=>{const response=await fetch(origin+'/api/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({username,password:`test-${username}-password`})});assert.equal(response.status,200);assert.match(response.headers.get('set-cookie'),/^rust_session=/);return {cookie:response.headers.get('set-cookie').split(';')[0],...await response.json()};};
   const viewer=await login('viewer'),admin=await login('admin');
-  for(const route of ['logs','settings','download?kind=backup&name=test.tar.gz'])assert.equal((await fetch(origin+'/api/'+route,{headers:{cookie:viewer.cookie}})).status,403);
+  for(const route of ['logs','settings','mods','plugin-config?name=Test.json','download?kind=backup&name=test.tar.gz'])assert.equal((await fetch(origin+'/api/'+route,{headers:{cookie:viewer.cookie}})).status,403);
   assert.equal((await fetch(origin+'/api/players',{headers:{cookie:viewer.cookie}})).status,200);
   const stop=(user,csrf)=>fetch(origin+'/api/jobs',{method:'POST',headers:{origin,cookie:user.cookie,'content-type':'application/json',...(csrf?{'x-csrf-token':user.csrf}:{})},body:JSON.stringify({action:'stop',params:{confirm:true}})});
+  for(const user of [viewer,admin])assert.equal((await fetch(origin+'/api/mods-plan',{method:'POST',headers:{origin,cookie:user.cookie,'content-type':'application/json',...(user===viewer?{'x-csrf-token':user.csrf}:{})},body:JSON.stringify({framework:'oxide'})})).status,403);
   assert.equal((await stop(viewer,true)).status,403);assert.equal((await stop(admin,false)).status,403);const response=await stop(admin,true);assert.equal(response.status,202);assert.equal((await f.settle(await response.json())).state,'succeeded');
 });
 

@@ -4,8 +4,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert,inside,readJSON,writeJSON} from './common.js';
 import {zipEntries} from './zip.js';
+import {installationPath} from './source-layout.js';
 
 const roots=new Set(['.gitignore','.gitattributes','.env.example','compose.yaml','README.md','LICENSE','CHANGELOG.md','SECURITY.md','THIRD_PARTY_NOTICES.md','Setup.sh','Setup.command','Setup.ps1','Start-Server.sh','Start-Server.ps1','Configure-Lan.ps1','Configure-Autostart.ps1','Register-LanAnnouncer.ps1','Start-LanAnnouncer.ps1','tools/release.mjs','tools/factorio-image.mjs','fleet.compose.yaml','.env.fleet.example','Fleet.ps1','Fleet.sh']);
+for(const name of ['Install.sh','Install.command','Install.ps1','Install-Docker.sh'])roots.add(name);
 export const sha256=data=>crypto.createHash('sha256').update(data).digest('hex');
 export function publicSource(name){
   if(typeof name!=='string'||name.includes('\\')||name.split('/').some(p=>!p||p==='.'||p==='..'||p==='node_modules'||p.startsWith('.test-')))return false;
@@ -13,12 +15,14 @@ export function publicSource(name){
 }
 export async function sourceSnapshot(root){
   const files={};
+  const directories=['panel','docs','factorio-image','.github','tools','images','scripts','deploy'];
+  const sourcePath=name=>publicSource(name)||publicSource(installationPath(name));
   async function walk(relative=''){
     for(const item of await fs.readdir(path.join(root,relative),{withFileTypes:true})){
       const name=relative?relative+'/'+item.name:item.name;
-      if(item.isSymbolicLink()&&(['panel','docs','factorio-image','.github','tools'].some(p=>name===p||name.startsWith(p+'/'))||roots.has(name)))throw new Error('Installation source contains a symlink: '+name);
-      if(item.isDirectory()&&['panel','docs','factorio-image','.github','tools'].some(p=>name===p||name.startsWith(p+'/'))&&!['node_modules'].includes(item.name)&&!item.name.startsWith('.test-'))await walk(name);
-      else if(publicSource(name)){
+      if(item.isSymbolicLink()&&(directories.some(p=>name===p||name.startsWith(p+'/'))||sourcePath(name)))throw new Error('Installation source contains a symlink: '+name);
+      if(item.isDirectory()&&directories.some(p=>name===p||name.startsWith(p+'/'))&&!['node_modules','__pycache__'].includes(item.name)&&!item.name.startsWith('.test-'))await walk(name);
+      else if(sourcePath(name)){
         assert(item.isFile(),'Installation source contains a symlink or special file: '+name);
         files[name]=sha256(await fs.readFile(inside(root,name)));
       }

@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';import http from 'node:http';
 import {FleetManager} from './manager.js';
+import {cleanupFleetContainers} from '../core/container-cleanup.js';
 import {migrateFleet} from './migrations.js';
 import {proxyResponse} from '../core/proxy.js';
 import {catalog,validId,noManagedUpdater} from './catalog.js';import {docker as dockerAPI} from '../core/docker.js';import {selectedGame} from '../games/index.js';
@@ -18,7 +19,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(url.pathname==='/servers'){
    if(req.method==='GET')return json(res,200,{servers:manager.list()});assert(req.method==='POST','Not found.',404);return json(res,202,await manager.submit('create',await requestJSON(req),req.headers['x-panel-user']||'administrator'));
   }
-  if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater('0.3.4-alpha').refresh());
+  if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater('0.3.5-alpha').refresh());
   const match=url.pathname.match(/^\/servers\/([a-f0-9]{32})(?:\/(.*))?$/);assert(match,'Not found.',404);const item=manager.server(match[1]),tail=match[2]||'';
   if(!tail&&req.method==='GET')return json(res,200,manager.publicServer(item));
   if(req.method==='POST'&&['snapshot','remove'].includes(tail)){const body=await requestJSON(req);return json(res,202,await manager.submit(tail==='snapshot'?'publish':'remove',{...body,serverId:item.id},req.headers['x-panel-user']||'administrator'));}
@@ -30,5 +31,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
  }
  const server=http.createServer((req,res)=>handle(req,res).catch(error=>{if(!res.headersSent)json(res,error.status||502,{error:error.status?redact(error.message):'The host manager could not complete the request.'});else res.destroy();}));server.requestTimeout=300000;
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,hostname,resolve);});
- void migrateFleet(manager).catch(()=>console.error('Image migration needs attention; stored data was preserved.'));return {server,manager};
+ const sweep=()=>void cleanupFleetContainers(manager).catch(error=>console.error('Container cleanup deferred:',redact(error.message)));
+ const cleanupTimer=setInterval(sweep,60000).unref();server.once('close',()=>clearInterval(cleanupTimer));
+ void migrateFleet(manager).catch(()=>console.error('Image migration needs attention; stored data was preserved.')).finally(sweep);return {server,manager};
 }

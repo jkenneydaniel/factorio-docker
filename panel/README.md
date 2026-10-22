@@ -189,7 +189,7 @@ Settings → Updates retains the current source and supports both pinned Factori
 Tools tags and Lobby Goblin `<version>-fc.<revision>` tags. A same-version
 source/revision change uses the same reviewed backup, compatibility checks and
 explicit recovery path as game upgrades. Download/preflight failures do not
-replace containers. See [the independent image guide](../factorio-image/README.md).
+replace containers. See [the independent image guide](../images/factorio/README.md).
 ## Rust installations
 
 The built-in Rust module uses a separate installation and panel. See

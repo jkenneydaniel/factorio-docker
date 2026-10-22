@@ -2,8 +2,8 @@
 
 Fleet mode is a separate, opt-in Docker project. It never adopts an existing
 Factorio or Rust installation, mounts its data, changes its ports, or restarts
-it. Standalone `compose.yaml` remains available. Use `fleet.compose.yaml` by
-itself, with its own `.env.fleet` and fresh identity. Do not merge Compose files.
+it. Standalone `compose.yaml` remains available. The checkout template is `deploy/fleet/compose.yaml`; extracted releases retain
+`fleet.compose.yaml`. Use it by itself, with its own `.env.fleet` and fresh identity. Do not merge Compose files.
 
 v0.3.4 automatically migrates this manager's registered older images after a
 verified backup and clean stop. It preserves each server's storage and previous
@@ -14,7 +14,7 @@ registry. Read [migration and recovery](IMAGE_MIGRATION.md) before upgrading.
 
 Docker Engine 26+ with Linux containers on an amd64 host is required by this
 release. Factorio uses the first-party 2.0.77-fc.3 image; Rust uses the first-party
-steam-lg.1 bootstrap and installs the Steam public server.
+steam-lg.2 bootstrap and installs the Steam public server.
 The game image references are resolved to registry digests before provisioning. Rust downloads the
 Steam public branch separately, so its installed game build can change on a
 fresh installation. Rust snapshot recovery across game-build updates remains a
@@ -23,10 +23,13 @@ build. No player-to-server network join is asserted by automated runtime tests.
 Game images are pinned; arbitrary images, remote Docker daemons and ARM Rust
 provisioning are outside this version.
 
-Windows: `./Fleet.ps1 -Address <your-LAN-address>`.
-Mac/Linux on amd64: `FLEET_ADDRESS=<your-LAN-address> sh ./Fleet.sh`.
+Run the launchers from the repository or release root. They resolve that root
+when launched from another directory.
+
+Windows: `./scripts/fleet/Fleet.ps1 -Address <your-LAN-address>`.
+Mac/Linux on amd64: `FLEET_ADDRESS=<your-LAN-address> sh ./scripts/fleet/Fleet.sh`.
 Use `-BuildOnly` or `--build-only` to build without starting the manager.
-The scripts generate a fresh ID in ignored `.env.fleet`, build the panel image,
+The scripts generate a fresh ID in ignored `.env.fleet`, pull the published runtime image,
 start only the separately named host manager, and show its private one-time
 administrator registration link. The default panel port is 8082. No firewall or
 Docker Desktop configuration is changed. The address must match an allowed
@@ -52,7 +55,9 @@ Existing host workloads need their own headroom when choosing this budget.
 Open server uses the existing game-specific controls under an explicit server
 URL. Multiple tabs remain independent. Factorio keeps worlds, previews/maps,
 settings, players, logs, saves and backups. Rust keeps lifecycle, settings,
-players, logs and verified identity backups. Standalone panel/image installation
+players, logs, Carbon/Oxide, plugins and verified complete backups. Existing
+registered controllers and game images need a separately reviewed upgrade to
+enable mods; updating the host manager does not restart them. Standalone panel/image installation
 updates are refused in managed mode; a fleet-aware updater is future work.
 
 Creation progress appears under Host operations. Rust's first Steam download can
@@ -89,6 +94,10 @@ contain the identity's world and player databases, maps and related files, but
 exclude the entire `cfg` directory. Neither format copies server configuration,
 RCON passwords, panel accounts, controller tokens, or access lists.
 
+Rust backups that contain mod/framework state are refused by this world-only
+library, preserving them for complete recovery rather than silently omitting mods.
+See [Rust recovery](RUST.md#complete-modded-recovery).
+
 Every snapshot has a manifest containing the source, reviewed image, file sizes
 and SHA-256 hashes. Publication uses a temporary directory and atomic rename.
 Cloning verifies the manifest and every file, checks game/image compatibility,
@@ -116,6 +125,15 @@ instance controllers have Docker access, but operations validate fleet/instance
 labels and the exact volume/subdirectory before acting. Only host-created
 resources can be managed. Snapshot permissions and server administration share
 the fleet's administrator role.
+
+## Scoped container cleanup
+
+Every minute, the controller examines only this fleet's stopped helper containers
+and completed migration originals. Instance registration, ownership labels,
+immutable IDs, expected data mounts and completed backup/migration records are
+rechecked before removal. Active operations and interrupted migrations are kept.
+Deletion is non-forced and never deletes volumes. Normal stopped game servers,
+unrelated containers and unknown historical resources remain untouched.
 
 ## Development
 

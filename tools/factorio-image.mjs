@@ -1,4 +1,5 @@
 import {imageLabel} from '../panel/branding.js';
+import {sourceFile} from '../panel/source-layout.js';
 // Explicit build/acceptance tooling. Never targets the installation's containers,
 // bind mounts, Compose project, data directory or Docker socket configuration.
 import fs from 'node:fs/promises';
@@ -13,20 +14,21 @@ import {compatibleGameImage,validateGameImage,inspectGameImage,gameImageProbe,re
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const exec=promisify(execFile);
 export async function imageDefinition(directory=root){
-  const definition=JSON.parse(await fs.readFile(path.join(directory,'factorio-image/image.json'),'utf8'));
+  const definition=JSON.parse(await fs.readFile(await sourceFile(directory,'factorio-image/image.json'),'utf8'));
   const image=definition.repository+':'+definition.version+'-fc.'+definition.revision;
   assert.equal(definition.format,1);assert.equal(definition.compatibility,1);assert.equal(definition.platform,'linux/amd64');
   assert.equal(definition.repository,gameSources.factory.repository);
   assert.equal(parseGameImage(image)?.source,'factory','Unsupported image version or revision');
   assert.match(definition.baseImage,/^debian:bookworm-slim@sha256:[a-f0-9]{64}$/);
   assert.match(definition.headlessSha256,/^[a-f0-9]{64}$/);
-  const dockerfile=await fs.readFile(path.join(directory,'factorio-image/Dockerfile'),'utf8');
+  const dockerfile=await fs.readFile(await sourceFile(directory,'factorio-image/Dockerfile'),'utf8');
   for(const line of ['ARG BASE_IMAGE='+definition.baseImage,'ARG FACTORIO_VERSION='+definition.version,'ARG IMAGE_REVISION='+definition.revision,'ARG HEADLESS_SHA256='+definition.headlessSha256])assert.ok(dockerfile.split('\n').includes(line),'Dockerfile and image.json disagree: '+line.split('=')[0]);
   return {...definition,image};
 }
 const docker=async args=>(await exec('docker',args,{maxBuffer:4*1024*1024,timeout:15*60000})).stdout;
 export async function buildImage(definition,run=docker){
-  await run(['buildx','build','--load','--platform',definition.platform,'--tag',definition.image,path.join(root,'factorio-image')]);
+  const context=path.dirname(await sourceFile(root,'factorio-image/Dockerfile'));
+  await run(['buildx','build','--load','--platform',definition.platform,'--tag',definition.image,context]);
 }
 export async function testImage(definition,run=docker){
   // Test input only, never a build/runtime dependency of our image.

@@ -2,7 +2,7 @@
 // Docker socket and this PUBLIC source mounted. Never uses deployment .env/data.
 import fs from 'node:fs/promises';import crypto from 'node:crypto';import assert from 'node:assert/strict';import {execFile} from 'node:child_process';import {promisify} from 'node:util';
 import {docker,demultiplex} from '../core/docker.js';import {migrateImage,assertCleanStop} from '../core/image-migration.js';import {ownedImages} from '../core/game-images.js';import {sanitizeLogs} from '../games/rust/transport.js';
-const execute=promisify(execFile),game=process.argv[2]||'rust',fresh=process.argv.includes('--fresh');assert.ok(['rust','factorio'].includes(game));assert.ok(!fresh||game==='rust','Fresh install acceptance is specific to Rust');
+const execute=promisify(execFile),game=process.argv[2]||'rust',fresh=process.argv.includes('--fresh'),mods=process.argv.includes('--mods');assert.ok(!mods||fresh&&game==='rust','Mod acceptance requires a fresh disposable Rust server');assert.ok(['rust','factorio'].includes(game));assert.ok(!fresh||game==='rust','Fresh install acceptance is specific to Rust');
 const id=crypto.randomBytes(12).toString('hex'),instance=id.padEnd(32,'0'),prefix='lobby-goblin-acceptance-'+id,name=prefix+'-game',volume=prefix+'-data',archive=prefix+'-backup',network=prefix+'-net',password=crypto.randomBytes(32).toString('hex'),label='io.lobby-goblin.acceptance='+id;
 const panel=process.env.ACCEPTANCE_PANEL_IMAGE,rconName=prefix+'-rcon',controllerName=prefix+'-controller';assert.ok(panel,'Select the disposable panel image, never an installed deployment image');
 const target=ownedImages[game],legacy=game==='rust'?'didstopia/rust-server@sha256:f935f9631e53ad1a235b446496716e1ae65a8d179a3b620abf38e29b9877f88e':'factoriotools/factorio:2.0.77';
@@ -13,7 +13,7 @@ const rcon=async(command)=>game==='rust'?cmd(['exec',rconName,'node','--input-ty
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function ready(){for(let n=0;n<900;n++){const info=JSON.parse(await cmd(['inspect',name]))[0];assert.ok(info.State.Running&&!info.State.OOMKilled,'The disposable game crashed');try{const result=await rcon(game==='rust'?'serverinfo':'/version');if(game==='factorio'){assert.match(result,/2\.0\.77/);return;}if(JSON.parse(result).Players===0){const logs=demultiplex(await docker('GET','/containers/'+name+'/logs?'+new URLSearchParams({stdout:'1',stderr:'1',tail:'500',since:String(Math.floor(Date.parse(info.State.StartedAt)/1000))}),undefined,{raw:true}));if(/Server startup complete/.test(logs))return;}}catch{}await wait(2000);}throw Error('Disposable game did not become ready');}
 async function cleanStop(){if(game==='rust')await rcon('server.save');await cmd(['stop','--timeout','-1',name]);const info=JSON.parse(await cmd(['inspect',name]))[0];await assertCleanStop(docker,info,game);}
-let journal=null;const report={game,id,fresh,checks:[],publishedImageResolution:false};
+let journal=null;const report={game,id,fresh,mods,checks:[],publishedImageResolution:false};
 try{
  assert.equal((await docker('GET','/info')).OSType,'linux');assert.ok(['x86_64','amd64'].includes((await docker('GET','/info')).Architecture));
  for(const v of [volume,archive])await cmd(['volume','create','--label',label,v]);await cmd(['network','create','--label',label,network]);
@@ -60,7 +60,7 @@ try{
   // Exercise the real shared HTTP controller and Rust module against this game,
   // beyond the lower-level migration engine and RCON acceptance above.
   await helper("import fs from 'node:fs/promises';const marker="+JSON.stringify({game:'rust',instance})+";for(const root of ['/game/server','/evidence/runtime-state','/evidence/runtime-backups']){await fs.mkdir(root,{recursive:true});await fs.writeFile(root+'/.lobby-goblin-rust.json',JSON.stringify(marker));}await fs.writeFile('/evidence/rconpw',"+JSON.stringify(password)+");await fs.writeFile('/evidence/controller-token',"+JSON.stringify(password)+");",{write:true});
-  const config={managedVolume:volume,restartPolicy:'unless-stopped',instance,container:name,image:target,hostData:'/unused-disposable-host',identity:'lobby-goblin-rust',data:'/game/server',state:'/evidence/runtime-state',backups:'/evidence/runtime-backups',library:'/evidence/runtime-state/library',backupDir:'/evidence/runtime-backups/archives',rconPort:28016,passwordFile:'/evidence/rconpw'};
+  const config={managedVolume:volume,restartPolicy:'unless-stopped',instance,container:name,image:target,hostData:'/unused-disposable-host',identity:'lobby-goblin-rust',data:'/game/server',installRoot:'/game',state:'/evidence/runtime-state',backups:'/evidence/runtime-backups',library:'/evidence/runtime-state/library',backupDir:'/evidence/runtime-backups/archives',rconPort:28016,passwordFile:'/evidence/rconpw'};
   await cmd(['run','-d','--name',controllerName,'--platform','linux/amd64','--label',label,'--network',network,'--memory','512m','--user','0:0','--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock','--mount',`type=volume,source=${volume},target=/game`,'--mount',`type=volume,source=${archive},target=/evidence`,'-e','TEST_CONFIG='+JSON.stringify(config),'--entrypoint','node',panel,'--input-type=module','-e',"import {startController} from './core/controller.js';import {rust} from './games/rust/index.js';const server=await startController({...rust,configuration:()=>JSON.parse(process.env.TEST_CONFIG)},{env:{CONTROLLER_TOKEN_FILE:'/evidence/controller-token'},hostname:'127.0.0.1',port:8081});process.once('SIGTERM',()=>{server.close(()=>process.exit(0));server.closeIdleConnections();setTimeout(()=>process.exit(1),5000).unref();});"]);
   const api=async(route,body)=>JSON.parse(await cmd(['exec',controllerName,'node','--input-type=module','-e',"import fs from 'node:fs/promises';const token=(await fs.readFile('/evidence/controller-token','utf8')).trim();const response=await fetch('http://127.0.0.1:8081'+process.argv[1],{method:process.argv[2]?'POST':'GET',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:process.argv[2]||undefined});const data=await response.json();if(!response.ok)throw Error('Disposable controller HTTP failure');console.log(JSON.stringify(data));",route,...(body?[JSON.stringify(body)]:[])]));
   for(let n=0;;n++){try{assert.equal((await api('/status')).ready,true);break;}catch(error){if(n>=30)throw error;await wait(1000);}}
@@ -70,6 +70,23 @@ try{
   await operation('stop');assert.equal((await api('/status')).running,false);const stoppedSettings=await api('/settings');assert.equal(stoppedSettings.editable,true);
   await operation('save-settings',{values:{...stoppedSettings.values,'server.maxplayers':8},revision:stoppedSettings.revision});await operation('start');assert.equal((await api('/status')).maxPlayers,8);await operation('restart');assert.equal((await api('/status')).ready,true);
   report.checks.push('controller-status-players-logs-settings','controller-verified-backup','controller-stop-edit-start-restart');
+  if(mods){
+   const source='namespace Oxide.Plugins { [Info("LobbyGoblinProbe", "Lobby Goblin", "1.0.0")] public class LobbyGoblinProbe : RustPlugin { [ConsoleCommand("lg.probe")] void Probe(ConsoleSystem.Arg arg) { arg.ReplyWith("LG_MOD_PROBE_OK"); } } }';
+   for(const framework of ['carbon','oxide']){
+    await operation('stop');const plan=await api('/mods-plan',{framework});await operation('install-framework',{planId:plan.id,confirm:true});
+    await operation('plugin',{operation:'install',name:'LobbyGoblinProbe.cs',source,confirm:true});await operation('start');
+    assert.match(await rcon(framework==='carbon'?'c.version':'oxide.version'),framework==='carbon'?/carbon/i:/oxide/i);
+    for(let n=0;;n++){const reply=await rcon('lg.probe');if(/LG_MOD_PROBE_OK/.test(reply))break;assert.ok(n<90,'Framework must compile and execute the disposable plugin');await wait(2000);}
+    await operation('plugin',{operation:'reload',name:'LobbyGoblinProbe.cs',confirm:true});
+    const backupResult=await operation('backup');assert.match(backupResult,/Backup created:/);
+    await operation('stop');const listing=await api('/backups'),latest=listing.backups[0];assert.ok(latest);
+    // Recover the complete modded backup into this test's exclusive volumes.
+    const archiveName=latest.relative;assert.match(archiveName,/^[A-Za-z0-9_. -]+\.tar\.gz$/);
+    await helper("import fs from 'node:fs/promises';import {extractRust} from './fleet/snapshots.js';import {verifyArchive} from './games/rust/archive.js';const backup='/evidence/runtime-backups/archives/'+"+JSON.stringify(archiveName)+";if(!(await verifyArchive(backup)).modded)throw Error('Expected modded backup');const restored='/evidence/restored-mods-"+framework+"';await extractRust(backup,restored);await fs.rename('/game/server/lobby-goblin-rust','/game/server/pre-mod-recovery-"+framework+"');await fs.cp(restored+'/identity','/game/server/lobby-goblin-rust',{recursive:true});for(const name of ['carbon','oxide'])if(await fs.stat(restored+'/mods/'+name).catch(()=>null))await fs.cp(restored+'/mods/'+name,'/game/'+name,{recursive:true});await fs.cp(restored+'/mod-state','/evidence/runtime-state/mods',{recursive:true});await fs.cp(restored+'/mod-state/backup-active','/game',{recursive:true});",{write:true});
+    await operation('start');for(let n=0;;n++){if(/LG_MOD_PROBE_OK/.test(await rcon('lg.probe')))break;assert.ok(n<90,'Recovered modded server must execute its plugin');await wait(2000);}
+    await operation('stop');const vanilla=await api('/mods-plan',{framework:'none'});await operation('install-framework',{planId:vanilla.id,confirm:true});await operation('start');report.checks.push(framework+'-native-loader-plugin-reload-backup-recovery-vanilla');
+   }
+  }
   await cmd(['stop','--timeout','10',controllerName]);assert.equal(JSON.parse(await cmd(['inspect',controllerName]))[0].State.ExitCode,0,'Disposable HTTP controller must exit cleanly');await cmd(['rm',controllerName]);
  }
  await cleanStop();await cmd(['start',name]);await ready();await cleanStop();report.checks.push('clean-stop-start-restart');

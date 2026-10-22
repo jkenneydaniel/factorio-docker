@@ -14,7 +14,7 @@ export function rustConfiguration(env,{migrationBootstrap=false}={}){
   const data=path.resolve(env.RUST_DATA||'/rust-server'),state=path.resolve(env.RUST_STATE_DIR||'/rust-state'),backups=path.resolve(env.RUST_BACKUPS_DIR||'/rust-backups');
   const roots=[data,state,backups];
   assert(roots.every(root=>root!=='/'&&!['/factorio','/backups','/state'].includes(root))&&roots.every((root,i)=>roots.every((other,j)=>i===j||root!==other&&!root.startsWith(other+'/'))),'Rust data, backups and controller state require separate dedicated directories.');
-  return {managedVolume:env.FLEET_VOLUME||null,fleet:env.FLEET_ID||null,restartPolicy:env.FLEET_RESTART_POLICY||'unless-stopped',instance,container:env.RUST_CONTAINER,image:env.RUST_IMAGE,hostData:path.resolve(env.RUST_HOST_DATA),identity:'lobby-goblin-rust',data,state,backups,library:path.join(state,'unused-library'),backupDir:path.join(backups,'archives'),rconPort:28016,passwordFile:env.RUST_RCON_PASSWORD_FILE||'/run/secrets/rust_rcon_password'};
+  return {managedVolume:env.FLEET_VOLUME||null,fleet:env.FLEET_ID||null,restartPolicy:env.FLEET_RESTART_POLICY||'unless-stopped',instance,container:env.RUST_CONTAINER,image:env.RUST_IMAGE,hostData:path.resolve(env.RUST_HOST_DATA),installRoot:env.RUST_INSTALL_ROOT?path.resolve(env.RUST_INSTALL_ROOT):null,identity:'lobby-goblin-rust',data,state,backups,library:path.join(state,'unused-library'),backupDir:path.join(backups,'archives'),rconPort:28016,passwordFile:env.RUST_RCON_PASSWORD_FILE||'/run/secrets/rust_rcon_password'};
 }
 export async function validateInstallation(config){
   for(const root of [config.data,config.state,config.backups]){
@@ -30,9 +30,9 @@ function updater({current}){
 }
 export const rust={
   id:'rust',name:'Rust',releaseRepository:'jkenneydaniel/lobby-goblin',stopTimeout:-1,
-  routes:['/players','/logs','/settings'],configuration:rustConfiguration,validateInstallation,createController:createRust,createUpdater:updater,
+  routes:['/players','/logs','/settings','/mods','/mods-plan','/plugin-config'],configuration:rustConfiguration,validateInstallation,createController:createRust,createUpdater:updater,
   diagnostics:async()=>({game:'rust',checks:[],message:'Inspect Rust status and logs for readiness.'}),
-  web:{Accounts,sessionCookie:'rust_session',accountRoutes:[],adminReadRoutes:['/logs','/settings'],
+  web:{Accounts,sessionCookie:'rust_session',accountRoutes:[],adminReadRoutes:['/logs','/settings','/mods','/plugin-config'],
     assets:{'/scope.js':['scope.js','text/javascript; charset=utf-8'],'/':['rust/index.html','text/html; charset=utf-8'],'/app.js':['rust/app.js','text/javascript; charset=utf-8'],'/style.css':['rust/style.css','text/css; charset=utf-8']},
     diagnosticsReport:(version,controller)=>({version,controller}),validateOnboarding:value=>assert(value.ready,'Wait for Rust to become ready.',409)},
 };

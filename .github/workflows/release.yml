@@ -5,7 +5,15 @@ on:
 permissions:
   contents: read
 jobs:
+  runtime-image:
+    uses: ./.github/workflows/panel-image.yml
+    with:
+      publish: true
+    permissions:
+      contents: read
+      packages: write
   package:
+    needs: runtime-image
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -23,14 +31,14 @@ jobs:
       - name: Install locked runtime dependencies
         run: npm ci --prefix panel --ignore-scripts --no-audit --no-fund
       - run: npm test --prefix panel
-      - run: docker compose --env-file .env.fleet.example -f fleet.compose.yaml config --quiet
+      - run: docker compose --project-directory . --env-file deploy/fleet/.env.example -f deploy/fleet/compose.yaml config --quiet
       - run: docker compose --env-file .env.example config --quiet
-      - run: docker build -t local/lobby-goblin:0.3.4-alpha panel
+      - run: docker build -t ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha panel
       - name: Require both published game images before attaching release assets
         run: |
           docker run --rm --network none --user 0:0 \
             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
-            --entrypoint node local/lobby-goblin:0.3.4-alpha --input-type=module -e '
+            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha --input-type=module -e '
               import {docker} from "./core/docker.js";
               import {ensureOwnedImage} from "./core/image-migration.js";
               import {ownedImages} from "./core/game-images.js";
@@ -47,7 +55,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
             --mount "type=bind,source=$PWD/panel,target=/source,readonly" \
-            --entrypoint /bin/sh local/lobby-goblin:0.3.4-alpha -ec '
+            --entrypoint /bin/sh ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha -ec '
               export DOCKER_HOST=unix:///var/run/docker.sock DOCKER_CONFIG=/tmp/lobby-goblin-docker
               docker manifest inspect docker:29.9.0-cli >/dev/null
               docker build --pull --progress=plain --tag local/lobby-goblin:updater-smoke /source
@@ -59,7 +67,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount "type=bind,source=$PWD/dist,target=/release,readonly" \
             --mount "type=bind,source=$PWD/panel/test/installer-image-smoke.js,target=/installer-image-smoke.mjs,readonly" \
-            --entrypoint node local/lobby-goblin:0.3.4-alpha /installer-image-smoke.mjs
+            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha /installer-image-smoke.mjs
       - name: Attach source and checksums
         env:
           GH_TOKEN: ${{ github.token }}

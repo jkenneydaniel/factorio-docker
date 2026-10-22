@@ -1,6 +1,7 @@
 FROM docker:29.9.0-cli AS docker-cli
 FROM node:24.22.0-bookworm-slim
-LABEL org.opencontainers.image.title="Lobby Goblin" org.opencontainers.image.version="0.3.4-alpha" org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.title="Lobby Goblin" org.opencontainers.image.version="0.3.5-alpha" org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" io.lobby-goblin.runtime="1"
 WORKDIR /app
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker-cli /usr/local/libexec/docker/cli-plugins/ /usr/local/libexec/docker/cli-plugins/

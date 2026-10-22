@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.5-alpha (unreleased)
+
+- Organize both game images under `images/`, supporting launchers under `scripts/`, and fleet templates under `deploy/fleet/`. Simplify the documentation while preserving historical release paths and compatibility with existing updaters.
+- Add guided local and hosted installation, explicit prepare/start controls, and first-administrator onboarding without adopting existing servers or worlds.
+- Automatically remove completed update workers and safely retire stopped, owned fleet helpers and completed migration originals. Failed update logs are retained with recovery records; running servers and data volumes are excluded.
+- Publish one versioned, multi-platform GHCR image for the panel, controllers and setup tools. Setup pulls it; new release installations verify and pin its registry digest instead of building it on the host.
+- Add Rust Carbon and Oxide / uMod installation, framework recovery, C# plugin installation/enable/disable/reload/removal and JSON configuration editing. Changes require a stopped server and preserve world and plugin data.
+- Introduce the mod-capable Rust bootstrap `steam-lg.2` and complete modded backups, including loader files, plugin data and offline recovery copies. Existing first-party games are not automatically restarted to adopt this optional capability.
+
 ## 0.3.4-alpha — 2026-10-21
 
 - Build a first-party vanilla Rust image from a pinned Node/Debian base and

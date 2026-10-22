@@ -1,14 +1,19 @@
 # Security and deployment scope
 
-v0.2.6-alpha is intended for a trusted LAN with trusted administrators. It has
-not received an independent security audit. Internet exposure, public registration,
-multiple replicas and multi-tenant hosting are unsupported.
+Lobby Goblin is intended for trusted administrators and has not received an
+independent security audit. Standalone setup targets a trusted LAN. The separate
+[host-manager installer](docs/INSTALLATION.md) offers experimental hosted HTTPS
+for a single owner. Public self-registration, multiple replicas and multi-tenant
+hosting remain unsupported.
 
 The web app checks allowed hostnames, same-origin mutations, sessions, CSRF tokens
 and roles. Registration requires invitations. These controls do not make an HTTP
-connection confidential: use only a network you trust. Do not forward panel,
-controller, Docker or RCON ports from a router. A production Internet deployment
-would need further review and a TLS/access-control deployment design.
+connection confidential: use only a network you trust. Do not forward standalone
+panel, controller, Docker or RCON ports from a router. Hosted setup publishes only
+its HTTPS gateway, keeps the application port on loopback, and declares the
+expected public origin for same-origin checks and Secure cookies. It does not
+trust client forwarding headers or configure your firewall. Production Internet
+deployment still needs a security review and deployment acceptance.
 
 The controller mounts the Docker socket. A compromised controller or powerful
 administrator can effectively control the Docker host. Do not treat container

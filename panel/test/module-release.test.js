@@ -8,6 +8,8 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {sourceSnapshot,unpackRelease} from '../update-source.js';
 import {legacySlug} from '../branding.js';
+import {unpackRelease as unpack020} from './fixtures/updater-v0.2.0-alpha.mjs';
+import {unpackRelease as unpack033} from './fixtures/updater-v0.3.3-alpha.mjs';
 
 const run=promisify(execFile),project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 
@@ -21,6 +23,16 @@ test('compatible release bundles contain an importable core/module runtime and p
   await run(process.execPath,['tools/release.mjs'],{cwd:source,timeout:10000});
   const {version}=JSON.parse(await fs.readFile(path.join(source,'panel/package.json'),'utf8'));
   const prefix=path.join(source,'dist/lobby-goblin-'+version);
+  const historicalZip=path.join(source,'dist/'+legacySlug+'-'+version);
+  const historicalArchive=await fs.readFile(historicalZip+'.zip');
+  const historicalChecksum=await fs.readFile(historicalZip+'.sha256','utf8');
+  const historicalMetadata=JSON.parse(await fs.readFile(historicalZip+'.update.json','utf8'));
+  for(const unpack of [unpack020,unpack033]){
+    const accepted=unpack(historicalArchive,historicalChecksum,version,historicalMetadata);
+    assert.ok(accepted.has('Setup.sh'));
+    assert.ok(accepted.has('panel/source-layout.js'));
+    assert.ok(![...accepted.keys()].some(name=>/^(images|scripts|deploy)\//.test(name)));
+  }
   for(const suffix of ['','.source']){
     const historical=path.join(source,'dist/'+legacySlug+'-'+version);
     const files=unpackRelease(await fs.readFile(historical+suffix+'.zip'),await fs.readFile(historical+suffix+'.sha256','utf8'),version,JSON.parse(await fs.readFile(historical+suffix+'.update.json','utf8')));
@@ -32,8 +44,27 @@ test('compatible release bundles contain an importable core/module runtime and p
     for(const name of ['panel/core/image-migration.js','panel/core/standalone-migration.js','panel/fleet/migrations.js','panel/games/rust/image/Dockerfile','panel/games/rust/image/entrypoint.mjs','panel/games/rust/image/image.json'])assert.ok(files.has(name),'Missing migration or image source: '+name);
     for(const name of ['panel/fleet/manager.js','panel/fleet/controller.js','panel/fleet/web.js','panel/fleet/worker.js','panel/core/data-mount.js','panel/public/scope.js','panel/public/fleet/app.js','panel/core/controller.js','panel/core/web.js','panel/core/accounts.js','panel/games/index.js','panel/games/factorio/controller.js','panel/games/factorio/setup.js','panel/games/factorio/update-worker.js','panel/games/rust/controller.js','panel/games/rust/archive.js','panel/games/rust/compose.yaml','panel/games/rust/setup.js','panel/public/rust/app.js'])assert.ok(files.has(name),'Missing module source in '+suffix+' bundle: '+name);
     assert.ok(![...files.keys()].some(name=>/^(data|backups|\.panel-data)\//.test(name)));
-    if(suffix){for(const name of ['fleet.compose.yaml','.env.fleet.example','Fleet.ps1','Fleet.sh'])assert.ok(files.has(name),'Missing host manager launcher '+name);continue;}
-    for(const name of ['fleet.compose.yaml','.env.fleet.example','Fleet.ps1','Fleet.sh'])assert.ok(!files.has(name),'Historical updater must not receive new root files');
+    for(const [name,data] of files){
+      if(!name.endsWith('.md'))continue;
+      for(const match of data.toString().matchAll(/\]\(([^\s)#]+)[^)]*\)/g)){
+        const link=match[1];if(/^(?:[a-z]+:|\/)/i.test(link))continue;
+        const target=path.posix.normalize(path.posix.join(path.posix.dirname(name),decodeURIComponent(link)));
+        assert.ok(files.has(target),'Broken release documentation link: '+name+' -> '+link);
+      }
+    }
+    const freshRoots=['fleet.compose.yaml','.env.fleet.example','Fleet.ps1','Fleet.sh','Install.sh','Install.command','Install.ps1','Install-Docker.sh'];
+    if(suffix){
+      for(const name of freshRoots)assert.ok(files.has(name),'Missing host manager launcher '+name);
+      for(const name of ['panel/install.js','docs/INSTALLATION.md','factorio-image/Dockerfile','factorio-image/test-build.mjs','panel/games/rust/image/build.mjs'])assert.ok(files.has(name),'Missing complete source '+name);
+      assert.ok(![...files.keys()].some(name=>/^(images|scripts|deploy)\//.test(name)));
+      const complete=path.join(root,'complete');await fs.mkdir(complete);
+      for(const [name,data] of files){const target=path.join(complete,name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,data);}
+      await run(process.execPath,['--test','factorio-image/test-build.mjs','panel/games/rust/image/test-runtime.test.mjs','panel/test/host-setup.test.js','panel/test/installation.test.js'],{cwd:complete,timeout:15000});
+      // Repack an extracted source bundle without changing its installed paths.
+      await run(process.execPath,['tools/release.mjs'],{cwd:complete,timeout:10000});
+      continue;
+    }
+    for(const name of freshRoots)assert.ok(!files.has(name),'Historical updater must not receive new root files');
     const install=path.join(root,'install');await fs.mkdir(install);
     for(const [name,data] of files){const target=path.join(install,name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,data);}
     // Build the runtime filesystem described by local COPY directives, without

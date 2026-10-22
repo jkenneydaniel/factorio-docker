@@ -48,7 +48,7 @@ node panel/games/rust/setup.js \
   --url http://localhost:8088
 ```
 
-The default is `ghcr.io/jkenneydaniel/rust-server:steam-lg.1`. An explicit
+The default is `ghcr.io/jkenneydaniel/rust-server:steam-lg.2`. An explicit
 `--image` must select a Lobby Goblin versioned tag, optionally pinned by digest.
 Third-party images are not accepted for new installations. Setup copies this
 panel runtime into the new installation; later source edits do not update that
@@ -64,7 +64,7 @@ new-rust-install/
   .env                         # Rust installation ID, digest, paths and port
   rust.env                     # Private game-side WebRCON password
   installation.json
-  panel/                       # Source snapshot used to build this panel
+  panel/                       # Source snapshot for verified updates and optional local builds
   data/server/lobby-goblin-rust/     # Rust identity; server binaries live in data/
   backups/archives/            # Rust archives only
   control/auth/                # Rust panel accounts/invitations
@@ -101,7 +101,8 @@ docker compose config --quiet
 To actually install and run the new stack when ready:
 
 ```sh
-docker compose up -d --build
+docker compose pull
+docker compose up -d --no-build
 ```
 
 The image digest pins the bootstrap image, not the Rust build downloaded by
@@ -109,7 +110,7 @@ SteamCMD. Record the installed Steam build ID when reviewing updates.
 
 On first launch the first-party image downloads Rust through SteamCMD. Later
 starts reuse the installed binary without update checks, heartbeat restarts or
-Oxide installation. Existing worlds with missing binaries are refused rather
+unmanaged framework installation. Frameworks selected through Mods are recognized. Existing worlds with missing binaries are refused rather
 than silently downloading a newer game. Fresh independent snapshot clones carry
 an explicit one-time installation marker. The Rust module rejects Factorio update
 jobs; future Rust game-build updates still require separate review.
@@ -158,9 +159,14 @@ answered WebRCON again. It does not prove a successful game-load restore.
 
 Streaming avoids the Factorio ZIP memory/size ceiling. Bounds remain: 8 GiB minus
 one byte per file, 64 GiB of identity data, 20,000 files, nesting depth 32 and
-100-byte archive member names. Symbolic links and special files are rejected,
-not silently omitted. Entire identity data are included; server binaries and
-plugins outside that directory are not. Manage mod/plugin backups separately.
+USTAR paths (100-byte leaf and 155-byte prefix). Symbolic links and special files
+are rejected. Vanilla archives retain the version 1 identity-only format.
+Version 2 modded archives also include `mods/carbon`, `mods/oxide` and `mod-state`:
+plugin sources, configuration/data, exact active framework DLL/loader files,
+downloaded framework packages, vanilla originals and interrupted-install recovery
+records. Rust/Steam binaries themselves remain outside these archives. A modded
+backup is refused by the shared world-cloning library rather than dropping its
+mods; use complete recovery below.
 
 Scheduled archives use the shared count retention rules, preserving the newest
 two and the most recent verified backup. Manual archives are retained by default.
@@ -173,6 +179,61 @@ and extract into a **new disposable** identity location. Validate Rust can load
 it before deciding to replace the active Rust identity. Never extract into the
 Factorio installation. The host manager has passed real snapshot-clone loading on Windows amd64;
 verify a separate recovery copy before replacing any active identity.
+
+## Mods and plugins
+
+Use **Mods & plugins** as an administrator. Oxide / uMod is one framework option:
+uMod's Rust download is Oxide. Carbon is the alternative; they are never enabled
+at the same time. Vanilla removes managed framework patches and restores the
+original game DLLs. Switching preserves both frameworks' plugin and data folders.
+It does not translate framework-specific plugins or configuration.
+
+Stop Rust first, choose the framework and select **Review installation**. Review
+shows the official Linux release/version and SHA-256 checksum. Confirmation pins
+that download for 15 minutes. Archives are checked before files change; links,
+unsafe paths and unexpected payloads are refused. Framework releases must match
+the installed Rust build. Installing a framework does not update Rust through
+Steam. There are no automatic framework or plugin updates. Start Rust explicitly
+afterward and inspect its logs. A failed transaction restores previous files when
+safe; otherwise startup is blocked until **Recover framework** restores them.
+
+Upload the original `.cs` filename from an author you trust (maximum 512 KiB).
+Plugins execute server code. Install/update, enable, disable and remove require
+stopped Rust; previous sources are retained. Removal keeps plugin data/config.
+Reload uses the selected framework's reload command while Rust is ready.
+Existing plugin JSON configuration can be loaded and saved with stale-edit
+protection. Configuration changes apply at the next start. Framework/plugin
+compatibility and a successful compilation still require testing on your game.
+
+The feature requires the published `steam-lg.2` image and a controller using the
+updated Compose root mount / `RUST_INSTALL_ROOT`. New installations include both.
+Existing `steam-lg.1` games continue working; updating source or the host panel
+does not restart those games or automatically replace registered instance
+controllers. Upgrade an existing instance's image and controller together during
+a reviewed maintenance window after a verified backup. The panel clearly blocks
+framework installation until both prerequisites are present. Unmanaged existing
+frameworks and manually edited managed DLLs require reconciliation first.
+
+### Complete modded recovery
+
+Keep the original installation untouched while validating a separate recovery
+copy with the same installed Rust build and compatible bootstrap image. Verify
+the archive first. Extract it into a fresh staging directory, then copy:
+
+- `identity/` to the new installation's `server/<identity>/`.
+- `mods/carbon/` and `mods/oxide/`, when present, to its `carbon/` and `oxide/` roots.
+- `mod-state/` to the new controller's private `state/mods/` location.
+- The contents of `mod-state/backup-active/`, including the hidden
+  `.lobby-goblin-mods.json`, to the new game installation root. This restores the
+  exact active DLLs/loader and framework selection without another download.
+
+Regenerate instance markers/credentials for the recovery installation; these are
+separate from world data. Start only that disposable copy and verify the world,
+plugin compilation and plugin data before replacing any active installation.
+Backups contain executable plugin code and potentially private plugin data, so
+keep downloaded archives private. The acceptance runner's `rust --fresh --mods`
+mode tests native Carbon/Oxide loading, plugin execution/reload, modded backup
+recovery and switching back to Vanilla in isolated Docker resources.
 
 ## Runtime acceptance
 
@@ -216,4 +277,4 @@ the host Docker socket. Stop it with Ctrl+C to remove its temporary files.
 
 Protocol references: [Facepunch WebRCON client](https://github.com/Facepunch/webrcon/blob/gh-pages/js/rconService.js),
 [server configuration](https://wiki.facepunch.com/rust/Creating-a-server#servercfg).
-The current image contract is documented in [the first-party image README](../panel/games/rust/image/README.md).
+The current image contract is documented in [the first-party image README](../images/rust/README.md).

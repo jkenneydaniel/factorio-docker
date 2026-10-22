@@ -18,6 +18,7 @@ export async function startFleetWeb({env=process.env,port=Number(env.PORT||8080)
   },
  };
  const module={id:'fleet',name:'Lobby Goblin host manager',releaseRepository:'jkenneydaniel/lobby-goblin',routes:['/servers','/catalog','/snapshots'],web,configuration:()=>({}),createController:()=>{},createUpdater:()=>{},diagnostics:()=>{}};
+ web.assets['/fleet-onboarding.js']=['fleet/onboarding.js','text/javascript; charset=utf-8'];
  const server=await startWeb(module,{env:{...env,AUTH_DIR:auth,CONTROLLER_URL:controller,CONTROLLER_TOKEN_FILE:file,RELEASE_CHECKS:'false'},accounts,sessions,controllerToken:token,port,hostname});
  server.once('close',()=>{for(const child of children.values())child.emit('close');});return server;
 }
