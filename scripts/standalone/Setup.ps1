@@ -96,7 +96,7 @@ function Set-SetupValue([string]$Key, [string]$Value) {
 if ($Address) { Set-SetupValue SERVER_ADDRESS $Address }
 # Windows Docker Desktop exposes the Linux VM's socket to the controller.
 Set-SetupValue DOCKER_SOCKET_GID 0
-if ((Get-SetupValue PANEL_IMAGE '') -match '^local/(lobby-goblin|factory-control):') { Set-SetupValue PANEL_IMAGE 'ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha' }
+if ((Get-SetupValue PANEL_IMAGE '') -match '^local/(lobby-goblin|factory-control):') { Set-SetupValue PANEL_IMAGE 'ghcr.io/jkenneydaniel/lobby-goblin:0.3.6-alpha' }
 Invoke-SetupDocker compose pull panel panel-controller setup
 Invoke-SetupDocker compose config --quiet
 Write-Host 'Preparing world data and private registration. This does not start the stack.'

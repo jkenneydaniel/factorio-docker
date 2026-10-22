@@ -21,7 +21,7 @@ if($info.OSType -ne 'linux' -or $info.Architecture -notin @('x86_64','amd64') -o
 
 if(!(Test-Path -LiteralPath $envFile)){
  $id=[Guid]::NewGuid().ToString('N')
- $content="FLEET_ID=$id`nFLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha`nFLEET_ADDRESS=$Address`nFLEET_PANEL_PORT=$PanelPort`nFLEET_PANEL_BIND=0.0.0.0`nFLEET_GAME_BIND=0.0.0.0`nFLEET_GAME_PORT_BASE=35000`nFLEET_MEMORY_GIB=$MemoryGiB`n"
+ $content="FLEET_ID=$id`nFLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.6-alpha`nFLEET_ADDRESS=$Address`nFLEET_PANEL_PORT=$PanelPort`nFLEET_PANEL_BIND=0.0.0.0`nFLEET_GAME_BIND=0.0.0.0`nFLEET_GAME_PORT_BASE=35000`nFLEET_MEMORY_GIB=$MemoryGiB`n"
  [IO.File]::WriteAllText($envFile,$content,(New-Object Text.UTF8Encoding($false)))
 }
 $idLine=Select-String -LiteralPath $envFile -Pattern '^FLEET_ID=([a-f0-9]{32})$'
@@ -34,7 +34,7 @@ if($BuildOnly){
  return
 }
 $content=[IO.File]::ReadAllText($envFile)
-$content=[regex]::Replace($content,'(?m)^FLEET_IMAGE=local/lobby-goblin-host:[^\r\n]+','FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha')
+$content=[regex]::Replace($content,'(?m)^FLEET_IMAGE=local/lobby-goblin-host:[^\r\n]+','FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.6-alpha')
 [IO.File]::WriteAllText($envFile,$content,(New-Object Text.UTF8Encoding($false)))
 & $docker @arguments pull fleet-controller fleet-web
 if($LASTEXITCODE -ne 0){throw 'The published host image could not be downloaded. No existing servers were changed.'}

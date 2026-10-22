@@ -1,3 +1,25 @@
+## v0.3.6-alpha release preparation, October 22, 2026
+
+- PR #9 merged as `a30eb4e324dc777951fb97a74dbf3c5336312940`. Its
+  post-merge Test and build, shared runtime and both game image checks passed.
+- Aligned the package/lockfile, runtime label, installer/Compose defaults,
+  controller version and CI/release image references at `0.3.6-alpha`.
+- The release-version Node 24 suite passed 332 tests with zero failures and
+  one platform-specific skip; the Factorio Python suite passed all 20 tests.
+  The Node suite includes complete-source and compatible archive checks against
+  frozen v0.2.0/v0.3.3 updaters and prepare-only installer fixtures.
+- Both game image source trees are unchanged from `v0.3.5-alpha`. Anonymous
+  registry reads verified the published Linux amd64 images and contract labels:
+  Factorio `2.0.77-fc.3` at
+  `sha256:b7c0b2e8f17e53cb9e1f0cfbf55e2a6a7d4e09a9f78c9ac9b524170e224e9de1`,
+  and Rust `steam-lg.2` at
+  `sha256:26bcf68356e2a6918ee1e52ffc4901d97ee5c64caae74a5446fe63539653374a`.
+  Both follow the same immutable-tag policy; unchanged game sources do not
+  require replacing either published image.
+- These are release-preparation results. Hosted release checks, runtime
+  publication and final assets require separate completion. No deployment,
+  existing installation, running server or world was accessed or changed.
+
 ## Unreleased: PR 9 feedback, October 22, 2026
 
 - Node 24 regression: **332 passed, zero failed, one skipped** (333 total).

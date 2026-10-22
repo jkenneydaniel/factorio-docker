@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.6-alpha — 2026-10-22
 
 - Add persistent panel-to-agent connections on a configurable dedicated port
   (24443 by default), with pairing-pinned TLS identities, concurrent transfers,
@@ -17,8 +17,10 @@
 - Offer explicit automatic save/stop/apply/start for mod changes. Rust also offers
   running plugin load/reload/unload through Oxide or Carbon; Factorio requires a
   restart. Existing manual framework/upload tools remain available.
+- Resume a previously running game after a failed mod preparation when the
+  administrator chose automatic restart; preserve failed-job and recovery details.
 
-## 0.3.5-alpha (unreleased)
+## 0.3.5-alpha — 2026-10-22
 
 - Organize both game images under `images/`, supporting launchers under `scripts/`, and fleet templates under `deploy/fleet/`. Simplify the documentation while preserving historical release paths and compatibility with existing updaters.
 - Add guided local and hosted installation, explicit prepare/start controls, and first-administrator onboarding without adopting existing servers or worlds.

@@ -107,7 +107,7 @@ case "$docker_system" in *'Docker Desktop'*) set_env DOCKER_SOCKET_GID 0 ;;
     set_env DOCKER_SOCKET_GID "$gid" ;;
 esac
 panel_image=$(read_env PANEL_IMAGE)
-case "$panel_image" in local/lobby-goblin:*|local/factory-control:*) set_env PANEL_IMAGE ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha ;; esac
+case "$panel_image" in local/lobby-goblin:*|local/factory-control:*) set_env PANEL_IMAGE ghcr.io/jkenneydaniel/lobby-goblin:0.3.6-alpha ;; esac
 docker compose pull panel panel-controller setup || fail 'The published panel image could not be downloaded. No servers were started.'
 docker compose config --quiet || fail 'Compose configuration is invalid. Review .env.'
 printf '\nPreparing world data and private registration. This does not start the stack.\n'

@@ -20,7 +20,7 @@ if [ ! -f "$config" ]; then
  umask 077
  cat > "$config" <<EOF
 FLEET_ID=$id
-FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha
+FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.6-alpha
 FLEET_ADDRESS=$address
 FLEET_PANEL_PORT=${FLEET_PANEL_PORT:-8082}
 FLEET_PANEL_BIND=0.0.0.0
@@ -37,7 +37,7 @@ if [ "${1:-}" = '--build-only' ]; then
 fi
 if sed -n '/^FLEET_IMAGE=local\/lobby-goblin-host:/p' "$config" | grep -q .; then
  task_fleet_tmp=$(mktemp "$config.XXXXXX")
- sed 's|^FLEET_IMAGE=local/lobby-goblin-host:.*|FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha|' "$config" > "$task_fleet_tmp"
+ sed 's|^FLEET_IMAGE=local/lobby-goblin-host:.*|FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.6-alpha|' "$config" > "$task_fleet_tmp"
  mv "$task_fleet_tmp" "$config"
 fi
 docker compose --project-directory "$root" --env-file "$config" -f "$compose_file" -p "lobby-goblin-fleet-$id" pull fleet-controller fleet-web
