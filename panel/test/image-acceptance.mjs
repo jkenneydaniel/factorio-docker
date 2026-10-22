@@ -73,6 +73,7 @@ try{
   if(mods){
    const source='namespace Oxide.Plugins { [Info("LobbyGoblinProbe", "Lobby Goblin", "1.0.0")] public class LobbyGoblinProbe : RustPlugin { [ConsoleCommand("lg.probe")] void Probe(ConsoleSystem.Arg arg) { arg.ReplyWith("LG_MOD_PROBE_OK"); } } }';
    for(const framework of ['carbon','oxide']){
+    console.log(JSON.stringify({game,phase:'native-framework',framework}));
     await operation('stop');const plan=await api('/mods-plan',{framework});await operation('install-framework',{planId:plan.id,confirm:true});
     await operation('plugin',{operation:'install',name:'LobbyGoblinProbe.cs',source,confirm:true});await operation('start');
     assert.match(await rcon(framework==='carbon'?'c.version':'oxide.version'),framework==='carbon'?/carbon/i:/oxide/i);

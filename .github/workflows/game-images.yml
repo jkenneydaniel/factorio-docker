@@ -99,11 +99,6 @@ jobs:
             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
             --mount "type=bind,source=$PWD,target=/source,readonly" --workdir /source \
             -e ACCEPTANCE_PANEL_IMAGE=local/lobby-goblin-rust-acceptance \
-            --entrypoint node local/lobby-goblin-rust-acceptance panel/test/image-acceptance.mjs rust
-          docker run --rm --network none --user 0:0 --memory 1g \
-            --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
-            --mount "type=bind,source=$PWD,target=/source,readonly" --workdir /source \
-            -e ACCEPTANCE_PANEL_IMAGE=local/lobby-goblin-rust-acceptance \
             --entrypoint node local/lobby-goblin-rust-acceptance panel/test/image-acceptance.mjs rust --fresh --mods
       - name: Select the tested tag
         if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
