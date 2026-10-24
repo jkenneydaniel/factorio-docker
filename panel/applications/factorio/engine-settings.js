@@ -1,3 +1,5 @@
+import {installedRuntime,releaseKey} from './runtime.js';
+import {readScopedFile} from '../../core/helper-workspace.js';
 import {docker as dockerAPI} from '../../core/docker.js';
 import {assert} from '../../common.js';
 
@@ -42,10 +44,12 @@ export function mergeSettings(base,chosen){
   return result;
 }
 const cache=new WeakMap();
-export async function engineMapSettings(container,image,{docker=dockerAPI}={}){
+export async function engineMapSettings(container,image,{docker=dockerAPI,data,server}={}){
   const cached=cache.get(docker);
   if(cached?.image===image)return structuredClone(cached.settings);
   const basename='map-settings.example.json';
+  const receipt=data&&server?await installedRuntime(data,server):null;
+  if(receipt){const settings=jsonWithComments((await readScopedFile(data,'runtime/releases/'+releaseKey(receipt)+'/data/'+basename,512*1024)).bytes.toString());cache.set(docker,{image,settings});return structuredClone(settings);}
   const raw=await docker('GET',`/containers/${encodeURIComponent(container)}/archive?path=${encodeURIComponent('/opt/factorio/data/'+basename)}`,undefined,{raw:true});
   const settings=jsonWithComments(archiveText(raw,basename));
   assert(settings&&typeof settings==='object'&&!Array.isArray(settings),'Invalid installed game settings.');

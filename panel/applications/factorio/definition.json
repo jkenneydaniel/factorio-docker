@@ -67,7 +67,8 @@
               "factorio-panel-preview-",
               "factorio-panel-map-",
               "factorio-panel-job-"
-            ]
+            ],
+            "softwareTarget": "/opt/factorio"
           },
           "archiveReadPaths": [
             "/opt/factorio/data/map-settings.example.json"
@@ -146,6 +147,10 @@
           "includesPlayerData": false
         },
         "secrets": []
+      },
+      "software": {
+        "version": 1,
+        "mode": "image"
       }
     }
   ]

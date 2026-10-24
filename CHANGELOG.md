@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.8-alpha — 2026-10-24
+
+- Restore fleet update discovery with management release notes and host update
+  guidance. Select Factorio image versions from the published catalogue.
+- Remove deleted servers from the active list while retaining their storage for
+  recovery. Inspect, verify, clone and delete shared snapshots from the panel.
+- Add an opt-in Factorio runtime image that installs verified headless releases
+  into persistent server storage. Keep bundled images as the compatible default;
+  restarts and container replacements retain the exact installed version.
+- Add explicit software upgrades with pre-update backups, version verification,
+  durable recovery records and paired restoration of software and server data.
+  Preserve the previous release and protect the recovery backup from cleanup.
+- Use receipt-verified, read-only software copies for preview and world helpers,
+  with private scratch mounts and exact-version cache identities. Runtime
+  snapshots and clones retain their software version and archive checksum.
+- Add independent runtime-image publication and require the published runtime
+  before packaging release downloads. Publishing does not deploy installations,
+  upgrade running applications or modify existing worlds.
+
 ## 0.3.7-alpha — 2026-10-24
 
 - Package Factorio and Rust as registered application definitions with reusable

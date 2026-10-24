@@ -168,3 +168,34 @@ permissions are enforced outside game controllers. Existing installations retain
 their historical definitions until an explicit reviewed upgrade. Broker-enabled
 hosts require operator-reviewed management updates instead of the legacy
 socket-bearing agent helper. See [the isolation and upgrade contract](ISOLATION.md).
+
+## Snapshot library and removed servers
+
+Removed servers leave the active server list. Their registry identity and original
+volume are retained for operator recovery and are listed separately under
+**Snapshot library → Removed servers · retained storage**. Removing a server never
+purges that volume. Old removed records also disappear from the active list after
+upgrading the panel.
+
+The removal dialog defaults to **Publish a snapshot to the library before
+removal**. The host saves and stops the selected server, waits for a completed backup,
+publishes and verifies its snapshot, then removes the server containers and network. A failed snapshot
+prevents removal and leaves the server stopped, with its resources intact. For an incomplete installation or a server that cannot publish a
+cloneable snapshot, an administrator can uncheck this option and retain the
+original volume for operator recovery. Historical API clients that omit
+`publishSnapshot` retain the previous removal behavior.
+
+Administrators can inspect a snapshot's verified inventory and hashes, download
+its manifest, create an independent server on the source host, or confirm deletion
+of the selected library copy. Snapshot deletion does not delete source backups,
+cloned servers, or retained source volumes. Inspection and deletion are scoped to
+the owning host; collection reads remain available to read-only accounts. New
+inspection/deletion routes require an updated host agent.
+
+These are saved-world snapshots. Private management-update recovery metadata is
+managed by the [operator update workflow](MANAGEMENT_UPDATES.md).
+
+New Factorio servers can explicitly choose runtime software installation in the
+creation dialog. The bundled image remains the compatible default. Runtime
+servers manage Factorio versions independently of their image and clone snapshots
+with an exact software receipt. See [Factorio runtime software](FACTORIO_RUNTIME.md).

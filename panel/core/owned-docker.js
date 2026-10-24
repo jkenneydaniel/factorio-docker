@@ -27,6 +27,27 @@ export function ownedDocker(
     'io.lobby-goblin.instance': id,
   };
   const execIds = new Map();
+  function softwareMount(mounts) {
+    if (mounts.length === 1) return true;
+    const extra = mounts[1],
+      first = mounts[0];
+    return (
+      mounts.length === 2 &&
+      previewWorker?.softwareTarget &&
+      Object.keys(extra).every((key) =>
+        ['Type', 'Source', 'Target', 'ReadOnly', 'VolumeOptions'].includes(key),
+      ) &&
+      Object.keys(extra.VolumeOptions || {}).every((key) =>
+        ['Subpath', 'NoCopy'].includes(key),
+      ) &&
+      extra.Type === 'volume' &&
+      extra.Source === volume &&
+      extra.Target === previewWorker.softwareTarget &&
+      extra.ReadOnly === true &&
+      extra.VolumeOptions?.NoCopy === true &&
+      extra.VolumeOptions?.Subpath === first.VolumeOptions?.Subpath + '/engine'
+    );
+  }
   async function owned(ref, {legacyCleanup = false} = {}) {
     const info = await request(
       'GET',
@@ -97,17 +118,36 @@ export function ownedDocker(
         const mounts = info.HostConfig?.Mounts || [],
           mount = mounts[0],
           subpath = mount?.VolumeOptions?.Subpath || '';
-        const roots = [previewWorker?.root, ...(legacyCleanup && previewWorker?.root?.startsWith('state/') ? [previewWorker.root.replace(/^state\//, 'data/')] : [])].filter(Boolean);
-        const legacyRoot = legacyCleanup && previewWorker?.root?.startsWith('state/') && subpath.startsWith(previewWorker.root.replace(/^state\//, 'data/') + '/');
+        const roots = [
+          previewWorker?.root,
+          ...(legacyCleanup && previewWorker?.root?.startsWith('state/')
+            ? [previewWorker.root.replace(/^state\//, 'data/')]
+            : []),
+        ].filter(Boolean);
+        const legacyRoot =
+          legacyCleanup &&
+          previewWorker?.root?.startsWith('state/') &&
+          subpath.startsWith(
+            previewWorker.root.replace(/^state\//, 'data/') + '/',
+          );
         assert(
           previewWorker &&
-            (info.Config?.Labels?.['io.lobby-goblin.worker-kind'] === 'game-preview' || legacyRoot && info.Config?.Labels?.['io.lobby-goblin.worker-kind'] === undefined) &&
+            (info.Config?.Labels?.['io.lobby-goblin.worker-kind'] ===
+              'game-preview' ||
+              (legacyRoot &&
+                info.Config?.Labels?.['io.lobby-goblin.worker-kind'] ===
+                  undefined)) &&
             [owner.Image, owner.Config.Image].includes(info.Image) &&
-            mounts.length === 1 &&
+            softwareMount(mounts) &&
             mount.Type === 'volume' &&
             mount.Source === volume &&
             mount.Target === previewWorker.target &&
-            roots.some(root => subpath.startsWith(root + '/') && /^[A-Za-z0-9_.-]+$/.test(subpath.slice(root.length + 1)) && !['.', '..'].includes(subpath.slice(root.length + 1))),
+            roots.some(
+              (root) =>
+                subpath.startsWith(root + '/') &&
+                /^[A-Za-z0-9_.-]+$/.test(subpath.slice(root.length + 1)) &&
+                !['.', '..'].includes(subpath.slice(root.length + 1)),
+            ),
           'This is not an owned game-preview worker.',
           403,
         );
@@ -191,7 +231,8 @@ export function ownedDocker(
           !host.VolumesFrom &&
           !host.Devices &&
           !host.CapAdd &&
-          host.Mounts?.length === 1,
+          Array.isArray(host.Mounts) &&
+          softwareMount(host.Mounts),
         'Workers require isolated storage and networking.',
         409,
       );
@@ -263,7 +304,13 @@ export function ownedDocker(
           [...url.searchParams.keys()].every((key) =>
             ['name', 'platform'].includes(key),
           ) &&
-            previewWorker.namePrefixes?.some(prefix => {const name=url.searchParams.get('name')||'';return name.startsWith(prefix)&&/^[a-f0-9-]{36}$/.test(name.slice(prefix.length));}) &&
+            previewWorker.namePrefixes?.some((prefix) => {
+              const name = url.searchParams.get('name') || '';
+              return (
+                name.startsWith(prefix) &&
+                /^[a-f0-9-]{36}$/.test(name.slice(prefix.length))
+              );
+            }) &&
             (!url.searchParams.has('platform') ||
               url.searchParams.get('platform') === 'linux/amd64'),
           'Invalid game-preview worker identity.',
@@ -313,7 +360,12 @@ export function ownedDocker(
     if (bits[0] === 'containers' && bits.length >= 2) {
       // Old game-writable scratch mounts are admitted only for inspection and
       // teardown during an upgrade, never start/restart/exec or new creation.
-      const info = await owned(bits[1], {legacyCleanup: method === 'GET' && bits[2] === 'json' || method === 'DELETE' && bits.length === 2 || method === 'POST' && bits[2] === 'stop'});
+      const info = await owned(bits[1], {
+        legacyCleanup:
+          (method === 'GET' && bits[2] === 'json') ||
+          (method === 'DELETE' && bits.length === 2) ||
+          (method === 'POST' && bits[2] === 'stop'),
+      });
       assert(
         (bits.length === 3 &&
           {
@@ -382,7 +434,16 @@ export function ownedDocker(
                 ['Cmd', 'AttachStdout', 'AttachStderr'].includes(key),
               ) &&
               Array.isArray(data.Cmd) &&
-              execCommands.some(command => data.Cmd[0] === command.executable && data.Cmd.length === command.arguments + 1 && data.Cmd.slice(1).every(value => typeof value === 'string' && Buffer.byteLength(value) <= command.maxArgumentBytes)),
+              execCommands.some(
+                (command) =>
+                  data.Cmd[0] === command.executable &&
+                  data.Cmd.length === command.arguments + 1 &&
+                  data.Cmd.slice(1).every(
+                    (value) =>
+                      typeof value === 'string' &&
+                      Buffer.byteLength(value) <= command.maxArgumentBytes,
+                  ),
+              ),
             'Only a declared game command helper may be executed.',
             403,
           );

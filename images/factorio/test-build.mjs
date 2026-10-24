@@ -6,9 +6,18 @@ import path from 'node:path';
 const root=await fs.stat(new URL('../../panel/package.json',import.meta.url)).catch(()=>null)?new URL('../../',import.meta.url):new URL('../',import.meta.url);
 const {gameSources,parseGameImage}=await import(new URL('panel/applications/factorio/public/game-images.js',root));
 const {imageDefinition,buildImage,testImage}=await import(new URL('tools/factorio-image.mjs',root));
+const {runtimeImageDefinition,buildRuntimeImage}=await import(new URL('tools/factorio-image.mjs',root));
 const {publicSource,sourceSnapshot,unpackRelease,sha256}=await import(new URL('panel/update-source.js',root));
 const {makeZip}=await import(new URL('panel/core/archive.js',root));
 const owned=gameSources.factory.repository;
+test('runtime image metadata and build sources ship independently from the bundled release',async()=>{
+  const definition=await runtimeImageDefinition(),calls=[];await buildRuntimeImage(definition,async args=>calls.push(args));
+  assert.equal(definition.image,owned+':runtime-fc.1');assert.equal(definition.version,undefined);
+  assert.deepEqual(calls[0].slice(0,5),['buildx','build','--load','--platform','linux/amd64']);
+  assert.ok(calls[0].some(value=>value.endsWith('runtime/Dockerfile')));
+  for(const name of ['factorio-image/runtime/Dockerfile','factorio-image/runtime/image.json','factorio-image/runtime.py','factorio-image/test_runtime_install.py','panel/applications/factorio/runtime.js','panel/applications/factorio/runtime-update.js'])assert.equal(publicSource(name),true,name);
+  const ignore=await fs.readFile(new URL('./.dockerignore',import.meta.url),'utf8');assert.match(ignore,/^!runtime\.py$/m);
+});
 test('the independent image definition pins Debian, the official archive and the x86 platform and owns deployment defaults',async()=>{
   const definition=await imageDefinition(),calls=[];await buildImage(definition,async args=>calls.push(args));
   assert.equal(definition.image,owned+':2.0.77-fc.3');assert.match(definition.baseImage,/^debian:.*@sha256:/);

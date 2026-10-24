@@ -1,3 +1,5 @@
+import {imageMatch} from '../../core/image-policy.js';
+import {runtimeSoftware,runtimeImagePolicy,runtimeReceipt} from './runtime.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {writeJSON} from '../../common.js';
@@ -7,6 +9,7 @@ import {definition} from './definition.js';
 import {collectSnapshot, restoreSnapshot} from './snapshots.js';
 
 export const managed = compileManagedDefinition(definition,{
+  runtime:{imagePolicy:runtimeImagePolicy,software:runtimeSoftware},
   legacyMigration: {
     file: (config, env) =>
       path.join(env.UPDATE_STATE_DIR || '/updates', 'image-migration.json'),
@@ -16,7 +19,7 @@ export const managed = compileManagedDefinition(definition,{
       panel: env.PANEL_CONTAINER || 'factorio-panel',
     }),
   },
-  creationFromSnapshot: (input) => input,
+  creationFromSnapshot: (input,manifest) => {if(manifest.software){runtimeReceipt(manifest.software);return {...input,softwareMode:'runtime',softwareReceipt:manifest.software};}return input;},
   async prepareStorage({instance: _instance, data, config: _config}) {
     for (const directory of ['saves', 'config', 'mods'])
       await fs.mkdir(path.join(data, directory), {recursive: true});
@@ -33,6 +36,7 @@ export const managed = compileManagedDefinition(definition,{
       autosave_slots: 3,
       auto_pause: true,
     });
+    if(config.softwareReceipt){await fs.mkdir(path.join(data,'runtime'),{recursive:true});await writeJSON(path.join(data,'runtime/bootstrap.json'),runtimeReceipt(config.softwareReceipt));}
     // A fresh boot must not look like an existing identity with a missing world.
     if (config.snapshotId)
       await fs.writeFile(
@@ -46,7 +50,7 @@ export const managed = compileManagedDefinition(definition,{
       });
   },
   snapshots: {
-    compatible: (from, to) => snapshotImageCompatible('factorio', from, to),
+    compatible: (from, to) => !!imageMatch(runtimeImagePolicy,from)&&!!imageMatch(runtimeImagePolicy,to)||snapshotImageCompatible('factorio', from, to),
     collect: collectSnapshot,
     restore: restoreSnapshot,
   },

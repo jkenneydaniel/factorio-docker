@@ -15,23 +15,29 @@ export function createUpdateWorkflow({
     updateReviewPending = false,
     releaseChecking = false,
     context = null,
+    statusViewKey = null,
     controls = new AbortController();
   function refreshReleaseView() {
     const {currentPage} = getState();
-    if (!context?.isCurrent()) return;
+    if (!context?.isCurrent()) return false;
     if (
       currentPage !== 'settings' ||
       location.hash !== '#settings/updates' ||
       updateReviewPending ||
       $('#game-update-form')?.contains(document.activeElement) ||
+      $('#software-update-form')?.querySelector(
+        'input:focus,select:focus,textarea:focus',
+      ) ||
       document.querySelector('dialog[open]')
     )
-      return;
+      return false;
     const section = $('#panel-updates');
     if (section) {
       section.replaceWith(releaseView());
       bindUpdates();
+      return true;
     }
+    return false;
   }
   async function refreshUpdates() {
     const {can, user} = getState();
@@ -40,9 +46,19 @@ export function createUpdateWorkflow({
     try {
       const result = await api('/update-status');
       if (getState().user !== signedUser) return;
-      const changed = JSON.stringify(result) !== JSON.stringify(updateState);
+      const {status} = getState();
+      const nextStatusKey = JSON.stringify([
+        status?.software?.mode,
+        status?.version,
+        status?.softwareRecovery,
+        status?.activeJob?.id,
+        status?.activeJob?.state,
+      ]);
+      const changed =
+        JSON.stringify(result) !== JSON.stringify(updateState) ||
+        nextStatusKey !== statusViewKey;
       updateState = result;
-      if (changed) refreshReleaseView();
+      if (changed && refreshReleaseView()) statusViewKey = nextStatusKey;
     } catch {}
   }
   function bindUpdates(ctx = context) {
@@ -55,6 +71,96 @@ export function createUpdateWorkflow({
       element?.addEventListener(type, listener, {
         signal: AbortSignal.any([ctx.signal, controls.signal]),
       });
+    if (status.software?.mode === 'runtime') {
+      const form = $('#software-update-form'),
+        select = form?.elements.release,
+        button = form?.querySelector('button');
+      async function changeSoftware(action, version) {
+        if (updateReviewPending) return;
+        updateReviewPending = true;
+        try {
+          const recover = action === 'software-recover';
+          if (
+            await ctx.confirm(
+              recover
+                ? 'Recover Factorio software?'
+                : 'Install Factorio ' + version + '?',
+              recover
+                ? 'Restore the recorded pre-update world, settings, mods and previous Factorio release. Current data is retained in the recovery library.'
+                : 'Stop Factorio, create a backup, install the checksum-verified release and check startup. Players disconnect; clients and mods must match. The server returns to its previous running or stopped state.',
+              recover ? 'Restore previous release' : 'Install software',
+            )
+          ) {
+            await ctx.request('/jobs', {
+              method: 'POST',
+              body: {
+                action,
+                params: {confirm: true, ...(version ? {version} : {})},
+              },
+            });
+            toast(
+              'Software operation started. Follow progress under Operations.',
+            );
+          }
+        } catch (error) {
+          if (ctx.isCurrent()) toast(error.message, true);
+        } finally {
+          updateReviewPending = false;
+        }
+      }
+      listen($('#software-recover'), 'click', () =>
+        changeSoftware('software-recover'),
+      );
+      if (form && !form.hidden) {
+        button.disabled = true;
+        void ctx
+          .request('/application-releases')
+          .then((data) => {
+            if (!ctx.isCurrent() || !form.isConnected) return;
+            const choices = (data.stale ? [] : data.choices).filter(
+              (choice) =>
+                choice.kind === 'software' && choice.version !== status.version,
+            );
+            select.replaceChildren(
+              ...choices.map(
+                (choice) =>
+                  new Option(
+                    choice.version + ' · ' + choice.channel,
+                    choice.version,
+                  ),
+              ),
+            );
+            if (!choices.length)
+              select.append(
+                new Option('No other verified release available', ''),
+              );
+            form.querySelector('[data-part=software-status]').textContent =
+              data.error || 'Latest stable: ' + data.stable;
+            const choose = () => {
+              const choice = choices.find(
+                  (value) => value.version === select.value,
+                ),
+                link = form.querySelector('[data-part=software-notes]');
+              link.hidden = !choice;
+              if (choice) link.href = choice.notesUrl;
+            };
+            listen(select, 'change', choose);
+            choose();
+            button.disabled = !choices.length || !!status.activeJob;
+          })
+          .catch((error) => {
+            if (ctx.isCurrent())
+              form.querySelector('[data-part=software-status]').textContent =
+                error.message;
+          });
+        listen(form, 'submit', (event) => {
+          event.preventDefault();
+          if (select.value)
+            void changeSoftware('software-update', select.value);
+        });
+      }
+      return;
+    }
     listen($('#check-panel-updates'), 'click', async () => {
       if (releaseChecking) return;
       releaseChecking = true;
@@ -114,7 +220,10 @@ export function createUpdateWorkflow({
     listen($('#review-panel-update'), 'click', () =>
       review('panel', panelRelease.latest.tag.replace(/^v/, '')),
     );
-    bindGameUpdate(status?.image, review, toast);
+    bindGameUpdate(status?.image, review, toast, {
+      request: ctx.request,
+      signal: AbortSignal.any([ctx.signal, controls.signal]),
+    });
   }
   async function refreshReleases(force = false) {
     const {admin, user} = getState();
@@ -148,7 +257,12 @@ export function createUpdateWorkflow({
 
   return {
     get model() {
-      return {panelRelease, updateState, updateReviewPending, releaseChecking};
+      return {
+        panelRelease,
+        updateState,
+        updateReviewPending,
+        releaseChecking,
+      };
     },
     refreshUpdates,
     refreshReleases,
@@ -164,6 +278,7 @@ export function createUpdateWorkflow({
       panelRelease = null;
       lastReleasePoll = 0;
       updateState = null;
+      statusViewKey = null;
       updateReviewPending = false;
       releaseChecking = false;
     },

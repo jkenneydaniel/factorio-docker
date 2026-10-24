@@ -66,7 +66,7 @@ export function hostDockerPolicy(
         /^@sha256:[a-f0-9]{64}$/.test(
           image.slice(module.managed.catalog.image.length),
         )) ||
-      imageMatch(module.imagePolicy, image));
+      imageMatch(module.imagePolicy, image) || module.managed.runtime && imageMatch(module.managed.runtime.imagePolicy,image));
   const imageAllowed = (image) =>
     image === runtimeImage ||
     modules.some((module) => gameImageAllowed(module, image));

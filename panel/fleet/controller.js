@@ -1,3 +1,4 @@
+import {ApplicationReleases} from '../core/application-releases.js';
 import {managementMaintenance,assertManagementIdle} from '../core/management-maintenance.js';
 import {OperationFeed,jobOperationSource,operationProgressSnapshot} from '../core/operation-feed.js';
 import {setupOperationSource,agentOperationSource} from './operation-sources.js';
@@ -31,6 +32,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
  const identity=env.FLEET_AGENT_TRANSPORT==='persistent'?await ensureAgentIdentity(webRoot):null;
  const hosts=new RemoteHosts(manager,{fetcher:hostFetch,identity:identity?.fingerprint});await hosts.init({connect:!maintenance.held});
  const setup=new HostSetup(hosts,setupDependencies);await setup.init();const agent=new AgentUpdater(manager,{enabled:env.FLEET_AGENT_ONLY==='true'}),version=await agentVersion();
+ const applicationReleases=new ApplicationReleases();
  const operationFeed=new OperationFeed({scope:'host:'+manager.fleet,sources:[jobOperationSource(manager.operations),setupOperationSource(setup),agentOperationSource(agent),managementUpdateSource(root)]});
  async function handle(req,res){
   if(req.url==='/health')return json(res,200,{ok:true});assert(equalSecret(req.headers.authorization,'Bearer '+token),'Unauthorized.',401);const url=new URL(req.url,'http://host-manager');
@@ -58,11 +60,15 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(await agent.handle(req,res,url))return;
   assert(req.method==='GET'||!manager.agentUpdating,'Wait for the agent update or recovery before changing this host.',409);
   if(url.pathname==='/host-settings'){if(req.method==='GET')return json(res,200,await manager.hostSettings());assert(req.method==='POST','Not found.',404);return json(res,200,await manager.updateHostSettings(await requestJSON(req),req.headers['x-panel-user']||'administrator'));}
+  if(req.method==='GET'&&url.pathname==='/application-releases'){const item=url.searchParams.has('serverId')?manager.server(url.searchParams.get('serverId')):null;assert(!item||item.state!=='removed','This server was removed.',410);const game=item?.game||url.searchParams.get('game');return json(res,200,await applicationReleases.read(game,item?.software||manager.module(game).managed.software));}
   if(req.method==='GET'&&url.pathname==='/catalog')return json(res,200,{games:Object.values(catalog),memoryBudgetGiB:manager.memoryBudgetGiB});
   if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{game:'fleet',ready:true,hostId:manager.fleet,protocol:1,version,agentOnly:env.FLEET_AGENT_ONLY==='true',agentUpdate:agentState.update,agentUpdateSupported:agentState.supported,isolation:manager.broker?'broker-v1':'legacy-socket',servers:manager.list().length,activeJob:manager.active});
   if(req.method==='GET'&&url.pathname==='/audit')return json(res,200,await manager.audit.list({before:url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined,search:url.searchParams.get('search')||''}));
   if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,url.searchParams.get('workflows')==='1'?await operationProgressSnapshot(manager.operations,operationFeed):manager.operations.status());
   if(req.method==='POST'&&url.pathname==='/jobs/recovery')return json(res,200,await manager.operations.recover(await requestJSON(req),req.headers['x-panel-user']||'administrator'));
+  if(req.method==='GET'&&url.pathname==='/removed-servers')return json(res,200,{servers:manager.removedServers()});
+  const snapshotRoute=url.pathname.match(/^\/snapshots\/([a-f0-9]{32})(\/remove)?$/);
+  if(snapshotRoute){if(req.method==='GET'&&!snapshotRoute[2])return json(res,200,await manager.snapshotDetails(snapshotRoute[1]));if(req.method==='POST'&&snapshotRoute[2])return json(res,202,await manager.submit('removeSnapshot',{...await requestJSON(req),snapshotId:snapshotRoute[1]},req.headers['x-panel-user']||'administrator'));assert(false,'Not found.',404);}
   if(req.method==='GET'&&url.pathname==='/snapshots')return json(res,200,{snapshots:manager.state.snapshots});
   if(url.pathname==='/servers'){
    if(req.method==='GET')return json(res,200,{servers:manager.list()});assert(req.method==='POST','Not found.',404);const input=await requestJSON(req);assert(input.hostId===undefined||input.hostId===manager.fleet,'The selected host does not match this destination.',409);return json(res,202,await manager.submit('create',input,req.headers['x-panel-user']||'administrator'));

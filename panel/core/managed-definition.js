@@ -1,9 +1,14 @@
+import {softwareDelivery, publicSoftwareDelivery} from './software-delivery.js';
 import {assert} from '../common.js';
 import {definitionData, freezeDefinition} from './definition-data.js';
 import {serviceOrder} from './application-services.js';
 import {isApplicationDefinition} from './application-definition.js';
 import {registerManagedBinding} from './managed-bindings.js';
-import {ensureGameImage, validateImagePolicy} from './image-policy.js';
+import {
+  ensureGameImage,
+  validateImagePolicy,
+  imageMatch,
+} from './image-policy.js';
 import {validateManagedGame} from './managed-game.js';
 import {
   validateEnvironmentBindings,
@@ -117,6 +122,9 @@ function declaration(definition) {
     'volume',
     'network',
     'image',
+    'software',
+    'softwareMode',
+    'softwareReceipt',
     'definition',
     'isolationVersion',
     'created',
@@ -166,6 +174,7 @@ function declaration(definition) {
           'root',
           'entrypoint',
           'namePrefixes',
+          'softwareTarget',
         ])),
     'Unknown runtime port or helper field.',
   );
@@ -199,6 +208,7 @@ export function compileManagedDefinition(definition, adapter) {
     'Register the application definition before compiling its runtime.',
   );
   const data = declaration(definition);
+  const software = softwareDelivery(serviceOrder(definition)[0].software);
   assert(
     exact(adapter, [
       'legacyMigration',
@@ -206,6 +216,7 @@ export function compileManagedDefinition(definition, adapter) {
       'prepareStorage',
       'configureStorage',
       'snapshots',
+      'runtime',
     ]),
     'Unknown managed runtime adapter hook.',
   );
@@ -213,11 +224,25 @@ export function compileManagedDefinition(definition, adapter) {
     exact(adapter.snapshots, ['compatible', 'collect', 'restore']),
     'Unknown snapshot adapter hook.',
   );
+  if (adapter.runtime) {
+    assert(
+      exact(adapter.runtime, ['imagePolicy', 'software']),
+      'Invalid runtime delivery option.',
+    );
+    validateImagePolicy(adapter.runtime.imagePolicy);
+    assert(
+      softwareDelivery(adapter.runtime.software).mode === 'runtime',
+      'Runtime delivery needs a software provider.',
+    );
+  }
   const metadata = freezeDefinition({
     version: 1,
+    software,
+    ...(adapter.runtime ? {runtime: adapter.runtime} : {}),
     catalog: {
       ...data.catalog,
       image: data.imagePolicy.defaultImage,
+      software: publicSoftwareDelivery(software),
       ...Object.fromEntries(
         data.ports.map((port) => [port.key, port.containerPort]),
       ),
@@ -232,7 +257,13 @@ export function compileManagedDefinition(definition, adapter) {
       ? {legacyMigration: Object.freeze({...adapter.legacyMigration})}
       : {}),
     ensureImage: (docker, image) =>
-      ensureGameImage(docker, data.imagePolicy, image),
+      ensureGameImage(
+        docker,
+        adapter.runtime && imageMatch(adapter.runtime.imagePolicy, image)
+          ? adapter.runtime.imagePolicy
+          : data.imagePolicy,
+        image,
+      ),
     creationFromSnapshot: adapter.creationFromSnapshot || ((input) => input),
     gameEnvironment: (item) =>
       renderEnvironment(data.environment.server, publicFields(item), {

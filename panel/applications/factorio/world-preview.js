@@ -1,3 +1,4 @@
+import {runtimeHelper} from './runtime.js';
 import {helperWorkspace,helperWorkspaceMount,removeHelperWorkspace,removeHelperWorker} from '../../core/helper-workspace.js';
 import {legacyHelperMount} from './helper-mount.js';
 import crypto from 'node:crypto';
@@ -50,9 +51,10 @@ export async function renderWorldPreview({configuration,seed},{data,state,env={}
   let exists=false;
   try{
     await workspace.copyInputs();
+    const runtime = await runtimeHelper(workspace,{data,server});
     await workspace.write('config/map-gen.json',JSON.stringify({...configuration.map_gen_settings,seed}));
     // The worker has one CPU: avoid oversubscribing it with Factorio's host-wide default.
-    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--generate-map-preview','/factorio/preview.png','--map-preview-size','1024','--threads','1','--map-gen-settings','/factorio/config/map-gen.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.preview':'true','factorio-panel.preview-id':id},HostConfig:{NetworkMode:'none',Mounts:[workspace.mount],Memory:1073741824,NanoCpus:1000000000}});exists=true;
+    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--generate-map-preview','/factorio/preview.png','--map-preview-size','1024','--threads','1','--map-gen-settings','/factorio/config/map-gen.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.preview':'true','factorio-panel.preview-id':id},HostConfig:{NetworkMode:'none',Mounts:runtime.mounts,Memory:1073741824,NanoCpus:1000000000}});exists=true;
     await docker('POST','/containers/'+helper+'/start');
     const result=await docker('POST','/containers/'+helper+'/wait?condition=not-running',undefined,{timeout:60000});
     if(result.StatusCode!==0){const logs=demultiplex(await docker('GET','/containers/'+helper+'/logs?stdout=1&stderr=1&tail=8',undefined,{raw:true}));throw new Error('Preview could not be rendered. '+redact(logs).slice(-1200));}
@@ -80,7 +82,7 @@ export async function cleanPreviewWorkers(state,{env={},server,docker=dockerAPI}
       const child=preview?'preview-'+id:id;
       const current=await helperWorkspaceMount({state,server,env,docker},child),legacy=legacyHelperMount(server,'.panel-work/'+child);
       const mounts=info.HostConfig?.Mounts||[];
-      const matches=expected=>mounts.length===1&&mounts[0].Type===expected.Type&&mounts[0].Source===expected.Source&&mounts[0].Target===expected.Target&&(mounts[0].VolumeOptions?.Subpath||'')===(expected.VolumeOptions?.Subpath||'');
+      const matches=expected=>(mounts.length===1||mounts.length===2&&mounts[1].ReadOnly===true&&mounts[1].Target==='/opt/factorio'&&mounts[1].Type===expected.Type&&mounts[1].Source===(expected.Type==='volume'?expected.Source:expected.Source+'/engine')&&(mounts[1].VolumeOptions?.Subpath||'')===(expected.Type==='volume'?expected.VolumeOptions.Subpath+'/engine':''))&&mounts[0].Type===expected.Type&&mounts[0].Source===expected.Source&&mounts[0].Target===expected.Target&&(mounts[0].VolumeOptions?.Subpath||'')===(expected.VolumeOptions?.Subpath||'');
       // Standalone hosts can contain several installations using these labels.
       // Their scratch paths must never authorize cleanup in this installation.
       if(!matches(current)&&!matches(legacy)){assert(!env.FLEET_ID,'Interrupted helper storage does not match its installation.',409);continue;}

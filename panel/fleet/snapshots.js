@@ -29,7 +29,8 @@ export async function publishSnapshot({
   const content = path.join(temporary, 'content');
   await fs.mkdir(content);
   try {
-    await adapter.collect({backup, content, temporary, record});
+    const metadata=await adapter.collect({backup, content, temporary, record})||{};
+    assert(metadata&&Object.keys(metadata).every(key=>key==='software'),'Invalid snapshot software metadata.');
     const files = await inventory(content);
     assert(
       files.length > 0 && files.length <= 20000,
@@ -39,6 +40,7 @@ export async function publishSnapshot({
       format: 'lobby-goblin-snapshot',
       version: 1,
       ...record,
+      ...metadata,
       created: new Date().toISOString(),
       files,
       bytes: files.reduce((sum, file) => sum + file.size, 0),

@@ -24,6 +24,9 @@ export function hostOrigin(value){
 // account administration, enrollment and arbitrary controller URLs stay local.
 export function remoteRoute(method,route){
  if(!['GET','POST'].includes(method))return false;
+ if(/^\/snapshots\/[a-f0-9]{32}$/.test(route))return method==='GET';
+ if(/^\/snapshots\/[a-f0-9]{32}\/remove$/.test(route))return method==='POST';
+ if(['/removed-servers','/application-releases'].includes(route))return method==='GET';
  if(route==='/operations')return method==='GET';
  if(route==='/operations/recovery')return method==='POST';
  if(route==='/jobs/recovery')return method==='POST';

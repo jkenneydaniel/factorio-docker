@@ -583,3 +583,43 @@ dialog p {
     flex-direction: column;
   }
 }
+
+.release-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 32rem;
+  overflow: auto;
+}
+.snapshot-details dd {
+  overflow-wrap: anywhere;
+}
+.snapshot-details code {
+  word-break: break-all;
+}
+.retained-storage {
+  margin-top: 2rem;
+  grid-column: 1/-1;
+}
+#updates-view {
+  max-width: 1100px;
+}
+#updates-view > .card {
+  margin-top: 1.5rem;
+}
+#updates-view details {
+  margin: 1rem 0;
+}
+#updates-view summary {
+  cursor: pointer;
+}
+#updates-view article {
+  padding: 1rem 0;
+  border-top: 1px solid var(--border, #293747);
+}
+
+#snapshots > .grid,
+#snapshots > .snapshot-details,
+#snapshots > p,
+#snapshots > .retained-storage {
+  grid-column: 1/-1;
+}

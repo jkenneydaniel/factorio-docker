@@ -109,6 +109,7 @@ export function routePermission(method, route, {module, action, kind} = {}) {
       '/capabilities': 'server.view',
       '/jobs': 'server.view',
       '/backups': 'backups.read',
+      '/application-releases': 'images.change',
       '/update-status': 'images.change',
     },
     POST: {

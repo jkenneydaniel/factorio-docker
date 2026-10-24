@@ -159,6 +159,7 @@ export function validateManagedGame(module) {
     assert(Array.isArray(managed.execCommands) && managed.execCommands.length <= 16 && managed.execCommands.every(value => /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value.executable) && Number.isInteger(value.arguments) && value.arguments >= 0 && value.arguments <= 16 && Number.isInteger(value.maxArgumentBytes) && value.maxArgumentBytes > 0 && value.maxArgumentBytes <= 65536), 'Invalid game command-helper policy.');
     if (managed.previewWorker) {
       const worker = managed.previewWorker;
+      assert(worker.softwareTarget === undefined || /^\/[A-Za-z0-9_/-]+$/.test(worker.softwareTarget) && !worker.softwareTarget.includes('..') && worker.softwareTarget !== worker.target, 'Invalid read-only helper software target.');
       assert(Array.isArray(worker.entrypoint) && worker.entrypoint.length > 0 && worker.entrypoint.length <= 8 && worker.entrypoint.every(value => typeof value === 'string' && value.length > 0 && value.length <= 256) && /^\/[A-Za-z0-9_./-]+$/.test(worker.entrypoint[0]) && !worker.entrypoint[0].split('/').includes('..'), 'Invalid game worker entrypoint.');
       assert(Array.isArray(worker.namePrefixes) && worker.namePrefixes.length > 0 && worker.namePrefixes.length <= 8 && worker.namePrefixes.every(value => /^[a-z][a-z0-9-]{0,63}-$/.test(value)), 'Invalid game worker names.');
     }
@@ -171,6 +172,7 @@ export function gameCatalog(module) {
   return {
     id: module.id,
     name: module.name,
+    ...(module.managed.runtime?{softwareModes:['image','runtime'],runtimeImage:module.managed.runtime.imagePolicy.defaultImage}:{}),
     ...structuredClone(module.managed.catalog),
   };
 }
@@ -225,6 +227,7 @@ export function validateManagedCreation(input, module) {
     input.autoStart === undefined || typeof input.autoStart === 'boolean',
     'Invalid startup preference.',
   );
+  assert(input.softwareMode === undefined || input.softwareMode === (module.managed.software?.mode || 'image') || input.softwareMode === 'runtime' && module.managed.runtime, 'This application does not support that software delivery mode.');
   const fields = {...policy.defaults};
   for (const field of policy.fields) {
     const value = Number(input[field.key] ?? field.default);
@@ -239,6 +242,7 @@ export function validateManagedCreation(input, module) {
   }
   return {
     game: module.id,
+    ...(input.softwareMode?{softwareMode:input.softwareMode}:{}),
     name: input.name.trim(),
     cpu,
     memoryGiB,

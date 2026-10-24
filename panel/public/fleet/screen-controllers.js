@@ -1,5 +1,7 @@
+import {createUpdatesScreen} from './updates-screen.js';
+import {createSnapshotScreen} from './snapshot-screen.js';
 import {mountOperationHistory} from '../shared/operation-history.js';
-import {serverCards, snapshotCards} from './cards.js';
+import {serverCards} from './cards.js';
 import {serverKey} from './host-paths.js';
 import {mountAccounts} from '../shared/accounts.js';
 import {createHostSettings} from './host-settings.js';
@@ -42,7 +44,11 @@ export function createFleetScreens({
                     title: form.elements.title.value,
                     confirm: form.elements.confirm.checked,
                   }
-                : {name: form.elements.name.value, confirm: true},
+                : {
+                    name: form.elements.name.value,
+                    confirm: true,
+                    publishSnapshot: form.elements.publishSnapshot.checked,
+                  },
           });
           $(
             '#' + (id === 'publish' ? 'snapshot' : 'remove') + '-dialog',
@@ -95,6 +101,7 @@ export function createFleetScreens({
     bindDialogs(ctx);
   }
   return {
+    updates: () => createUpdatesScreen({model, notice}),
     operations: () => {
       let history;
       return {
@@ -127,32 +134,7 @@ export function createFleetScreens({
         paintServers(ctx);
       },
     }),
-    library: () => {
-      function paint(ctx) {
-        if (!ctx.isCurrent()) return;
-        ctx.render(snapshotCards(model.snapshot, admin()));
-        ctx.on(ctx.root, 'click', (event) => {
-          const button = event.target.closest('[data-clone]');
-          if (button && ctx.root.contains(button))
-            return creation.open(
-              model.snapshot.snapshots.find(
-                (item) => serverKey(item) === button.dataset.clone,
-              ),
-            );
-        });
-      }
-      return {
-        async mount(ctx) {
-          await model.refresh();
-          paint(ctx);
-          ctx.onDispose(() => creation.cancel());
-        },
-        async refresh(ctx, options) {
-          if (options.reason !== 'model') await model.refresh();
-          paint(ctx);
-        },
-      };
-    },
+    library: () => createSnapshotScreen({model, getSession, creation, notice}),
     access: () => {
       let workflow;
       return {

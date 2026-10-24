@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import http from 'node:http';
 import {catalog,validateCreation,resources,labels} from '../fleet/catalog.js';import {runWorker} from '../fleet/worker.js';import {publishSnapshot,verifySnapshot} from '../fleet/snapshots.js';import {writeArchive} from '../applications/rust/archive.js';import {makeZip} from '../core/archive.js';import {ownedDocker} from '../core/owned-docker.js';import {legacyHelperMount} from '../applications/factorio/helper-mount.js';import {FleetManager} from '../fleet/manager.js';import {startFleetWeb} from '../fleet/web.js';import {writeJSON,readJSON} from '../common.js';import {hashPassword} from '../auth.js';import {selectedApplication} from '../applications/index.js';
 import {waitForIdleJob} from './fixtures.js';
+import {runtimeImagePolicy,runtimeSoftware} from '../applications/factorio/runtime.js';
 import {arena as arenaModule} from './fixtures/arena-game.js';
 const fleet='a'.repeat(32),one='b'.repeat(32),two='c'.repeat(32),snap='d'.repeat(32),token='e'.repeat(64);
 const world=makeZip([{name:'world/level.dat',data:Buffer.from('disposable world content')}]);
@@ -26,6 +27,18 @@ test('snapshot tampering and incompatible games fail before any cloned world is 
  const f=await fixture(t),a=await directory(f.root,'a'),b=await directory(f.root,'b');const backup=await factorioBackup(a),result=await publishSnapshot({library:f.library,backup,record:{id:snap,sourceId:one,title:'Shared',game:'factorio',image:catalog.factorio.image}});
  await fs.appendFile(path.join(f.library,snap,'content/world.zip'),'corrupt');await assert.rejects(verifySnapshot(f.library,snap,result.manifestSha256),/hashes/);
  await assert.rejects(runWorker(provision(two,'factorio',{snapshotId:snap,snapshotHash:result.manifestSha256}),{instance:b,library:f.library}),/hashes/);assert.deepEqual(await fs.readdir(path.join(b,'data/saves')),[]);
+});
+test('runtime snapshots retain exact software identity and clone it into a verified bootstrap with fresh credentials',async t=>{
+ const f=await fixture(t),source=await directory(f.root,'source-runtime'),destination=await directory(f.root,'clone-runtime');
+ const software={version:1,provider:'factorio-headless',softwareVersion:'2.0.77',sha256:'a'.repeat(64)};
+ const backup=path.join(source,'runtime-backup.zip');await fs.writeFile(backup,makeZip([{name:'saves/world.zip',data:world},{name:'mods/mod-list.json',data:Buffer.from('{"mods":[]}')},{name:'panel-manifest.json',data:Buffer.from(JSON.stringify({activeSave:'world.zip',software}))}]));
+ const result=await publishSnapshot({library:f.library,backup,record:{id:snap,sourceId:one,title:'Runtime world',game:'factorio',image:runtimeImagePolicy.defaultImage}});
+ const manifest=await verifySnapshot(f.library,snap,result.manifestSha256);assert.deepEqual(manifest.software,software);assert.ok(manifest.files.some(file=>file.name==='software.json'));
+ const module=selectedApplication('factorio'),input=module.managed.creationFromSnapshot({game:'factorio',name:'Clone'},manifest);assert.equal(input.softwareMode,'runtime');assert.deepEqual(input.softwareReceipt,software);
+ await runWorker(provision(two,'factorio',{image:runtimeImagePolicy.defaultImage,software:runtimeSoftware,softwareMode:'runtime',softwareReceipt:software,snapshotId:snap,snapshotHash:result.manifestSha256}),{instance:destination,library:f.library});
+ assert.deepEqual(await readJSON(path.join(destination,'data/runtime/bootstrap.json')),software);
+ assert.deepEqual(await fs.readFile(path.join(destination,'data/saves/world.zip')),world);
+ assert.equal(await fs.readFile(path.join(destination,'data/config/rconpw'),'utf8'),two+'different_rcon_password_1234567890');
 });
 test('Rust snapshot clones preserve world/player data and replace config and credentials',async t=>{
  const f=await fixture(t),source=await directory(f.root,'identity'),a=await directory(f.root,'a');await fs.mkdir(path.join(source,'cfg'));await fs.writeFile(path.join(source,'cfg/server.cfg'),'rcon.password private_rcon\nserver.hostname Old');await fs.writeFile(path.join(source,'cfg/users.cfg'),'private administrator');await fs.writeFile(path.join(source,'proceduralmap.1000.456.289.sav'),'real-format-is-separate-runtime-test');await fs.writeFile(path.join(source,'player.blueprints.5.db'),'blueprints');
@@ -142,9 +155,14 @@ test('host creation stays active until the child accepts start and persists the 
 test('host registry refuses another fleet marker before Docker mutations',async t=>{const f=await fixture(t),root=await directory(f.root,'state');await writeJSON(path.join(root,'.fleet-owner.json'),{fleet:'f'.repeat(32)});const m=new FleetManager({docker:()=>assert.fail('Must not call Docker'),root,library:f.library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'test',hostContainer:'test'});await assert.rejects(m.init(),/another installation/);});
 test('one fleet login opens scoped game controls; viewer/CSRF boundaries survive delegation',async t=>{
  const f=await fixture(t),auth=await directory(f.root,'auth'),tokenFile=path.join(f.root,'token');await fs.writeFile(tokenFile,token);await writeJSON(path.join(auth,'users.json'),{admin:{...hashPassword('test-admin-password'),role:'admin'},viewer:{...hashPassword('test-viewer-password'),role:'viewer'}});
- const forwarded=[];const backend=http.createServer(async(req,res)=>{assert.equal(req.headers.authorization,'Bearer '+token);const route=req.url;res.setHeader('content-type','application/json');if(route==='/servers/'+one)return res.end(JSON.stringify({id:one,game:'factorio',state:'installed'}));if(route==='/update-status')return res.end(JSON.stringify({busy:false}));if(route==='/servers/'+one+'/controller/status')return res.end(JSON.stringify({ready:true,players:[]}));if(route==='/servers/'+one+'/controller/jobs'){let body='';for await(const b of req)body+=b;forwarded.push(JSON.parse(body));res.statusCode=202;return res.end('{"id":"job"}');}if(route==='/host-settings')return res.end(JSON.stringify({memoryBudgetGiB:24}));if(route==='/catalog')return res.end(JSON.stringify({games:Object.values(catalog)}));res.statusCode=404;res.end('{"error":"Not found"}');});await new Promise(r=>backend.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>{backend.closeAllConnections();backend.close(r);}));
+ const forwarded=[];const backend=http.createServer(async(req,res)=>{assert.equal(req.headers.authorization,'Bearer '+token);const route=req.url;res.setHeader('content-type','application/json');if(route==='/snapshots')return res.end('{"snapshots":[]}');if(route==='/removed-servers')return res.end('{"servers":[]}');if(route==='/servers/'+one)return res.end(JSON.stringify({id:one,game:'factorio',state:'installed'}));if(route==='/update-status')return res.end(JSON.stringify({busy:false}));if(route==='/servers/'+one+'/controller/status')return res.end(JSON.stringify({ready:true,players:[]}));if(route==='/servers/'+one+'/controller/jobs'){let body='';for await(const b of req)body+=b;forwarded.push(JSON.parse(body));res.statusCode=202;return res.end('{"id":"job"}');}if(route==='/host-settings')return res.end(JSON.stringify({memoryBudgetGiB:24}));if(route==='/catalog')return res.end(JSON.stringify({games:Object.values(catalog)}));res.statusCode=404;res.end('{"error":"Not found"}');});await new Promise(r=>backend.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>{backend.closeAllConnections();backend.close(r);}));
  const server=await startFleetWeb({env:{AUTH_DIR:auth,CONTROLLER_TOKEN_FILE:tokenFile,CONTROLLER_URL:'http://127.0.0.1:'+backend.address().port,PANEL_HOSTS:'127.0.0.1'},port:0,hostname:'127.0.0.1'});t.after(()=>new Promise(r=>{server.closeAllConnections();server.close(r);}));const origin='http://127.0.0.1:'+server.address().port;
  const login=async name=>{const r=await fetch(origin+'/api/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({username:name,password:'test-'+name+'-password'})});assert.equal(r.status,200);return {cookie:r.headers.get('set-cookie').split(';')[0],...await r.json()};};const admin=await login('admin'),viewer=await login('viewer');
+ assert.equal((await fetch(origin+'/api/snapshots',{headers:{cookie:viewer.cookie}})).status,200);
+ for(const route of ['/snapshots/'+snap,'/removed-servers','/application-releases?game=factorio'])assert.equal((await fetch(origin+'/api'+route,{headers:{cookie:viewer.cookie}})).status,403);
+ assert.equal((await fetch(origin+'/api/removed-servers',{headers:{cookie:admin.cookie}})).status,200);
+ assert.equal((await fetch(origin+'/api/snapshots/'+snap+'/remove',{method:'POST',headers:{origin,cookie:admin.cookie,'content-type':'application/json'},body:JSON.stringify({confirm:true,title:'World'})})).status,403);
+
  const html=await fetch(origin+'/servers/'+one+'/',{headers:{cookie:admin.cookie}});assert.equal(html.status,200);const text=await html.text();const entry=new URL(text.match(/<script[^>]+src="([^"]+)"/)[1],origin+`/servers/${one}/`);assert.equal(entry.pathname,`/servers/${one}/app.js`);assert.equal((await fetch(entry,{headers:{cookie:admin.cookie}})).status,200);const definition=await fetch(origin+`/servers/${one}/application-definition.json`,{headers:{cookie:admin.cookie}});assert.equal((await definition.json()).id,'factorio');assert.ok(!text.includes(token));const childSession=await fetch(origin+`/servers/${one}/api/session`,{headers:{cookie:admin.cookie}});assert.equal((await childSession.json()).username,'admin');
  const post=(user,csrf)=>fetch(origin+`/servers/${one}/api/jobs`,{method:'POST',headers:{origin,cookie:user.cookie,'content-type':'application/json',...(csrf?{'x-csrf-token':user.csrf}:{})},body:JSON.stringify({action:'start',actor:'forged'})});assert.equal((await post(viewer,true)).status,403);assert.equal((await post(admin,false)).status,403);assert.equal((await post(admin,true)).status,202);assert.equal(forwarded[0].actor,'admin');
  const create=await fetch(origin+'/api/servers',{method:'POST',headers:{origin,cookie:viewer.cookie,'x-csrf-token':viewer.csrf,'content-type':'application/json'},body:'{}'});assert.equal(create.status,403);
@@ -192,4 +210,43 @@ test('a third game provisions TCP ports and its own storage, publishes and clone
  await fs.writeFile(path.join(f.instanceRoots.get(clone.id),'data/matches/current.json'),'changed clone');
  assert.deepEqual(await readJSON(path.join(f.library,snap,'content/match.json')),{score:42});
  await assert.rejects(f.manager.submit('create',{game:'arena',name:'Invalid tick rate',tickRate:33}),/Tick rate/);
+});
+test('removed servers leave the active list but retain recovery identity without credentials',async t=>{
+ const f=await fakeManager(t);const first=await f.submit({game:'factorio',name:'Retired'}),second=await f.submit({game:'factorio',name:'Active'});
+ first.state='removed';first.removedAt=new Date().toISOString();await f.manager.persist();
+ assert.deepEqual(f.manager.list().map(item=>item.id),[second.id]);
+ const retained=f.manager.removedServers();assert.equal(retained[0].id,first.id);assert.equal(retained[0].volume,first.volume);
+ assert.equal(retained[0].controllerToken,undefined);assert.equal(retained[0].rconPassword,undefined);
+ await f.manager.init();assert.deepEqual(f.manager.list().map(item=>item.id),[second.id]);
+});
+test('snapshot inspection verifies inventory; deletion removes only the chosen library copy',async t=>{
+ const f=await fakeManager(t),instance=await directory(f.root,'snapshot-source');
+ const backup=await factorioBackup(instance),result=await publishSnapshot({library:f.library,backup,record:{id:snap,sourceId:one,title:'Keep my source',sourceName:'Source',game:'factorio',image:catalog.factorio.image}});
+ f.manager.state.snapshots.push({id:snap,title:'Keep my source',...result});await f.manager.persist();
+ const details=await f.manager.snapshotDetails(snap);assert.equal(details.manifest.files.length,2);assert.ok(details.verifiedAt);
+ await assert.rejects(f.manager.submit('removeSnapshot',{snapshotId:snap,title:'wrong',confirm:true}),/snapshot title/);
+ await assert.rejects(f.manager.submit('removeSnapshot',{snapshotId:snap,title:'Keep my source',confirm:false}),/snapshot title/);
+ const job=await f.settled(await f.manager.submit('removeSnapshot',{snapshotId:snap,title:'Keep my source',confirm:true}));
+ assert.equal(job.state,'succeeded',job.message);assert.deepEqual(f.manager.state.snapshots,[]);
+ await assert.rejects(fs.stat(path.join(f.library,snap)),{code:'ENOENT'});assert.ok((await fs.stat(backup)).isFile());
+});
+test('snapshot deletion refuses a linked library entry and preserves its external target',async t=>{
+ const f=await fakeManager(t),outside=await directory(f.root,'outside');await fs.writeFile(path.join(outside,'world'),'protected');
+ await fs.symlink(outside,path.join(f.library,snap));f.manager.state.snapshots.push({id:snap,title:'Linked'});await f.manager.persist();
+ const job=await f.settled(await f.manager.submit('removeSnapshot',{snapshotId:snap,title:'Linked',confirm:true}));
+ assert.equal(job.state,'failed');assert.match(job.message,/cannot be a link/);assert.equal(await fs.readFile(path.join(outside,'world'),'utf8'),'protected');assert.equal(f.manager.state.snapshots.length,1);
+});
+test('removal can publish a verified library snapshot before deleting containers and retains the source volume',async t=>{
+ const f=await fakeManager(t),item=await f.submit({game:'factorio',name:'Recover me'});const source=f.instanceRoots.get(item.id),backup=await factorioBackup(source);await fs.copyFile(backup,path.join(await directory(source,'backups/panel-backups'),'backup.zip'));f.containers.get(item.container).State.Running=false;
+ f.manager.request=async(_item,_route,body)=>{if(body)assert.equal(f.containers.get(item.container).State.Running,false,'Snapshot source must already be stopped');return body?{id:'before-removal'}:{jobs:[{id:'before-removal',state:'succeeded',result:'Backup created: backup.zip'}],active:null};};
+ const job=await f.settled(await f.manager.submit('remove',{serverId:item.id,name:item.name,confirm:true,publishSnapshot:true}));
+ assert.equal(job.state,'succeeded',job.message);assert.equal(item.state,'removed');assert.ok(f.volumes.has(item.volume));
+ assert.equal(f.manager.state.snapshots.length,1);assert.equal(f.manager.state.snapshots[0].id,item.removalSnapshotId);
+ assert.equal((await f.manager.snapshotDetails(item.removalSnapshotId)).manifest.sourceId,item.id);assert.deepEqual(f.manager.list(),[]);
+});
+test('failed pre-removal snapshot prevents container deletion and keeps the server visible',async t=>{
+ const f=await fakeManager(t),item=await f.submit({game:'factorio',name:'Preserve me'});f.containers.get(item.container).State.Running=false;const before=structuredClone(f.containers.get(item.container));
+ f.manager.publish=async()=>{throw Object.assign(Error('Snapshot unavailable; no server resources were removed.'),{status:409});};
+ const job=await f.settled(await f.manager.submit('remove',{serverId:item.id,name:item.name,confirm:true,publishSnapshot:true}));
+ assert.equal(job.state,'failed');assert.deepEqual(f.containers.get(item.container),before);assert.equal(f.manager.list()[0].id,item.id);assert.ok(f.volumes.has(item.volume));
 });

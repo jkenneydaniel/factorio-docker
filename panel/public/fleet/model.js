@@ -112,12 +112,14 @@ export function createFleetModel({
                 allJobs.find((job) => job.recovery?.required),
             );
             servers.push(
-              ...result.servers.map((server) => ({
-                ...server,
-                hostId: host.id,
-                hostName: host.name,
-                manageUrl: hostRoute(host, '/servers/' + server.id + '/'),
-              })),
+              ...result.servers
+                .filter((server) => server.state !== 'removed')
+                .map((server) => ({
+                  ...server,
+                  hostId: host.id,
+                  hostName: host.name,
+                  manageUrl: hostRoute(host, '/servers/' + server.id + '/'),
+                })),
             );
             snapshots.push(
               ...library.snapshots.map((item) => ({
