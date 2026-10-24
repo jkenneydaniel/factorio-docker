@@ -25,7 +25,7 @@ async function factorio(t){
   const root=await temporary(t),data=path.join(root,'game'),state=path.join(root,'state');await fs.mkdir(path.join(data,'mods'),{recursive:true});await fs.mkdir(path.join(data,'saves'));await fs.mkdir(state);
   await fs.writeFile(path.join(data,'saves/world.zip'),'WORLD SENTINEL');await fs.writeFile(path.join(data,'mods/mod-settings.dat'),'SETTINGS SENTINEL');await fs.writeFile(path.join(data,'mods/mod-list.json'),JSON.stringify({mods:[{name:'base',enabled:true},{name:'space-age',enabled:false}]}));
   const packages=new Map(),mods=new Map();
-  function release(name,version,dependencies=['base >= 2.0.0']){const info={name,version,title:name,factorio_version:'2.0',dependencies},data=makeZip([{name:name+'_'+version+'/info.json',data:Buffer.from(JSON.stringify(info))},{name:name+'_'+version+'/control.lua',data:Buffer.from('-- fixture')}]),value={version,info_json:info,sha1:digest(data,'sha1'),download_url:'/download/'+name+'/'+version};packages.set(value.download_url,data);const mod=mods.get(name)||{name,title:name,summary:'A useful fixture',owner:'fixture',downloads_count:42,releases:[]};mod.releases.push(value);mod.latest_release=value;mods.set(name,mod);return value;}
+  function release(name,version,dependencies=['base >= 2.0.0'],factorioVersion='2.0'){const info={name,version,title:name,factorio_version:factorioVersion,dependencies},data=makeZip([{name:name+'_'+version+'/info.json',data:Buffer.from(JSON.stringify(info))},{name:name+'_'+version+'/control.lua',data:Buffer.from('-- fixture')}]),value={version,info_json:info,sha1:digest(data,'sha1'),download_url:'/download/'+name+'/'+version};packages.set(value.download_url,data);const mod=mods.get(name)||{name,title:name,summary:'A useful fixture',owner:'fixture',downloads_count:42,releases:[]};mod.releases.push(value);mod.latest_release=value;mods.set(name,mod);return value;}
   release('dependency','1.0.0');release('example','1.0.0',['base >= 2.0.0','dependency >= 1.0.0']);
   let running=false,corrupt=false,starts=0,stops=0,startError=false,afterStop=async()=>{};const calls=[];
   const fetcher=async input=>{const url=new URL(input);calls.push(url.pathname);if(url.pathname==='/api/mods')return Response.json({results:[...mods.values()]});if(url.pathname.startsWith('/api/mods/')){const id=decodeURIComponent(url.pathname.split('/')[3]);return mods.has(id)?Response.json(mods.get(id)):new Response('',{status:404});}if(packages.has(url.pathname))return new Response(corrupt?Buffer.from('tampered'):packages.get(url.pathname));return new Response('',{status:404});};
@@ -62,6 +62,24 @@ test('Factorio Updates selects compatible releases, preserves settings, and only
   const f=await factorio(t);await f.connect();await f.library.install((await f.library.plan({id:'example'})).id);f.release('example','1.1.0',['base >= 2.0.0','dependency >= 1.0.0']);
   const updates=await view(f.library,'updates',{refresh:'true'});assert.equal(updates.items[0].version,'1.1.0');assert.equal((await view(f.library)).items.find(item=>item.id==='example').version,'1.0.0');
   await f.library.install((await f.library.plan({id:'example'})).id);assert.equal((await view(f.library)).items.find(item=>item.id==='example').version,'1.1.0');assert(! (await fs.readdir(path.join(f.data,'mods'))).includes('example_1.0.0.zip'));
+});
+test('Factorio runtime mod views and plans use the installed receipt and invalidate reviews after a software change',async t=>{
+  const f=await factorio(t),server=await f.ctx.host.info();f.ctx.host.info=async()=>({...server,Config:{Image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1',Labels:{'io.lobby-goblin.software-delivery':'runtime'}}});f.ctx.docker=async()=>assert.fail('Runtime software versions must not come from image metadata');
+  const file=path.join(f.data,'runtime/installed.json');await fs.mkdir(path.dirname(file));const receipt={version:1,provider:'factorio-headless',softwareVersion:'2.1.23',sha256:'a'.repeat(64)};await fs.writeFile(file,JSON.stringify(receipt));
+  f.release('future','1.0.0',['base >= 2.1.0'],'2.1');f.release('future','2.0.0',['base >= 2.2.0'],'2.2');f.release('supported','1.0.0',['base >= 2.1.0'],'2.1');
+  const browse=await view(f.library,'browse');assert.equal(browse.version,'2.1.23');assert.deepEqual(browse.items.map(item=>item.id),['supported']);
+  await f.connect();const plan=await f.library.plan({id:'future'});assert.equal(plan.releases[0].version,'1.0.0');await f.library.install(plan.id);
+  f.release('future','1.1.0',['base >= 2.1.0'],'2.1');assert.equal((await view(f.library,'updates',{refresh:'true'})).items[0].version,'1.1.0');assert.equal((await view(f.library,'installed')).version,'2.1.23');
+  const stale=await f.library.plan({id:'future'});await fs.writeFile(file,JSON.stringify({...receipt,softwareVersion:'2.2.1',sha256:'b'.repeat(64)}));await assert.rejects(f.library.install(stale.id),/installation changed/);assert.equal((await view(f.library)).items[0].version,'1.0.0');assert.deepEqual(f.lifecycle(),{running:false,starts:0,stops:0});
+});
+test('Factorio runtime mod inventory refuses missing or invalid receipts instead of falling back to an image version',async t=>{
+  const f=await factorio(t),server=await f.ctx.host.info();f.ctx.host.info=async()=>({...server,Config:{...server.Config,Labels:{'io.lobby-goblin.software-delivery':'runtime'}}});f.ctx.docker=async()=>assert.fail('Invalid runtime receipts must not fall back to image metadata');
+  await assert.rejects(view(f.library),error=>error.status===409&&/runtime is not installed yet/.test(error.message));
+  const file=path.join(f.data,'runtime/installed.json');await fs.mkdir(path.dirname(file));await fs.writeFile(file,JSON.stringify({version:1,provider:'factorio-headless',softwareVersion:'2.1.23',sha256:'invalid'}));await assert.rejects(view(f.library),/Invalid installed Factorio runtime receipt/);
+  await assert.rejects(f.library.plan({id:'example'}),/Invalid installed Factorio runtime receipt/);assert.deepEqual(f.lifecycle(),{running:false,starts:0,stops:0});
+});
+test('bundled Factorio mod inventory retains the numeric image-tag fallback without reading runtime storage',async t=>{
+  const f=await factorio(t);f.ctx.docker=async()=>({Config:{Labels:{}}});await fs.writeFile(path.join(f.data,'runtime'),'NOT RUNTIME STORAGE');assert.equal((await view(f.library)).version,'2.0.77');
 });
 test('Factorio refuses conflicts, disabling required dependencies, tampered packages, stale reviews and hot changes',async t=>{
   const f=await factorio(t);await f.connect();await assert.rejects(f.library.plan({id:'example',mode:'hot'}),/requires a restart/);

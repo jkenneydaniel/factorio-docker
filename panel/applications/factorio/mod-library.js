@@ -6,6 +6,7 @@ import {createModStore,realDirectory} from '../../core/mod-store.js';
 import {createModDownloads,digest,versionMatches} from '../../core/mod-downloads.js';
 import {createModLibrary} from '../../core/mod-library.js';
 import {createFactorioCatalog,dependency} from './mod-catalog.js';
+import {installedRuntime} from './runtime.js';
 
 const builtinNames=['base','space-age','quality','elevated-rails'];
 export function createFactorioModLibrary(ctx,{fetcher=fetch,start,stop}={}){
@@ -28,8 +29,9 @@ export function createFactorioModLibrary(ctx,{fetcher=fetch,start,stop}={}){
       await writeJSON(accountFile,{username:body.username,token:body.token});return {connected:true};
     },
     async inventory(){
-      const server=await ctx.host.info(),image=await ctx.docker('GET','/images/'+encodeURIComponent(server.Image||server.Config.Image)+'/json');
-      const version=image.Config?.Labels?.['factorio.version']||server.Config.Image.match(/(?:^|:)(\d+\.\d+\.\d+)/)?.[1];assert(/^\d+\.\d+\.\d+$/.test(version||''),'Cannot determine the installed Factorio version.',409);
+      const server=await ctx.host.info(),runtime=await installedRuntime(data,server).catch(error=>{assert(error.code!=='ENOENT','Factorio runtime is not installed yet. Start Factorio to finish installation before using the mod library.',409);throw error;});
+      const image=runtime?null:await ctx.docker('GET','/images/'+encodeURIComponent(server.Image||server.Config.Image)+'/json');
+      const version=runtime?runtime.softwareVersion:image.Config?.Labels?.['factorio.version']||server.Config.Image.match(/(?:^|:)(\d+\.\d+\.\d+)/)?.[1];assert(/^\d+\.\d+\.\d+$/.test(version||''),'Cannot determine the installed Factorio version.',409);
       const files=await store.list(),list=files.get('mod-list.json'),configuration=list?JSON.parse(list.data):{mods:[]};assert(Array.isArray(configuration.mods),'Invalid Factorio mod-list.json.',409);
       const builtins=Object.fromEntries(builtinNames.map(name=>[name,name==='base'||configuration.mods.find(mod=>mod.name===name)?.enabled===true?version:null]));
       const items=[];
