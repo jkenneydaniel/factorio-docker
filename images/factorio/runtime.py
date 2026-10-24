@@ -178,7 +178,9 @@ def install(root, wanted, downloader=fetch, probe=None):
         receipt = checked(read_json(metadata))
         if release_key(receipt) != release_key(wanted):
             raise ValueError("Stored release identity differs")
-        return verify(destination, receipt), receipt
+        # The cached inventory describes immutable bytes, while operation and
+        # previous belong to this activation, including crash-replay detection.
+        return verify(destination, receipt), {**wanted, "files": receipt["files"]}
     with tempfile.TemporaryDirectory(dir=root, prefix=".install-") as scratch:
         archive = Path(scratch) / "release.tar.xz"
         with archive.open("xb") as output:

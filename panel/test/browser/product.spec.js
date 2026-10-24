@@ -664,7 +664,10 @@ test('a third game contributes delegated tools through the shared shell and oper
   await nav(page).getByRole('link', {name: 'Arena', exact: true}).click();
   const before = Number(await page.locator('#arena-score').textContent());
   await page.getByRole('button', {name: 'Rotate arena', exact: true}).click();
-  await expect(page.locator('#arena-score')).toHaveText(String(before + 1));
+  // Completion can first be observed on the shell's next five-second poll.
+  await expect(page.locator('#arena-score')).toHaveText(String(before + 1), {
+    timeout: 15_000,
+  });
   await expect(
     nav(page).getByRole('link', {name: 'Arena', exact: true}),
   ).toHaveAttribute('aria-current', 'page');

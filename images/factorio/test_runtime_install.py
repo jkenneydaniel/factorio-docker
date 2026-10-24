@@ -87,6 +87,41 @@ class RuntimeInstall(unittest.TestCase):
         self.assertEqual(self.downloads, [])
         self.assertFalse((self.data / "runtime/request.json").exists())
 
+    def test_cached_release_activation_records_current_operation_and_replays_offline_after_commit(self):
+        old = self.boot()
+        root = self.data / "runtime"
+        original = json.loads((root / "installed.json").read_text())
+        metadata = root / "releases" / (runtime.release_key(original) + ".json")
+        cached_metadata = metadata.read_bytes()
+        newer = {**self.wanted, "softwareVersion": "2.0.78", "operation": "12345678-1234-1234-1234-123456789abc", "previous": runtime.release_key(original)}
+        request = root / "request.json"
+        request.write_text(json.dumps(newer))
+        self.wanted = newer
+        new = self.boot()
+        returning = {**original, "operation": "87654321-1234-1234-1234-123456789abc", "previous": runtime.release_key(newer), "files": []}
+        request.write_text(json.dumps(returning))
+        unlink = Path.unlink
+
+        def interrupted_unlink(file, *args, **kwargs):
+            if file == request:
+                raise RuntimeError("Killed after receipt publication")
+            return unlink(file, *args, **kwargs)
+
+        with patch.object(self, "download", side_effect=AssertionError("Cached activation must stay offline")):
+            with patch.object(Path, "unlink", interrupted_unlink):
+                with self.assertRaisesRegex(RuntimeError, "Killed after receipt publication"):
+                    self.boot()
+            receipt = json.loads((root / "installed.json").read_text())
+            self.assertEqual(receipt["operation"], returning["operation"])
+            self.assertEqual(receipt["previous"], returning["previous"])
+            self.assertEqual(receipt["files"], original["files"])
+            self.assertTrue(request.exists())
+            self.assertEqual(self.boot(), old)
+        self.assertFalse(request.exists())
+        self.assertTrue(new.is_dir())
+        self.assertEqual(metadata.read_bytes(), cached_metadata)
+        self.assertEqual(len(self.downloads), 2)
+
     def test_modified_missing_and_linked_releases_fail_closed_without_installing_latest(self):
         game = self.boot()
         (game / "bin/x64/factorio").write_bytes(b"modified")
