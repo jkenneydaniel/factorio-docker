@@ -1,3 +1,4 @@
+import {runtimeHelper} from './runtime.js';
 import {helperWorkspace,readScopedFile,readScopedJSON,removeHelperWorker} from '../../core/helper-workspace.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -25,6 +26,7 @@ export async function exportMap({data,state,env={},server,source,world=source,sa
   let exists=false;
   try{
     await workspace.copyInputs();
+    const runtime = await runtimeHelper(workspace,{data,server});
     const {bytes,stat:sourceStat}=await readScopedFile(data,'saves/'+source),version=saveVersion(world,source,sourceStat);
     assert(!expectedVersion||expectedVersion===version,'The saved file changed before map export. Waiting for the latest save.');
     await workspace.write('saves/source.zip',bytes);
@@ -33,7 +35,7 @@ export async function exportMap({data,state,env={},server,source,world=source,sa
 
     await stageMessage(job,'Loading an isolated copy of the world…');
     // Favor the active game when CPU is contested; let exports use idle CPU.
-    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Env:['DLC_SPACE_AGE=false','UPDATE_MODS_ON_START=false','LOAD_LATEST_SAVE=false','SAVE_NAME=source'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[workspace.mount],Memory:1073741824,CpuShares:128}});exists=true;
+    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Env:[...runtime.env,'DLC_SPACE_AGE=false','UPDATE_MODS_ON_START=false','LOAD_LATEST_SAVE=false','SAVE_NAME=source'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:runtime.mounts,Memory:1073741824,CpuShares:128}});exists=true;
     await docker('POST',`/containers/${helper}/start`);await ready(helper);
     // Factorio requires repeating the first script command to acknowledge cheats.
     // This only affects the disposable copy, never the active save.

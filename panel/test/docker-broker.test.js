@@ -97,9 +97,10 @@ function engine() {
         Config: {
           Labels: {
             'io.lobby-goblin.compatibility': '1',
+            ...(reference.includes(':runtime-fc.')?{'io.lobby-goblin.software-delivery':'runtime'}:{}),
             'io.lobby-goblin.game': module?.id,
             'factorio.version': '2.0.77',
-            'io.lobby-goblin.image-revision': module?.id === 'rust' ? '2' : '3',
+            'io.lobby-goblin.image-revision': reference.includes(':runtime-fc.')?'1':module?.id === 'rust' ? '2' : '3',
           },
         },
       };
@@ -565,6 +566,19 @@ unix(
   },
 );
 
+unix('real broker confines the read-only runtime helper overlay to its private scratch child',async t=>{
+ const f=await fixture(t),item=f.seed(one),client=await f.instance(one),id=crypto.randomUUID();
+ const mount={Type:'volume',Source:item.volume,Target:'/factorio',VolumeOptions:{Subpath:'state/.panel-work/preview-'+id,NoCopy:true}};
+ const overlay={...mount,Target:'/opt/factorio',ReadOnly:true,VolumeOptions:{Subpath:mount.VolumeOptions.Subpath+'/engine',NoCopy:true}};
+ const spec={Image:gameImageId,Entrypoint:['/opt/factorio/bin/x64/factorio'],HostConfig:{NetworkMode:'none',Memory:1024**3,Mounts:[mount,overlay]}};
+ for(const mutate of [value=>value.ReadOnly=false,value=>value.VolumeOptions.Subpath='control',value=>value.Source=project+'-broker-transport']){
+  const attack=structuredClone(spec);mutate(attack.HostConfig.Mounts[1]);await assert.rejects(client.docker('POST','/containers/create?name=factorio-panel-preview-'+id,attack),denied);
+ }
+ const created=await client.docker('POST','/containers/create?name=factorio-panel-preview-'+id,spec);
+ const info=await client.docker('GET','/containers/'+created.Id+'/json');assert.equal(info.HostConfig.Mounts[1].ReadOnly,true);
+ await client.docker('POST','/containers/'+created.Id+'/start');await client.docker('POST','/containers/'+created.Id+'/stop');await client.docker('DELETE','/containers/'+created.Id);
+});
+
 unix(
   'host capability cannot mount the daemon, create privileged runtimes, exec management or adopt foreign resources',
   async (t) => {
@@ -807,10 +821,11 @@ unix(
       await manager.ownedContainer(item.controller, item.id);
       return {id: 'synthetic-start', state: 'running'};
     };
-    for (const game of ['factorio', 'rust']) {
+    for (const [game,softwareMode] of [['factorio','image'], ['rust','runtime'], ['factorio','runtime']]) {
       const submitted = await manager.submit('create', {
         game,
         name: 'Broker ' + game,
+        softwareMode,
       });
       const completed = await waitForIdleJob(
         async () => ({jobs: manager.state.jobs, active: manager.active}),
@@ -897,6 +912,7 @@ unix(
           before,
         );
       }
+      if(game==='factorio')assert.equal(item.software.mode,softwareMode);
       assert.equal(item.isolationVersion, 1);
       assert.ok(
         info.Config.Env.includes(
@@ -943,7 +959,7 @@ unix(
       );
       assert.equal(gameInfo.State.Running, false);
     }
-    assert.equal(manager.state.servers.length, 2);
+    assert.equal(manager.state.servers.length, 3);
     assert.equal((await f.host.docker('GET', '/info')).OSType, 'linux');
     const first = manager.state.servers[0],
       client = brokerClient({

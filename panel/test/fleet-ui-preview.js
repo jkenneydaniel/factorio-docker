@@ -1,3 +1,5 @@
+import {publishSnapshot} from '../fleet/snapshots.js';
+import {makeZip} from '../core/archive.js';
 // Disposable loopback-only UI acceptance fixture. No Docker socket, production
 // accounts, SSH connections or game data. All host/game actions are synthetic.
 import http from 'node:http';
@@ -14,10 +16,19 @@ const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lobby-host-
 await fs.mkdir(auth);await fs.writeFile(tokenFile,token);await writeJSON(path.join(auth,'users.json'),{Preview:{...hashPassword('isolated-panel-preview-password'),role:'admin'},Viewer:{...hashPassword('isolated-panel-preview-password'),role:'viewer'},Assigned:{...hashPassword('isolated-panel-preview-password'),role:'member',grants:{['/servers/'+'b'.repeat(32)]:['server.view','server.operate']},accessRevision:0}});
 const manager=new FleetManager({root:path.join(root,'state'),library:path.join(root,'library'),fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,hostContainer:'fixture',image:'fixture',memoryBudgetGiB:24,docker:async(method,route)=>{assert(method==='GET'&&route==='/info','This preview cannot use Docker.');return {MemTotal:32*1024**3};}});await manager.init();
 manager.state.servers=[{id:'b'.repeat(32),game:'factorio',name:'Friday factory',state:'installed',memoryGiB:3,cpu:2,gamePort:35000},{id:'c'.repeat(32),game:'rust',name:'Island crew',state:'installed',memoryGiB:12,cpu:4,gamePort:35003}];await manager.persist();
+const previewSnapshot='f'.repeat(32),previewBackup=path.join(root,'preview-backup.zip');
+await fs.writeFile(previewBackup,makeZip([{name:'saves/world.zip',data:makeZip([{name:'world/level.dat',data:Buffer.from('Disposable browser fixture')}])},{name:'panel-manifest.json',data:Buffer.from(JSON.stringify({activeSave:'world.zip'}))}]));
+const snapshotRecord={id:previewSnapshot,sourceId:'b'.repeat(32),sourceName:'Friday factory',title:'Friday factory before removal',game:'factorio',image:catalog.factorio.image};
+const snapshotResult=await publishSnapshot({library:manager.library,backup:previewBackup,record:snapshotRecord});
+const snapshotManifest=JSON.parse(await fs.readFile(path.join(manager.library,previewSnapshot,'manifest.json')));
+manager.state.snapshots=[{...snapshotRecord,...snapshotResult,created:snapshotManifest.created}];
+manager.state.servers.push({id:'9'.repeat(32),game:'factorio',name:'Retired factory',state:'removed',volume:'disposable-retained-volume',removedAt:new Date().toISOString()});await manager.persist();
+manager.assertHost=async()=>{};
 const remoteId='d'.repeat(32),previewVersion='0.3.5-alpha';let remote=null,setupPlan=null;const setupJobs=[];
 const backend=http.createServer((req,res)=>{void(async()=>{
  assert(req.headers.authorization==='Bearer '+token,'Unauthorized',401);
- if(req.method==='GET'&&req.url==='/status')return json(res,200,{ready:true});
+ if(req.method==='GET'&&req.url==='/status')return json(res,200,{ready:true,version:'0.3.8-alpha',isolation:'broker-v1'});
+ if(req.url.startsWith('/application-releases?')){const query=new URL(req.url,'http://fixture').searchParams,game=query.has('serverId')?manager.server(query.get('serverId')).game:query.get('game');return json(res,200,game==='factorio'?{game,software:process.env.UI_FACTORIO_DELIVERY_TEST==='runtime'?{mode:'runtime',provider:'factorio-headless',updateKind:'software'}:{mode:'image',updateKind:'image'},source:'Synthetic release fixture',stable:'2.0.78',experimental:'2.1.23',stale:false,checkedAt:new Date().toISOString(),choices:[{kind:process.env.UI_FACTORIO_DELIVERY_TEST==='runtime'?'software':'image',version:'2.0.78',imageRevision:1,...(process.env.UI_FACTORIO_DELIVERY_TEST==='runtime'?{}:{image:'ghcr.io/jkenneydaniel/factorio-server:2.0.78-fc.1'}),channel:'stable',notesUrl:'https://wiki.factorio.com/Version_history/2.0.0#2.0.78'}]}:{game,software:{mode:'runtime',provider:'rust-steamcmd',updateKind:'software'},source:'Synthetic Steam news fixture',message:'SteamCMD build discovery is required before enabling Rust upgrades.',news:[{title:'Rust update details',text:'Disposable release notes.',published:new Date().toISOString(),url:'https://store.steampowered.com/news/app/252490'}]});}
  if(req.url==='/host-settings'){if(req.method==='GET')return json(res,200,await manager.hostSettings());return json(res,200,await manager.updateHostSettings(await requestJSON(req),'preview'));}
  if(req.url==='/hosts'){
   if(req.method==='POST'){await requestJSON(req);remote={id:remoteId,name:'Weekend game host',origin:'https://host.example.test:24443',connection:'persistent',local:false,connected:true,version:'0.3.4-alpha',panelVersion:previewVersion,aligned:false,agentOnly:true};return json(res,201,remote);}
@@ -43,8 +54,11 @@ const backend=http.createServer((req,res)=>{void(async()=>{
   if(req.method==='POST'){const input=await requestJSON(req);return json(res,202,{id:'synthetic-create',state:'succeeded',hostId:input.hostId});}
   return json(res,200,{servers:req.url.startsWith('/hosts/')?[{id:'e'.repeat(32),game:'factorio',name:'Remote Friday factory',state:'installed',memoryGiB:2,cpu:1,gamePort:35000,address:'host.example.test:35000',manageUrl:'/unused'}]:manager.list()});
  }
- if(route==='/snapshots')return json(res,200,{snapshots:[]});
- if(route==='/jobs')return json(res,200,{jobs:[],active:null});
+ if(route==='/removed-servers')return json(res,200,{servers:manager.removedServers()});
+ const snapshotRoute=route.match(/^\/snapshots\/([a-f0-9]{32})(\/remove)?$/);
+ if(snapshotRoute){if(req.method==='GET')return json(res,200,await manager.snapshotDetails(snapshotRoute[1]));return json(res,202,await manager.submit('removeSnapshot',{...await requestJSON(req),snapshotId:snapshotRoute[1]},'Preview'));}
+ if(route==='/snapshots')return json(res,200,{snapshots:manager.state.snapshots});
+ if(route==='/jobs'||route==='/jobs?workflows=1')return json(res,200,manager.operations.status());
  if(route==='/update-status')return json(res,200,{busy:false});
  if(/^\/servers\/[a-f0-9]{32}\/controller\/jobs$/.test(route))return json(res,200,{jobs:[],active:null});
  if(/^\/servers\/[a-f0-9]{32}\/controller\/backups$/.test(route))return json(res,200,{backups:[],health:{verifiedCount:0,latestAt:null,alerts:[]}});

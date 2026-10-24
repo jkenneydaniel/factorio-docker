@@ -60,6 +60,8 @@ export const contract = {
   },
   actions: {
     ...backupActions(),
+    'software-update': action('Install Factorio software', true, 'manual', 'images.change'),
+    'software-recover': action('Recover software update', true, 'manual', 'images.change'),
     ...modActions,
     start: action('Start server', false, 'convergent', 'server.operate'),
     stop: action('Save and stop server', true, 'convergent', 'server.operate'),

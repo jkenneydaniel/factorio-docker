@@ -24,6 +24,9 @@ export function createServerDialog({
     const policy = game.creation;
     if (!policy)
       throw Error('Update this host to provide its game creation options.');
+    $('#software-mode-field').hidden = !game.softwareModes?.includes('runtime');
+    f.elements.softwareMode.disabled = !game.softwareModes?.includes('runtime');
+    f.elements.softwareMode.value = 'image';
     f.elements.cpu.value = game.cpu;
     f.elements.memoryGiB.value = game.memoryGiB;
     f.elements.memoryGiB.min = policy.minMemoryGiB;
@@ -43,7 +46,9 @@ export function createServerDialog({
           (snapshot) =>
             snapshot.hostId === f.elements.hostId.value &&
             snapshot.game === game.id &&
-            sameImageReference(snapshot.image, game.image) &&
+            (sameImageReference(snapshot.image, game.image) ||
+              (game.runtimeImage &&
+                sameImageReference(snapshot.image, game.runtimeImage))) &&
             !snapshot.unavailable,
         )
         .map(
@@ -61,6 +66,17 @@ export function createServerDialog({
       clone = !!f.elements.snapshotId.value,
       game = creationGames.find((game) => game.id === f.elements.game.value);
     $('#clone-note').hidden = !clone;
+    if (clone && game?.runtimeImage) {
+      const snapshot = getSnapshots().find(
+        (item) => item.id === f.elements.snapshotId.value,
+      );
+      f.elements.softwareMode.value =
+        snapshot && sameImageReference(snapshot.image, game.runtimeImage)
+          ? 'runtime'
+          : 'image';
+    }
+    f.elements.softwareMode.disabled =
+      clone || !game?.softwareModes?.includes('runtime');
     f.elements.seed.disabled = clone;
     for (const field of game?.creation?.fields || [])
       f.elements[field.key].disabled = clone && field.lockOnClone === true;

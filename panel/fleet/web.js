@@ -19,10 +19,11 @@ export async function startFleetWeb({env=process.env,port=Number(env.PORT||8080)
   return resources;
  }
  const gateway=remoteGateway({env,controller,token});
- const web={accessResources,Accounts,sessionCookie:'fleet_session',accountRoutes:[],adminReadRoutes:['/host-pairing','/host-setup'],assets:fleetAssets,diagnosticsReport:(version,data)=>({version,...data}),validateOnboarding:value=>assert(value.ready,'The host manager is unavailable.'),allowRoute:route=>/^\/servers(?:\/[a-f0-9]{32}(?:\/(?:snapshot|remove))?)?$/.test(route)||['/catalog','/snapshots','/host-settings','/hosts','/host-pairing','/host-setup','/host-setup-plan'].includes(route)||/^\/hosts\/[a-f0-9]{32}\/(?:catalog|servers(?:\/[a-f0-9]{32}\/(?:snapshot|remove))?|snapshots|jobs(?:\/recovery)?|operations(?:\/recovery)?|host-settings|disconnect|agent-status|agent-update|agent-update-plan)$/.test(route),
+ const web={accessResources,Accounts,sessionCookie:'fleet_session',accountRoutes:[],adminReadRoutes:['/host-pairing','/host-setup','/removed-servers','/application-releases'],assets:fleetAssets,diagnosticsReport:(version,data)=>({version,...data}),validateOnboarding:value=>assert(value.ready,'The host manager is unavailable.'),allowRoute:route=>/^(?:\/hosts\/[a-f0-9]{32})?\/(?:snapshots\/[a-f0-9]{32}(?:\/remove)?|removed-servers)$/.test(route)||/^\/servers(?:\/[a-f0-9]{32}(?:\/(?:snapshot|remove))?)?$/.test(route)||['/catalog','/application-releases','/snapshots','/host-settings','/hosts','/host-pairing','/host-setup','/removed-servers','/application-releases','/host-setup-plan'].includes(route)||/^\/hosts\/[a-f0-9]{32}\/(?:application-releases|catalog|servers(?:\/[a-f0-9]{32}\/(?:snapshot|remove))?|snapshots|jobs(?:\/recovery)?|operations(?:\/recovery)?|host-settings|disconnect|agent-status|agent-update|agent-update-plan)$/.test(route),
   async dispatch(req,res,url,context){
    if(await gateway(req,res,url))return true;
    if(/^\/api\/hosts\/[a-f0-9]{32}\/operations(?:\/recovery)?$/.test(url.pathname)||/^\/api\/hosts\/[a-f0-9]{32}\/jobs$/.test(url.pathname)&&url.searchParams.has('workflows')){const user=await context.session(req);assert(user,'Please sign in.',401);requireAdmin(user);}
+   if(/^\/api(?:\/hosts\/[a-f0-9]{32})?\/(?:snapshots\/[a-f0-9]{32}(?:\/remove)?$|(?:removed-servers|application-releases)$)/.test(url.pathname)){const user=await context.session(req);assert(user,'Please sign in.',401);requireAdmin(user);}
    if(url.pathname==='/api/assigned-servers'){
     const user=await context.session(req);assert(user,'Please sign in.',401);assert(req.method==='GET'&&user.role==='member','Assigned-server access is required.',403);
     const servers=[];
@@ -46,6 +47,6 @@ export async function startFleetWeb({env=process.env,port=Number(env.PORT||8080)
   },
  };
  const module={id:'fleet',name:'Lobby Goblin host manager',contract:{version:1,kind:'gateway',features:{},actions:{},routes:{}},releaseRepository:'jkenneydaniel/lobby-goblin',routes:['/servers','/catalog','/snapshots'],web,configuration:()=>({}),createController:()=>{},createUpdater:()=>{},diagnostics:()=>{}};
- const server=await startWeb(module,{env:{...env,AUTH_DIR:auth,CONTROLLER_URL:controller,CONTROLLER_TOKEN_FILE:file,RELEASE_CHECKS:'false'},accounts,sessions,audit,controllerToken:token,port,hostname});
+ const server=await startWeb(module,{env:{...env,AUTH_DIR:auth,CONTROLLER_URL:controller,CONTROLLER_TOKEN_FILE:file,RELEASE_CHECKS:env.RELEASE_CHECKS||'true'},accounts,sessions,audit,controllerToken:token,port,hostname});
  server.once('close',()=>{for(const child of children.values())child.emit('close');});return server;
 }

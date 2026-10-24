@@ -342,3 +342,71 @@ supplies the data codec and retains format ownership. Factorio drafts/presets ar
 the first implementation. This does not add frontend requirements to ordinary
 application definitions or let data-only definitions run storage code. See
 [Management storage](STORAGE.md) for the contract and maintenance boundary.
+
+## Software delivery is separate from image admission
+
+Each service may declare `software` alongside its runtime `profile` and
+`configuration`. The image policy still admits the container runtime; software
+policy selects how that runtime obtains and maintains application binaries.
+Omitting `software` preserves the image-bundled behavior for existing packages.
+
+Bundled binaries use:
+
+```json
+"software": {"version": 1, "mode": "image"}
+```
+
+A runtime that installs software into persistent application storage uses:
+
+```json
+"software": {
+  "version": 1,
+  "mode": "runtime",
+  "provider": "factorio-headless",
+  "initial": {"channel": "stable"},
+  "storage": "application-volume",
+  "updates": "manual"
+}
+```
+
+`initial` contains either one channel or one exact `version`. Provider names
+select reviewed code registered by the application/runtime adapter. A definition
+cannot supply an executable, shell command, credential, download URL or host path.
+Changing the declaration does not add an installer to an incompatible image.
+
+Image revisions and software versions are separate identities. In runtime mode,
+changing Factorio or a Steam application does not inherently require a new image.
+Images still receive explicit revisions for wrapper, library and OS changes.
+The installed software and its receipt must remain in the application volume;
+writing only to the container's writable layer would lose that version when the
+container is replaced.
+
+The shared initial-version resolver requires a reviewed provider implementing
+`resolve`, `installed`, `empty` and `install`. It performs no installation itself.
+It resolves a channel only when the provider verifies empty application storage,
+and returns an exact selection for the installer to verify and durably record.
+An existing receipt is checked and reused without querying a newer release.
+Missing files, changed/foreign receipts and populated storage without a receipt
+require explicit recovery or migration. Ordinary startup never upgrades software.
+
+The current declarations describe Factorio's bundled image and Rust's existing
+SteamCMD bootstrap separately. New managed-server records retain their own policy,
+and release lookups can select that record's policy rather than assuming the
+current package policy applies to every older server. Legacy records are not
+rewritten or migrated by this source change.
+
+Factorio runtime-mode discovery uses Wube's official version API, independently
+of published image tags. Wube's free Linux headless package is the preferred
+installer source for this provider; SteamCMD remains appropriate for applications
+whose dedicated servers are distributed through Steam. Selecting a Steam branch
+must record its installed build identity; a branch name alone is not a pinned
+version or proof that a historical build can be installed.
+
+Factorio also exposes an explicit runtime delivery option through its reviewed
+managed adapter. The alternative image policy is independently validated; its
+software policy uses the same checked declaration. New managed records pin their
+selected mode. The default bundled image, old records and standalone defaults
+remain compatible. See [Factorio runtime software](FACTORIO_RUNTIME.md) for the
+installer, durable update/recovery, exact backup and snapshot identity, and
+receipt-verified read-only helper copies. No existing installation is migrated by
+loading these definitions.

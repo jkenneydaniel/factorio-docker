@@ -1,3 +1,4 @@
+import {publicSoftwareDelivery} from '../core/software-delivery.js';
 import {brokerSocket,brokerToken} from '../core/broker-client.js';
 import fs from 'node:fs/promises';import path from 'node:path';import crypto from 'node:crypto';
 import {assert,readJSON,writeJSON,sleep} from '../common.js';import {validId,labels,resources,validateCreation} from './catalog.js';
@@ -34,8 +35,9 @@ export class FleetManager{
  persist(state=this.state){const data=structuredClone(state);const next=this.queue.then(()=>this.repository.save(this.storageSnapshot,data));this.queue=next.catch(()=>{});return next;}
  server(id){assert(validId(id),'Invalid server.');const item=this.state.servers.find(s=>s.id===id);assert(item,'Server not found.',404);return item;}
  snapshot(id){assert(validId(id),'Invalid snapshot.');const item=this.state.snapshots.find(s=>s.id===id);assert(item,'Snapshot not found.',404);return item;}
- publicServer(item){const {controllerToken,rconPassword,...publicFields}=item;return {...publicFields,address:`${this.address}:${item.gamePort}`,manageUrl:`/servers/${item.id}/`};}
- list(){return this.state.servers.map(s=>this.publicServer(s));}
+ publicServer(item){const {controllerToken,rconPassword,software,...publicFields}=item;return {...publicFields,...(software?{software:publicSoftwareDelivery(software)}:{}),address:`${this.address}:${item.gamePort}`,manageUrl:`/servers/${item.id}/`};}
+ list(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>this.publicServer(s));}
+ removedServers(){return this.state.servers.filter(s=>s.state==='removed').map(({id,name,game,volume,created,removedAt,removalSnapshotId})=>({id,name,game,volume,created,removedAt,removalSnapshotId}));}
  allocations(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>({id:s.id,name:s.name,game:s.game,state:s.state,gameGiB:s.memoryGiB,controllerGiB:1,totalGiB:s.memoryGiB+1}));}
  async hostSettings(){
   const allocations=this.allocations(),allocatedMemoryGiB=allocations.reduce((sum,s)=>sum+s.totalGiB,0);let dockerMemoryGiB=null;
@@ -75,7 +77,8 @@ export class FleetManager{
   assert(!this.active&&!this.settingsUpdating&&!this.agentUpdating,'Wait for the current host operation to finish.',409);
   if(action==='create')input=validateCreation(input,[...this.modules.values()]);
   else if(action==='publish'){const s=this.server(input.serverId);assert(!s.migration||s.migration.state==='complete','Complete the game image migration before publishing snapshots.',409);assert(s.state!=='removed'&&input.confirm===true,'Confirm the save and possible server interruption.');assert(typeof input.title==='string'&&input.title.trim().length>=1&&input.title.length<=80&&!/[\x00-\x1f]/.test(input.title),'Use a snapshot title of 1–80 characters.');input={serverId:s.id,title:input.title.trim(),confirm:true};}
-  else if(action==='remove'){const s=this.server(input.serverId);assert(s.state!=='removed'&&input.confirm===true&&input.name===s.name,'Type the server name to remove its containers.');input={serverId:s.id,confirm:true};}
+  else if(action==='removeSnapshot'){const snapshot=this.snapshot(input.snapshotId);assert(input.confirm===true&&input.title===snapshot.title,'Confirm the snapshot title before deleting it.');input={snapshotId:snapshot.id};}
+  else if(action==='remove'){const s=this.server(input.serverId);assert(s.state!=='removed'&&input.confirm===true&&input.name===s.name,'Type the server name to remove its containers.');assert(input.publishSnapshot===undefined||typeof input.publishSnapshot==='boolean','Choose whether to publish a snapshot.');input={serverId:s.id,confirm:true,publishSnapshot:input.publishSnapshot===true};}
   else assert(false,'Unsupported host operation.');
   const {job,duplicate}=await this.operations.reserve({action,actor,input:originalInput,requestId});
   if(!duplicate)void this.operations.execute(job,{before:async()=>{await this.assertHost();if(input.serverId)await this.stage(job,'Checking selected server…','checking',{serverId:input.serverId});},
@@ -84,6 +87,7 @@ export class FleetManager{
  }
  async stage(job,message,phase='working',target){await this.operations.checkpoint(job,phase,message,target);}
  async inspectOperation(job){
+  if(job.action==='removeSnapshot'){const id=job.target?.snapshotId||job.result?.snapshotId;if(validId(id)){const exists=await fs.lstat(path.join(this.library,id)).catch(error=>{if(error.code==='ENOENT')return null;throw error;});if(!exists){this.state.snapshots=this.state.snapshots.filter(snapshot=>snapshot.id!==id);return {outcome:'succeeded',message:'Snapshot files are absent and its library entry was removed.',result:{snapshotId:id}};}}return {message:'Snapshot deletion needs review. Existing servers and source backups were preserved.'};}
   const item=this.state.servers.find(server=>server.id===(job.target?.serverId||job.result?.serverId));
   if(job.action==='create'&&item){
    if(item.state==='installed'){
@@ -126,8 +130,11 @@ export class FleetManager{
  async create(input,job){
   const info=await this.docker('GET','/info');assert(info.OSType==='linux'&&['x86_64','amd64'].includes(info.Architecture),'This first host-manager version requires Linux containers on an amd64 host.');assert(Number(String(info.ServerVersion).split('.')[0])>=26,'Docker Engine 26 or newer is required for isolated volume subdirectories.');
   const reserved=this.allocations().reduce((n,s)=>n+s.totalGiB,0);assert(reserved+input.memoryGiB+1<=this.memoryBudgetGiB,`This server needs ${input.memoryGiB+1} GiB including its controller, but only ${Math.max(0,this.memoryBudgetGiB-reserved)} GiB remains in the ${this.memoryBudgetGiB} GiB host budget. Open Host settings to review allocations.`,409);assert((reserved+input.memoryGiB+3)*giB<=info.MemTotal,'Keep at least 2 GiB outside the managed server memory budget.',409);
-  const module=this.module(input.game),managed=module.managed,game=this.catalog[input.game];let snapshot=null;if(input.snapshotId){snapshot=this.snapshot(input.snapshotId);assert(snapshot.game===input.game&&managed.snapshots.compatible(snapshot.image,game.image),'This snapshot requires a different game image.',409);const manifest=await verifySnapshot(this.library,snapshot.id,snapshot.manifestSha256);input=managed.creationFromSnapshot(input,manifest);}
-  const id=crypto.randomBytes(16).toString('hex'),ports=await this.allocatePorts(input.game),item={...input,id,...resources(this.fleet,id,input.game),...ports,seed:input.seed??crypto.randomInt(1,0x100000000),image:game.image,...(this.broker?{isolationVersion:1}:{}),created:new Date().toISOString(),state:'creating',controllerToken:crypto.randomBytes(48).toString('hex'),rconPassword:crypto.randomBytes(48).toString('base64url')};this.state.servers.push(item);await this.stage(job,'Server storage and ports reserved.','allocated',{serverId:id});
+  const module=this.module(input.game),managed=module.managed,defaults=this.catalog[input.game];let snapshot=null;
+  if(input.snapshotId){snapshot=this.snapshot(input.snapshotId);const manifest=await verifySnapshot(this.library,snapshot.id,snapshot.manifestSha256);assert(snapshot.game===input.game,'This snapshot belongs to a different application.',409);input=managed.creationFromSnapshot(input,manifest);}
+  const game={...defaults,...(input.softwareMode==='runtime'&&managed.runtime?{image:managed.runtime.imagePolicy.defaultImage}:{})};
+  if(snapshot)assert(managed.snapshots.compatible(snapshot.image,game.image),'This snapshot requires a different game image.',409);
+  const id=crypto.randomBytes(16).toString('hex'),ports=await this.allocatePorts(input.game),item={...input,id,...resources(this.fleet,id,input.game),...ports,seed:input.seed??crypto.randomInt(1,0x100000000),image:game.image,software:structuredClone(input.softwareMode==='runtime'&&managed.runtime?managed.runtime.software:managed.software||{version:1,mode:'image'}),...(this.broker?{isolationVersion:1}:{}),created:new Date().toISOString(),state:'creating',controllerToken:crypto.randomBytes(48).toString('hex'),rconPassword:crypto.randomBytes(48).toString('base64url')};this.state.servers.push(item);await this.stage(job,'Server storage and ports reserved.','allocated',{serverId:id});
   try{
    await this.stage(job,'Downloading the reviewed game image…');const resolved=await this.ensureImage(game.image,input.game);item.image=resolved.reference;await this.persist();
    if(this.broker)await this.broker.grant({id,game:item.game});
@@ -154,18 +161,27 @@ export class FleetManager{
   for(let n=0;n<1200;n++){const value=await this.request(item,'/jobs');completed=value.jobs.find(j=>j.id===queued.id);if(completed&&!['running','queued'].includes(completed.state)&&!value.active)break;await sleep(1000);}assert(completed?.state==='succeeded','The source backup did not complete. No snapshot was published.',409);
   const name=String(completed.result||'').match(/(?:Backup created: )?([A-Za-z0-9_.-]+\.(?:zip|tar\.gz))$/)?.[1];assert(name,'The source controller did not return a backup name.',409);
   const snapshotId=crypto.randomBytes(16).toString('hex');await this.stage(job,'Copying the completed backup into the shared library…','publishing',{snapshotId,backup:name});const result=await this.helper(item,{action:'snapshot',backup:name,snapshotId,name:item.name,title:input.title,image:item.image,seed:item.seed,worldSize:item.worldSize});assert(result?.id===snapshotId,'Snapshot publication did not finish.');
-  const manifest=await verifySnapshot(this.library,snapshotId,result.manifestSha256);const entry={id:snapshotId,title:input.title,game:item.game,image:item.image,sourceId:item.id,sourceName:item.name,created:manifest.created,includesPlayerData:manifest.includesPlayerData,...result};this.state.snapshots.push(entry);await this.persist();return {snapshotId,message:'Snapshot published. New servers receive independent copies and fresh credentials.'};
+  const manifest=await verifySnapshot(this.library,snapshotId,result.manifestSha256);const entry={id:snapshotId,title:input.title,game:item.game,image:item.image,sourceId:item.id,sourceName:item.name,created:manifest.created,...(manifest.software?{software:manifest.software}:{}),includesPlayerData:manifest.includesPlayerData,...result};this.state.snapshots.push(entry);await this.persist();return {snapshotId,message:'Snapshot published. New servers receive independent copies and fresh credentials.'};
+ }
+ async snapshotDetails(id){const entry=this.snapshot(id);const manifest=await verifySnapshot(this.library,id,entry.manifestSha256);return {...entry,verifiedAt:new Date().toISOString(),manifest};}
+ async removeSnapshot(input,job){
+  const entry=this.snapshot(input.snapshotId),root=path.join(this.library,entry.id);await this.stage(job,'Deleting the selected snapshot…','deleting-snapshot',{snapshotId:entry.id});
+  const stat=await fs.lstat(root).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
+  if(stat){assert(stat.isDirectory()&&!stat.isSymbolicLink()&&await fs.realpath(root)===root,'Snapshot storage cannot be a link.',409);await fs.rm(root,{recursive:true});}
+  this.state.snapshots=this.state.snapshots.filter(snapshot=>snapshot.id!==entry.id);await this.persist();return {snapshotId:entry.id,message:'Snapshot deleted. Existing servers, source backups and retained server storage were preserved.'};
  }
  async remove(input,job){
-  const item=this.server(input.serverId);item.maintenance='Removing the server';await this.stage(job,'Saving and stopping the selected server…');
+  const item=this.server(input.serverId);
+  item.maintenance='Removing the server';await this.stage(job,'Saving and stopping the selected server…');
   try{const info=await this.ownedContainer(item.container,item.id);if(info.State.Running){const queued=await this.request(item,'/jobs',{action:'stop',params:{confirm:true},actor:job.actor});for(let n=0;n<180;n++){const jobs=await this.request(item,'/jobs');const result=jobs.jobs.find(j=>j.id===queued.id);if(result&&!['running','queued'].includes(result.state)&&!jobs.active){assert(result.state==='succeeded',result.message,409);break;}await sleep(1000);}const stopped=await this.ownedContainer(item.container,item.id);assert(!stopped.State.Running&&stopped.State.ExitCode===0&&!stopped.State.OOMKilled,'The server did not stop cleanly. No resources were removed.',409);}}
   catch(error){if(error.status!==404)throw error;}
+  if(input.publishSnapshot){const result=await this.publish({serverId:item.id,title:item.name.slice(0,60)+' before removal'},job);item.removalSnapshotId=result.snapshotId;await this.persist();}
   for(const name of [item.controller,item.container]){let info;try{info=await this.ownedContainer(name,item.id);}catch(error){if(error.status===404)continue;throw error;}if(info.State.Running)await this.docker('POST',`/containers/${name}/stop?t=30`);await this.docker('DELETE',`/containers/${name}`);}
   const filter=encodeURIComponent(JSON.stringify({label:[`io.lobby-goblin.fleet=${this.fleet}`,`io.lobby-goblin.instance=${item.id}`,'io.lobby-goblin.worker=true']}));
   for(const worker of await this.docker('GET','/containers/json?all=1&filters='+filter)){const info=await this.ownedContainer(worker.Id,item.id);assert(info.Config?.Labels?.['io.lobby-goblin.worker']==='true','Resource is not an owned worker.',409);if(info.State.Running)await this.docker('POST',`/containers/${worker.Id}/stop?t=15`);await this.docker('DELETE',`/containers/${worker.Id}`);}
   let network;try{network=await this.ownedNetwork(item.network,item.id);}catch(error){if(error.status!==404)throw error;}
   if(network){const host=await this.docker('GET',`/containers/${this.hostContainer}/json`);const endpoints=Object.keys(network.Containers||{});assert(endpoints.every(id=>id===host.Id),'Another container still uses this server network.',409);if(endpoints.includes(host.Id))await this.docker('POST',`/networks/${item.network}/disconnect`,{Container:this.hostContainer});await this.docker('DELETE',`/networks/${item.network}`);}
   if(this.broker)await this.broker.revoke(item.id);
-  item.state='removed';await this.persist();return {serverId:item.id,retainedVolume:item.volume,message:'Server containers removed. Its isolated data volume and shared snapshots were kept.'};
+  item.state='removed';item.removedAt=new Date().toISOString();await this.persist();return {serverId:item.id,retainedVolume:item.volume,...(item.removalSnapshotId?{snapshotId:item.removalSnapshotId}:{}),message:'Server containers removed. Its isolated data volume and shared snapshots were kept.'};
  }
 }

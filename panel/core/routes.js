@@ -12,6 +12,7 @@ export const sharedControllerEndpoints = Object.freeze({
   '/download': {GET: 'admin'},
   '/schedule': {POST: 'admin'},
   '/backup-retention': {POST: 'admin'},
+  '/application-releases': {GET: 'admin'},
   '/update-status': {GET: 'admin'},
   '/update-plan': {POST: 'admin'},
   '/update-install': {POST: 'admin'},

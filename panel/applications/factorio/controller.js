@@ -1,3 +1,6 @@
+import {RuntimeUpdates,restoreRuntimeBackup} from './runtime-update.js';
+import {releaseKey} from './runtime.js';
+import {runtimeHelper, runtimeIdentity, installedRuntime, runtimeSoftware, runtimeServer, softwareIdentity} from './runtime.js';
 import {createFactorioModLibrary} from './mod-library.js';
 import {modLibraryRoutes,validateLibraryAction} from '../../core/mod-library.js';
 import {helperWorkspace,readScopedFile,readScopedJSON,removeHelperWorkspace,removeHelperWorker} from '../../core/helper-workspace.js';
@@ -39,7 +42,7 @@ function persistAutoMap(){
   autoMapWrites=autoMapWrites.catch(()=>{}).then(async()=>{const value=JSON.stringify(autoMap);if(value!==autoMapSaved){await writeJSON(autoMapFile,JSON.parse(value));autoMapSaved=value;}});return autoMapWrites;
 }
 const logFile=path.join(data,'factorio-current.log');
-const worldPreviews=new WorldPreviews({canRun:()=>!ctx.imageMigrationPending&&!ctx.active&&!ctx.updater.busy,render:async input=>{const server=await info();assert((server.Image||server.Config.Image)===input.image,'Factorio changed. Refresh this preview.');return renderWorldPreview(input,{data,state,env:ctx.env,server,docker,gameContainerRoute});}});
+const worldPreviews=new WorldPreviews({canRun:()=>!ctx.imageMigrationPending&&!ctx.active&&!ctx.updater.busy,render:async input=>{assert(!await runtimeUpdates.pending(),'Recover the software update before generating previews.',409);const server=await info();assert(await runtimeIdentity(data,server)===input.image,'Factorio changed. Refresh this preview.');return renderWorldPreview(input,{data,state,env:ctx.env,server,docker,gameContainerRoute});}});
 const livePlayersFile=path.join(state,'live-players.json');
 const livePlayers=new LivePlayers({config:await readJSON(livePlayersFile,{enabled:false}),query:rcon,persist:config=>writeJSON(livePlayersFile,config),scope:async()=>{
   if(ctx.imageMigrationPending||ctx.updater.busy)return {running:false};
@@ -77,12 +80,13 @@ async function saveNow(){
     await sleep(500);
   }throw new HttpError(504,'Save was requested but completion could not be confirmed.');
 }
-async function ready(name=container){
-  const deadline=Date.now()+Number(ctx.env.FACTORIO_READY_TIMEOUT_MS||60000);
+async function ready(name=container,timeout){
+  const deadline=Date.now()+Number(timeout||ctx.env.FACTORIO_READY_TIMEOUT_MS||(name===container&&runtimeServer(await info())?ctx.env.FACTORIO_INSTALL_TIMEOUT_MS||1200000:60000));
   while(Date.now()<deadline){
     try{const value=await rcon('/version',name);if(/2\.\d+\.\d+/.test(value))return value;}catch{}
+    if(name===container){const server=await info();assert(!runtimeServer(server)||server.State.Running,'Factorio stopped during software startup. Check its logs; existing data and the recorded release were retained.',409);}
     await sleep(Math.min(1000,Math.max(0,deadline-Date.now())));
-  }throw new HttpError(504,'Factorio did not become ready within 60 seconds.');
+  }throw new HttpError(504,'Factorio did not become ready before the startup deadline.');
 }
 async function switchWorld(params,job){
   assert(params.confirm===true,'Confirm the world change first.');
@@ -123,6 +127,7 @@ async function restoreBackup(params,job){
   const extracted=entries.filter(e=>!e.name.endsWith('/')).map(e=>({name:e.name,data:e.read()}));
   const manifestEntry=extracted.find(e=>e.name==='panel-manifest.json');
   const manifest=manifestEntry?JSON.parse(manifestEntry.data):{};
+  const currentSoftware=await installedRuntime(data,await info());assert(!currentSoftware&&!manifest.software||currentSoftware&&manifest.software&&releaseKey(currentSoftware)===releaseKey(manifest.software),'Restore requires the backup’s matching Factorio release. Use software recovery for the recorded pre-update backup.',409);
   const wasRunning=(await info()).State.Running,archive=path.join(backups,`panel-before-restore-${stamp()}`);const moved=[];
   await stageMessage(job,'Saving the current state before restoring…');if(livePlayers.config.enabled)await livePlayers.configure({enabled:false},'Backup restore');if(wasRunning)await control('stop');
   try{
@@ -152,15 +157,15 @@ async function createWorld(params,job,{optionsOnly=false}={}){
     await stageMessage(job,'Saving a copy of the current world…');await saveNow();}
   const source=await activeSave(),workspace=await helperWorkspace({data,state,env:ctx.env,server,docker},job.id);
   const helper=`factorio-panel-job-${job.id}`;let helperExists=false;
-  const mountConfig=workspace.mount;
   try{
     await workspace.copyInputs();
+    const runtime = await runtimeHelper(workspace,{data,server});
     if(extract)await workspace.write('saves/source.zip',(await readScopedFile(data,'saves/'+source)).bytes);
     await workspace.write('config/server-settings.json',JSON.stringify({...settings,name:'Isolated map settings export',visibility:{public:false,lan:false},auto_pause:true}));
     let exported=configuration;
     if(extract){
     await stageMessage(job,'Extracting settings from an isolated copy…');
-    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Env:['DLC_SPACE_AGE=false','UPDATE_MODS_ON_START=false','LOAD_LATEST_SAVE=false','SAVE_NAME=source'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[mountConfig],Memory:1073741824}});helperExists=true;
+    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Env:[...runtime.env,'DLC_SPACE_AGE=false','UPDATE_MODS_ON_START=false','LOAD_LATEST_SAVE=false','SAVE_NAME=source'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:runtime.mounts,Memory:1073741824}});helperExists=true;
     await docker('POST',`/containers/${helper}/start`);await ready(helper);
     await rcon(EXPORT_LUA,helper);await rcon(EXPORT_LUA,helper);
     exported=validateConfiguration(await workspace.json('script-output/export-settings.json'),{limits:false});
@@ -170,12 +175,12 @@ async function createWorld(params,job,{optionsOnly=false}={}){
     exported=validateConfiguration(exported);
     // Factorio requires every member of gameplay subtrees such as pollution.
     // Fill omitted advanced tuning from this exact installed game image.
-    exported.map_settings=mergeSettings(await engineMapSettings(container,server.Image||server.Config.Image,{docker}),exported.map_settings);
+    exported.map_settings=mergeSettings(await engineMapSettings(container,await runtimeIdentity(data,server),{docker,data,server}),exported.map_settings);
     if(params.seed==null||params.seed==='')while(seed===exported.map_gen_settings.seed)seed=crypto.randomInt(1,0x100000000);
     exported.map_gen_settings.seed=seed;
     await workspace.write('config/new-map-gen-settings.json',JSON.stringify(exported.map_gen_settings));await workspace.write('config/new-map-settings.json',JSON.stringify(exported.map_settings));
     await stageMessage(job,`Generating a new world with seed ${seed}…`);
-    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--create','/factorio/saves/generated.zip','--map-gen-settings','/factorio/config/new-map-gen-settings.json','--map-settings','/factorio/config/new-map-settings.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[mountConfig],Memory:1073741824}});helperExists=true;
+    await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--create','/factorio/saves/generated.zip','--map-gen-settings','/factorio/config/new-map-gen-settings.json','--map-settings','/factorio/config/new-map-settings.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:runtime.mounts,Memory:1073741824}});helperExists=true;
     await docker('POST',`/containers/${helper}/start`);
     const result=await docker('POST',`/containers/${helper}/wait?condition=not-running`,undefined,{timeout:180000});
     assert(result.StatusCode===0,'Factorio could not generate the world.');
@@ -185,7 +190,7 @@ async function createWorld(params,job,{optionsOnly=false}={}){
     // A preview is generated separately, without opening or scripting the fresh save.
     if(params.preview!==false){
       await stageMessage(job,'Creating the map preview…');
-      await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--generate-map-preview','/factorio/preview.png','--map-preview-size','1024','--map-gen-settings','/factorio/config/new-map-gen-settings.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:[mountConfig],Memory:1073741824}});helperExists=true;
+      await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,Entrypoint:['/opt/factorio/bin/x64/factorio'],Cmd:['--generate-map-preview','/factorio/preview.png','--map-preview-size','1024','--map-gen-settings','/factorio/config/new-map-gen-settings.json','--mod-directory','/factorio/mods'],Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:runtime.mounts,Memory:1073741824}});helperExists=true;
       await docker('POST',`/containers/${helper}/start`);await docker('POST',`/containers/${helper}/wait?condition=not-running`,undefined,{timeout:180000});
       const preview=await workspace.read('preview.png',8*1024*1024).catch(error=>{if(error.code==='ENOENT')return null;throw error;});if(preview)await fs.writeFile(path.join(library,`${name}.png`),preview);
     }
@@ -209,7 +214,10 @@ async function settingsUpdate(params){
   catch(error){await writeJSON(settingsFile,current);if(running)await control('start').catch(()=>{});throw error;}
   return 'Server settings saved.';
 }
+const runtimeUpdates=new RuntimeUpdates({data,state,info,control,backup,restore:(name,previous)=>restoreRuntimeBackup({data,backups,backupDir,name,previous}),stage:stageMessage,ready:async expected=>{const value=await ready(container,Number(ctx.env.FACTORIO_INSTALL_TIMEOUT_MS||1200000));assert(value.trim()===expected,'Factorio reported a different software version.',409);}});
 const actions={
+  'software-update':(params,job)=>runtimeUpdates.update(params,job),
+  'software-recover':(params,job)=>runtimeUpdates.recover(params,job),
   ...modLibrary.actions,
   save:()=>saveNow(),
   start:async()=>{await modLibrary.assertReady();await control('start');await ready();return 'Factorio is running.';},
@@ -253,7 +261,8 @@ async function status(){
   const lastSave=latestEvent?new Date(started+Number(latestEvent[1])*1000).toISOString():null;
   const saveFiles=await listFiles(saves,0),latestFile=saveFiles.filter(x=>x.relative.endsWith('.zip')).sort((a,b)=>b.modified.localeCompare(a.modified))[0];
   const lastSaveAt=lastSave||latestFile?.modified||null;
-  statusCache={state:server.State.Status,running,ready:rconReady,paused:running&&rconReady&&players.length===0&&settings.auto_pause,players,playtime,seed,version:version||server.Config.Image.split(':').at(-1),image:server.Config.Image,currentWorld,lastSaveAt,saveVerified:!!lastSave,cpu,memory,autosaveMinutes:settings.autosave_interval,autosaveSlots:settings.autosave_slots,autoPause:settings.auto_pause,connection:ctx.env.GAME_ADDRESS||'localhost:34197',name:settings.name,activeJob:ctx.active,schedule:ctx.schedule};statusAt=Date.now();return statusCache;
+  const installed=await installedRuntime(data,server).catch(error=>{if(error.code==='ENOENT')return null;throw error;}),softwareRecovery=await runtimeUpdates.pending();
+  statusCache={state:server.State.Status,running,ready:rconReady,paused:running&&rconReady&&players.length===0&&settings.auto_pause,players,playtime,seed,version:version||installed?.softwareVersion||(runtimeServer(server)?'Installing…':server.Config.Image.split(':').at(-1)),softwareRecovery:softwareRecovery?{required:true,backup:softwareRecovery.backup}:null,software:runtimeServer(server)?runtimeSoftware:{version:1,mode:'image'},image:server.Config.Image,currentWorld,lastSaveAt,saveVerified:!!lastSave,cpu,memory,autosaveMinutes:settings.autosave_interval,autosaveSlots:settings.autosave_slots,autoPause:settings.auto_pause,connection:ctx.env.GAME_ADDRESS||'localhost:34197',name:settings.name,activeJob:ctx.active,schedule:ctx.schedule};statusAt=Date.now();return statusCache;
 }
 async function handle(req,res,url){
   if(req.method==='GET'&&url.pathname==='/players'){const value=await status();return json(res,200,{available:value.ready,players:value.players.map(name=>({name})),message:value.ready?'':'Factorio is not ready. Start it before managing players.'});}
@@ -265,7 +274,7 @@ async function handle(req,res,url){
     assert(req.method==='POST'&&url.pathname==='/world-preview','Not found.',404);
     const body=await requestJSON(req),configuration=validateConfiguration(body.configuration),seed=Number(body.seed);
     assert(Number.isInteger(seed)&&seed>=1&&seed<=0xffffffff,'Choose a seed between 1 and 4294967295.');
-    const server=await info();return json(res,202,worldPreviews.request(owner,{configuration,seed,image:server.Image||server.Config.Image}));
+    const server=await info();return json(res,202,worldPreviews.request(owner,{configuration,seed,image:await runtimeIdentity(data,server)}));
   }
   if(req.method==='GET'&&url.pathname==='/world-options'){const copied=await readJSON(path.join(state,'world-options.json'),null);return json(res,200,{defaults:worldDefaults,copied,currentWorld:await activeSave(),image:(await info()).Config.Image});}
   if(req.method==='GET'&&url.pathname==='/worlds')return json(res,200,{worlds:await worlds()});
@@ -312,6 +321,7 @@ async function handle(req,res,url){
 async function pollSavedMap(){
   if(autoMapPolling)return;autoMapPolling=true;
   try{
+    if(await runtimeUpdates.pending())return;
     const event=completedSave(await logText()),snapshot=await snapshotMetadata.read();
     if(event.completed&&!event.saving){
       const item=event.completed,file=await existingFile(saves,item.source).catch(()=>null);
@@ -327,9 +337,11 @@ async function pollSavedMap(){
   }catch(error){console.error('Save-triggered map refresh:',redact(error.message));}
   finally{autoMapPolling=false;}
 }
-return {actions,status,handle,validateBackup,operationSources:[modLibrary.operationSource],
+return {actions,status,handle,validateBackup,maintenancePending:()=>runtimeUpdates.pending().then(Boolean,()=>true),protectedBackups:async()=>[(await runtimeUpdates.journal())?.backup].filter(Boolean),softwarePolicy:async()=>runtimeServer(await info())?runtimeSoftware:{version:1,mode:'image'},operationSources:[modLibrary.operationSource],
 backupVerified:result=>`Backup integrity verified: ${result.worlds} world saves and ${result.files} files. This checks archive contents, not a game-load restore.`,
-validateAction(body){
+async validateAction(body){
+    await runtimeUpdates.guard(body.action);
+    if(body.action==='software-update')assert(body.params?.confirm===true&&/^2\.\d{1,3}\.\d{1,4}$/.test(body.params.version),'Choose and confirm a Factorio release.');
     validateLibraryAction(body.action,body.params);
     if(body.action==='settings')validateServerSettings(body.params);
     if(body.action==='create'&&body.params?.configuration!==undefined)validateConfiguration(body.params.configuration);
@@ -343,7 +355,7 @@ validateAction(body){
     if(item.relative.endsWith('.tmp.zip'))continue;
     files.push({name:`${subdir}/${item.relative}`,data:await fs.readFile(await existingFile(data,`${subdir}/${item.relative}`))});
   }
-  files.push({name:'panel-manifest.json',data:Buffer.from(JSON.stringify({version:1,created:new Date().toISOString(),activeSave:await activeSave(),label}))});
+  files.push({name:'panel-manifest.json',data:Buffer.from(JSON.stringify({version:1,created:new Date().toISOString(),activeSave:await activeSave(),software:softwareIdentity(await installedRuntime(data,await info())),label}))});
   return files;
 },
 async init(){await cleanPreviewWorkers(state,{data,env:ctx.env,server:await info(),docker});
@@ -354,7 +366,7 @@ for(const job of ctx.jobs)if(['refresh-map','create','world-options'].includes(j
 }
 },
 async start(){ctx.every(()=>void worldPreviews.tick(),500);ctx.every(pollSavedMap,Number(ctx.env.MAP_SAVE_POLL_MS||2000));await pollSavedMap();},
-async beforeJob(job){if(!['stop','mod-library-recover'].includes(job?.action))await modLibrary.assertReady();if(worldPreviews.running)await stageMessage(job,'Waiting for the current map preview to finish…');await worldPreviews.waitIdle();},
+async beforeJob(job){await runtimeUpdates.guard(job.action);if(!['stop','mod-library-recover'].includes(job?.action))await modLibrary.assertReady();if(worldPreviews.running)await stageMessage(job,'Waiting for the current map preview to finish…');await worldPreviews.waitIdle();},
 async afterJob(job,params){if(job.action==='refresh-map'&&params.automatic){autoMap.finish(params.automatic,job.state==='succeeded',job.state==='failed'?job.message:null);await persistAutoMap().catch(error=>console.error('Map queue persistence failed:',redact(error.message)));}},
 waitIdle:()=>worldPreviews.waitIdle(),
 invalidate(){statusCache=null;statusAt=0;statusMetadata.clear();},

@@ -1,3 +1,47 @@
+<template id="software-updates"
+  ><section id="panel-updates" class="card">
+    <div class="card-body">
+      <h2>Factorio software</h2>
+      <p>Installed version: <strong data-part="software-version"></strong></p>
+      <p>
+        The selected version is stored with this server. Container replacements
+        and restarts keep that exact version.
+      </p>
+      <form id="software-update-form">
+        <label
+          >Factorio version<select
+            name="release"
+            required
+            aria-label="Factorio version"
+          >
+            <option value="">Checking releases…</option>
+          </select></label
+        >
+        <p data-part="software-status" role="status"></p>
+        <a
+          data-part="software-notes"
+          target="_blank"
+          rel="noopener noreferrer"
+          hidden
+          >Version changes</a
+        >
+        <p>
+          Players will disconnect while Factorio stops, creates a backup,
+          installs the verified release and checks startup. Clients and mods
+          must match. New versions can convert saves; recovery restores the
+          pre-update data and software together.
+        </p>
+        <button>Review software update</button>
+      </form>
+      <p data-part="software-recovery" class="warning" hidden></p>
+      <button id="software-recover" hidden>Recover software update</button>
+      <p class="hint">
+        Progress and recovery history appear under Operations. Panel and
+        controller updates are available from the fleet Updates page.
+      </p>
+    </div>
+  </section></template
+>
 <template id="updates-unsupported"
   ><section id="panel-updates" class="card">
     <div class="card-body">
@@ -175,28 +219,29 @@
           aria-label="Image source"
         ></select></label
       ><label
-        >Factorio version<input
-          name="version"
-          placeholder="2.0.x"
-          pattern="2\.0\.[0-9]+"
-          required /></label
-      ><label id="image-revision-field"
-        >Image revision<input
-          name="imageRevision"
-          type="number"
-          min="1"
-          max="9007199254740991"
-          step="1"
+        >Published Factorio version<select
+          name="release"
           required
-      /></label>
+          aria-label="Published Factorio version"
+        >
+          <option value="">Checking published images…</option>
+        </select></label
+      >
+      <input type="hidden" name="version" /><input
+        type="hidden"
+        name="imageRevision"
+      />
     </div>
+    <p id="game-release-status" class="hint" role="status"></p>
+    <a id="game-release-notes" target="_blank" rel="noopener noreferrer" hidden
+      >Selected version changes</a
+    >
     <p class="form-note" id="game-image-choice" role="status"></p>
     <button class="button">Review image change</button>
   </form>
   <p class="hint">
-    Keep the Factorio version unchanged to update the image revision. Lobby
-    Goblin tags use an image revision, starting at 1. The exact tag must be
-    published first. Saves, settings, mods and ports are preserved; players
-    disconnect during replacement.
+    Choose a published version and image revision from the catalogue. Upstream
+    releases without a compatible image cannot be selected. Saves, settings,
+    mods and ports are preserved; players disconnect during replacement.
   </p>
 </template>

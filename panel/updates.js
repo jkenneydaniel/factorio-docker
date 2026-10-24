@@ -54,7 +54,7 @@ export class ReleaseChecks{
         this.releases=releases.filter(r=>r&&typeof r==='object');this.etag=response.headers.get('etag');
       }
       const latest=selectRelease(this.releases,this.channel),available=!!latest&&compareVersions(latest.tag_name,this.current)>0;
-      this.result={...this.result,state:latest?available?'available':'current':'no-releases',available,latest:latest?{tag:latest.tag_name,published:latest.published_at,url:`https://github.com/${this.repository}/releases/tag/${encodeURIComponent(latest.tag_name)}`} :null,error:null};
+      this.result={...this.result,state:latest?available?'available':'current':'no-releases',available,latest:latest?{tag:latest.tag_name,published:latest.published_at,notes:typeof latest.body==='string'?latest.body.slice(0,16000):'',url:`https://github.com/${this.repository}/releases/tag/${encodeURIComponent(latest.tag_name)}`} :null,error:null};
     }catch(error){this.result={...this.result,state:'unavailable',available:false,latest:null,error:['Invalid release-check configuration.','Release repository is unavailable or not public.','GitHub rate limit or access restriction. Checks will retry later.','Release response exceeds the size limit.','Invalid release response.'].includes(error.message)?error.message:'Cannot reach GitHub. The server can keep running; release checks will retry later.'};}
     this.result.checkedAt=new Date(this.checked).toISOString();return this.result;
   }

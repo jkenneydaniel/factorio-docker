@@ -1,3 +1,4 @@
+import {softwareDelivery, publicSoftwareDelivery} from './software-delivery.js';
 import {assert, redact} from '../common.js';
 import crypto from 'node:crypto';
 import {
@@ -84,6 +85,7 @@ export function serviceOrder(definition) {
             'profile',
             'configuration',
             'secretRefs',
+            'software',
           ].includes(key),
         ) &&
         identifier(service.id) &&
@@ -114,6 +116,7 @@ export function serviceOrder(definition) {
           !Array.isArray(service.configuration)),
       'Invalid runtime profile configuration.',
     );
+    if (service.software !== undefined) softwareDelivery(service.software);
     services.set(service.id, service);
   }
   assert(
@@ -154,8 +157,12 @@ export function applicationMetadata(definition) {
         profile: _profile,
         configuration: _configuration,
         secretRefs: _secretRefs,
+        software,
         ...service
-      }) => service,
+      }) => ({
+        ...service,
+        ...(software ? {software: publicSoftwareDelivery(software)} : {}),
+      }),
     ),
   });
   if (isFrozenDefinition(definition)) metadataCache.set(definition, metadata);

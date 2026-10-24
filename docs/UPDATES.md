@@ -279,3 +279,46 @@ saved in the job record before removal. Cleanup verifies job/root/environment,
 labels, data binding and stopped state immediately before a non-forced delete.
 It never deletes Docker volumes or removes a running server. Unknown workers
 without sufficient ownership evidence are kept for manual inspection.
+
+## Fleet update discovery
+
+The fleet navigation includes **Updates**, with the installed panel release,
+release channel, GitHub release notes, manual refresh and host-update guidance.
+Release checks are enabled by default for the fleet web panel; setting
+`RELEASE_CHECKS=false` explicitly still disables them. Management installation
+continues to use the [local operator workflow](MANAGEMENT_UPDATES.md), which
+updates the panel, broker and controllers together. The browser cannot invoke that
+workflow or access its private records. Agent alignment remains under **Hosts**.
+
+Application discovery is read-only and cached for 15 minutes, including failures.
+Factorio's official latest-release API identifies stable/experimental releases.
+The Lobby Goblin registry supplies the published compatible image versions and
+revisions. The standalone Factorio update form selects from those images instead
+of accepting a typed version/revision; the existing review, backup and image
+validation workflow still controls installation. Upstream releases in an
+unsupported line (currently versions outside 2.0.x) are shown without presenting
+them as installable. A registry failure leaves no selectable installation target.
+
+For managed servers the fleet catalogue supports discovery and links to the
+server's existing controls, but game-image installation remains unsupported.
+Management updates do not upgrade game binaries.
+
+Rust's public Steam news API supplies recent official announcements, linked from
+the fleet Updates screen. News is not evidence of installed or available server
+builds. The Steam UpToDateCheck response for Rust did not supply a usable build
+identifier during verification. Rust build detection, branch selection and
+installation still require a separate SteamCMD-backed workflow: compare the
+installed `appmanifest_258550.acf` build ID with Steam's selected branch metadata,
+then review a backup, downtime, framework compatibility and build verification
+before changing the installation. Historical build pinning is not implied by a
+Steam news item or an arbitrary version number.
+
+Software delivery now has an explicit per-service declaration; see
+[software delivery policy](APPLICATION_DEFINITIONS.md#software-delivery-is-separate-from-image-admission).
+Image mode keeps the image-based Factorio workflow. Runtime mode discovers
+software releases independently of image tags and identifies updates as software
+changes. The initial version resolver preserves a checked installed receipt and
+never resolves latest again for an existing installation. New Factorio servers
+can explicitly choose the independent runtime image and use the software picker
+for verified upgrades and paired recovery. Existing bundled servers keep their
+image workflow. See [Factorio runtime software](FACTORIO_RUNTIME.md).

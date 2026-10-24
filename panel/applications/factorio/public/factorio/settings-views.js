@@ -68,6 +68,23 @@ export function createSettingsViews(getState, ui) {
       can,
     } = getState();
     if (!can('images.change')) return fragment();
+    if (status.software?.mode === 'runtime') {
+      const view = template('software-updates');
+      text(view, '[data-part=software-version]', status.version);
+      if (status.softwareRecovery?.required) {
+        part(view, '#software-update-form').hidden = true;
+        const warning = part(view, '[data-part=software-recovery]');
+        warning.hidden = false;
+        warning.textContent =
+          'A software change needs recovery. Recorded backup: ' +
+          (status.softwareRecovery.backup || 'no data change recorded') +
+          '.';
+        part(view, '#software-recover').hidden = false;
+      }
+      for (const button of view.querySelectorAll('button'))
+        button.disabled = !!status.activeJob;
+      return view;
+    }
     if (updateState?.supported === false) {
       const view = template('updates-unsupported');
       text(view, '[data-part=message]', updateState.message);

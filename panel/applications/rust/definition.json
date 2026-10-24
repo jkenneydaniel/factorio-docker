@@ -185,6 +185,16 @@
         "secrets": [
           "rconPassword"
         ]
+      },
+      "software": {
+        "version": 1,
+        "mode": "runtime",
+        "provider": "rust-steamcmd",
+        "initial": {
+          "channel": "public"
+        },
+        "storage": "application-volume",
+        "updates": "manual"
       }
     }
   ]

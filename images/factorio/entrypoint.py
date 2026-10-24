@@ -178,13 +178,22 @@ def ensure_ownership(paths, uid, gid):
 
 
 def main():
-    args, creation, paths = prepare(os.environ)
+    runtime = enabled(os.environ, "FACTORIO_RUNTIME") and not enabled(os.environ, "FACTORIO_RUNTIME_HELPER")
+    game = Path("/opt/factorio")
+    if runtime:
+        from runtime import boot
+        game, runtime_lock = boot(Path("/factorio"), os.getenv("FACTORIO_VERSION", "stable"))
+    args, creation, paths = prepare(os.environ, game=game)
     uid, gid = int(os.getenv("PUID", "845")), int(os.getenv("PGID", "845"))
     if uid <= 0 or gid <= 0:
         raise ValueError("PUID and PGID must be positive")
     if os.geteuid() == 0:
         # Change only mismatched ownership, never file contents or permissions.
-        ensure_ownership([Path("/factorio"), *paths.values()], uid, gid)
+        if runtime:
+            os.chown("/factorio", uid, gid)
+            ensure_ownership(paths.values(), uid, gid)
+        else:
+            ensure_ownership([Path("/factorio"), *paths.values()], uid, gid)
         os.setgroups([])
         os.setgid(gid)
         os.setuid(uid)

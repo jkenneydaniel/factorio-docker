@@ -24,6 +24,31 @@ const test = base.extend({
   },
 });
 const nav = (page) => page.getByRole('navigation', {name: /navigation/});
+for(const recovery of [false,true])test('Factorio runtime software '+(recovery?'recovery restores the paired backup':'selection reviews an explicit version') ,async({page},testInfo)=>{
+  let recoveryState=recovery;
+  await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),software:{mode:'runtime',provider:'factorio-headless'},softwareRecovery:recoveryState?{required:true,backup:'before-software-update.zip'}:null,image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});
+  await page.route('**/api/application-releases',route=>route.fulfill({json:{game:'factorio',software:{mode:'runtime'},stable:'2.0.78',choices:[{kind:'software',version:'2.0.78',channel:'stable',notesUrl:'https://wiki.factorio.com/Version_history/2.0.0#2.0.78'}]}}));
+  const submissions=[];await page.route('**/api/jobs',async route=>{if(route.request().method()!=='POST')return route.continue();submissions.push(route.request().postDataJSON());recoveryState=!recovery;await route.fulfill({status:202,json:{id:'synthetic-runtime-job',state:'queued'}});});
+  await factorio(page,'#settings/updates');
+  await expect(page.getByRole('heading',{name:'Factorio software',exact:true})).toBeVisible();
+  if(recovery){
+    await expect(page.getByRole('combobox',{name:'Factorio version',exact:true})).toBeHidden();
+    await page.getByRole('button',{name:'Recover software update',exact:true}).click();
+    await expect(page.getByRole('dialog')).toContainText('pre-update world, settings, mods and previous Factorio release');
+    await page.getByRole('dialog').getByRole('button',{name:'Restore previous release',exact:true}).click();
+  }else{
+    await expect(page.getByRole('combobox',{name:'Factorio version',exact:true})).toHaveValue('2.0.78');
+    await page.getByRole('button',{name:'Review software update',exact:true}).click();
+    await expect(page.getByRole('dialog')).toContainText('2.0.78');
+    await expect(page.getByRole('dialog')).toContainText('backup');
+    await page.getByRole('dialog').getByRole('button',{name:'Install software',exact:true}).click();
+  }
+  await expect.poll(()=>submissions.length).toBe(1);
+  expect(submissions[0]).toMatchObject({action:recovery?'software-recover':'software-update',params:{confirm:true,...(recovery?{}:{version:'2.0.78'})}});
+  if(recovery)await expect(page.getByRole('combobox',{name:'Factorio version',exact:true})).toBeVisible({timeout:10000});
+  else await expect(page.getByRole('button',{name:'Recover software update',exact:true})).toBeVisible({timeout:10000});
+  await page.screenshot({path:testInfo.outputPath('factorio-runtime.png'),fullPage:true});
+});
 test('Factorio preview dialogs belong to their capability activation and close after rendering', async ({
   page,
 }) => {
@@ -639,7 +664,10 @@ test('a third game contributes delegated tools through the shared shell and oper
   await nav(page).getByRole('link', {name: 'Arena', exact: true}).click();
   const before = Number(await page.locator('#arena-score').textContent());
   await page.getByRole('button', {name: 'Rotate arena', exact: true}).click();
-  await expect(page.locator('#arena-score')).toHaveText(String(before + 1));
+  // Completion can first be observed on the shell's next five-second poll.
+  await expect(page.locator('#arena-score')).toHaveText(String(before + 1), {
+    timeout: 15_000,
+  });
   await expect(
     nav(page).getByRole('link', {name: 'Arena', exact: true}),
   ).toHaveAttribute('aria-current', 'page');
@@ -842,8 +870,13 @@ test('fleet creation fields follow the selected game policy', async ({
   const form = page.locator('#create');
   await expect(page.locator('#create-submit')).toBeEnabled();
   await expect(form.locator('[name=memoryGiB]')).toHaveValue('2');
+  await expect(form.locator('[name=softwareMode]')).toHaveValue('image');
+  await form.locator('[name=softwareMode]').selectOption('runtime');
+  await expect(form.locator('[name=softwareMode]')).toHaveValue('runtime');
   await form.locator('[name=game]').selectOption('rust');
   await expect(form.locator('[name=memoryGiB]')).toHaveValue('12');
+  await expect(form.locator('[name=softwareMode]')).toBeDisabled();
+  await expect(form.locator('[name=softwareMode]')).toBeHidden();
   await expect(form.locator('[name=worldSize]')).toHaveValue('2000');
   await expect(form.locator('[name=worldSize]')).toHaveAttribute(
     'type',
@@ -1439,6 +1472,7 @@ test('administrators can review assigned-server permissions and audit access cha
 test('delegated Factorio mod and game-image tools are explicit and keep panel controls private', async ({
   page,
 }) => {
+  await page.route('**/api/application-releases', route => route.fulfill({json:{game:'factorio',stable:'2.0.77',stale:false,choices:[{kind:'image',version:'2.0.77',imageRevision:3,image:'ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.3',channel:'stable',notesUrl:'https://wiki.factorio.com/Version_history/2.0.0#2.0.77'}]}}));
   await page.route('**/api/session', (route) =>
     route.fulfill({
       json: {

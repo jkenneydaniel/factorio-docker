@@ -3,5 +3,6 @@
 !LICENSE
 !config.ini
 !entrypoint.py
+!runtime.py
 !docker-entrypoint.sh
 !rcon.py
