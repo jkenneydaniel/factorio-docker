@@ -4,7 +4,12 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
 import {startFleetWeb} from '../fleet/web.js';
+import {Accounts as FactorioAccounts} from '../applications/factorio/accounts.js';
+import {storage as factorioStorage} from '../applications/factorio/storage.js';
+import {planStorageMigration,applyStorageMigration} from '../core/storage/migrations.js';
+import {selectedStorage,closeStorage} from '../core/storage/selection.js';
 import {hashPassword} from '../auth.js';
 import {writeJSON,json,requestJSON} from '../common.js';
 
@@ -52,6 +57,33 @@ test('permission changes revoke existing sessions and refresh available tools af
  const renewed=await f.login('Assigned','member-fixture-password');
  assert.equal((await f.request(renewed,one+'/api/status')).status,404);
  assert.equal((await f.request(renewed,remote+'/api/status')).status,200);
+});
+
+for(const sqlite of [false,true])test(`fleet account deletion cleans package data with ${sqlite?'transactional':'legacy JSON'} storage`,async t=>{
+ const f=await fixture(t),accounts=new FactorioAccounts(f.auth);
+ t.after(()=>closeStorage(f.auth));
+ const configuration=JSON.parse(await fs.readFile(new URL('../world-defaults.json',import.meta.url),'utf8'));
+ for(const scope of [undefined,'a'.repeat(32)])await accounts.worldSetups('Assigned',{operation:'save-preset',revision:0,name:'Private fixture setup',configuration,image:'fixture:2.0.77'},scope);
+ const user=(await accounts.users()).Assigned,ids=[user.worldSetupId,...Object.values(user.serverWorldSetupIds)];
+ if(sqlite)await applyStorageMigration(await planStorageMigration(f.auth,'accounts',{groups:factorioStorage.groups}),{confirm:true,offline:true,groups:factorioStorage.groups});
+ const owner=await f.login('Owner','owner-fixture-password');
+ if(sqlite){
+  const sql=new DatabaseSync((await selectedStorage(f.auth)).file);
+  try{
+   sql.exec("CREATE TRIGGER prevent_package_delete BEFORE UPDATE ON documents WHEN new.namespace='factorio-world-setups' AND new.deleted=1 BEGIN SELECT RAISE(ABORT,'Injected package deletion failure'); END");
+   assert.ok((await f.request(owner,'/api/accounts',{username:'Assigned',operation:'delete',confirm:true})).status>=400);
+   assert.ok((await accounts.users()).Assigned,'A failed related delete must retain the account');
+   for(const id of ids)assert.equal((await selectedStorage(f.auth)).read('factorio-world-setups',id).exists,true);
+   sql.exec('DROP TRIGGER prevent_package_delete');
+  }finally{sql.close();}
+ }
+ assert.equal((await f.request(owner,'/api/accounts',{username:'Assigned',operation:'delete',confirm:true})).status,200);
+ assert.equal((await accounts.users()).Assigned,undefined);
+ for(const id of ids){
+  if(sqlite)assert.equal((await selectedStorage(f.auth)).read('factorio-world-setups',id).exists,false);
+  else await assert.rejects(fs.access(path.join(f.auth,'world-setups',id+'.json')),{code:'ENOENT'});
+ }
+ assert.equal((await f.request(owner,'/api/accounts',{username:'Viewer',operation:'delete',confirm:true})).status,200,'Accounts without saved setups also delete successfully');
 });
 
 test('backup download grants cannot reach Factorio world downloads through omitted or unknown kinds',async t=>{

@@ -86,6 +86,7 @@ export function validateApplicationModule(module) {
   const web = module.web;
   for (const key of [
     'accountExtensions',
+    'accountDeletionRecords',
     'deleteAccountData',
     'dispatch',
     'allowRoute',

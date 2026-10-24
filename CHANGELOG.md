@@ -13,6 +13,8 @@
   Keep existing administrator/read-only accounts and revoke changed sessions.
 - Match download authorization to Factorio's historical world-download default;
   backup-download permission cannot access worlds by omitting the download kind.
+- Preserve package-owned saved-setup cleanup during fleet account deletion,
+  including atomic account/related-record deletion on transactional storage.
 - Add bounded private audit history, correlated operation outcomes and recovery
   review. Retain interrupted work and refuse uncertain retries without replaying
   actions from history. Audit publication failures remain visible for review.

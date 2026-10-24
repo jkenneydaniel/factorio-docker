@@ -23,6 +23,18 @@ storage are excluded from operational checks.
    A Docker guard also refuses mutations outside activation while held. The
    regression uses the actual host controller and verifies zero Docker mutations
    before activation and only the management endpoint connection afterwards.
+3. **Fleet account cleanup (P2, automatic review).** The fleet adapter dropped
+   the storage snapshot needed by Factorio's account deletion hook. It now
+   forwards the snapshot and collects package-owned related-record deletions
+   before saving the account removal. HTTP tests cover accounts with and without
+   saved setups on JSON and SQLite; an injected related-delete failure proves
+   that transactional storage retains both the account and its setups.
+4. **Independent image/package checks (P2).** Hosted image CI found stale
+   Factorio imports, and executing the packaged tests exposed a historical Rust
+   transport path. Both now resolve the application-package layout. The full
+   backend runner includes the Factorio image checks. Packaged acceptance clears
+   the inherited Node test context and requires a real test-count result, so a
+   nested runner cannot silently skip its checks.
 
 The review also checked route/action authorization, trusted actor propagation,
 private helper mounts and cleanup, broker resource/credential scope, storage
@@ -31,9 +43,9 @@ served assets, historical updater formats and release-source allowlists.
 
 ## Local release checks
 
-- Backend: **546 tests, 545 passed, zero failed, one platform-specific skip**.
-  The unchanged root-ownership case has separate Linux coverage recorded in the
-  [foundation verification](runtime-definitions.md).
+- Backend: **552 tests, 551 passed, zero failed, one platform-specific skip**.
+  The root-ownership case also passed separately in the Linux candidate image.
+  Earlier isolated checks are recorded in the [foundation verification](runtime-definitions.md).
 - Browser: **134 desktop/mobile checks passed** using disposable loopback
   fixtures, with external requests blocked.
 - Static quality: lint, frontend formatting, shared contract types, four quality
@@ -48,10 +60,15 @@ served assets, historical updater formats and release-source allowlists.
   with a stopped management process, and lost outcome publication response.
   Both the newly created synthetic application and five retained synthetic
   application containers/world files were preserved.
-- The production candidate (only Factorio/Rust registered), image
+- The initial production candidate (only Factorio/Rust registered), image
   `sha256:d5c39c737957add6ad91e011b463bbe2733eafad88531bd2d9ad26d9e196479f`,
   passed runtime startup and release-ZIP/image matching. Fresh setup and safe
   rerun used temporary storage with no network, Docker socket or running game.
+- After the hosted feedback fixes, production image
+  `sha256:b75cc12f5400e8276955f3bbbbc4d4c3e4884f8c7b86dca7de3baa401d13b145`
+  passed ZIP/image matching and safe setup again. All **10 real scoped HTTP
+  permission/account tests** also passed inside this read-only Linux image,
+  using only loopback fixtures and temporary storage without a Docker socket.
 
 Hosted CI, signed commit/tag, image publication and release downloads are later
 evidence layers. Publishing a release does not update installed management

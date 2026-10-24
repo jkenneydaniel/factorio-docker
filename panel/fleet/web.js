@@ -10,7 +10,8 @@ export async function startFleetWeb({env=process.env,port=Number(env.PORT||8080)
  const auth=env.AUTH_DIR||'/web-state/auth',file=env.CONTROLLER_TOKEN_FILE||'/web-state/secrets/controller-token',token=(await fs.readFile(file,'utf8')).trim(),controller=env.CONTROLLER_URL||'http://fleet-controller:8091';
  const audit=new AuditLog(auth);
  const accounts=new Accounts(auth,{permissionCatalog:Object.assign({},...registeredApplications().map(permissionCatalogFor))}),sessions=new Map(),children=new Map();
- accounts.onDelete=async user=>{for(const module of registeredApplications())await module.web.deleteAccountData?.(accounts,user);};
+ accounts.deletionRecords=async(user,snapshot)=>(await Promise.all(registeredApplications().map(module=>module.web.accountDeletionRecords?.(accounts,user,snapshot)||[]))).flat();
+ accounts.onDelete=async(user,snapshot)=>{for(const module of registeredApplications())await module.web.deleteAccountData?.(accounts,user,snapshot);};
  async function read(route){const response=await fetch(controller+route,{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(5000)});assert(response.ok,'The host is unavailable.',502);return response.json();}
  async function accessResources(){
   const {hosts}=await read('/hosts'),resources=[];

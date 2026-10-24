@@ -12,8 +12,10 @@ export const web = {
     worldSetups: (username, body) =>
       Accounts.prototype.worldSetups.call(accounts, username, body, scope),
   }),
-  deleteAccountData: (accounts, user) =>
-    Accounts.prototype.onDelete.call(accounts, user),
+  accountDeletionRecords: (accounts, user, snapshot) =>
+    Accounts.prototype.deletionRecords.call(accounts, user, snapshot),
+  deleteAccountData: (accounts, user, snapshot) =>
+    Accounts.prototype.onDelete.call(accounts, user, snapshot),
   accountRoutes: ['/api/world-setups'],
   extensions: Object.fromEntries(
     ['worlds', 'map', 'setup', 'updates'].map((id) => [

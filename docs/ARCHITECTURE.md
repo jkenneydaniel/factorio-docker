@@ -158,6 +158,10 @@ exposure comes from `core/routes.js` in the web, fleet and remote gateway.
 Fleet accounts use the core account store and one transaction queue; modules
 provide optional account-data extensions and deletion hooks. Factorio drafts
 and presets keep their existing account/server scope and storage paths.
+Packages return related transactional deletions through
+`web.accountDeletionRecords(accounts, user, snapshot)` before the account commit,
+and clean legacy files through `web.deleteAccountData(accounts, user, snapshot)`
+after it. The fleet forwards the same storage snapshot through both hooks.
 
 The third-game fixture in `panel/test/fleet.test.js` provisions TCP ports and
 custom storage, publishes a snapshot and clones independent data through these
