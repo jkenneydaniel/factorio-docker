@@ -1469,6 +1469,7 @@ test('administrators can review assigned-server permissions and audit access cha
 test('delegated Factorio mod and game-image tools are explicit and keep panel controls private', async ({
   page,
 }) => {
+  await page.route('**/api/application-releases', route => route.fulfill({json:{game:'factorio',stable:'2.0.77',stale:false,choices:[{kind:'image',version:'2.0.77',imageRevision:3,image:'ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.3',channel:'stable',notesUrl:'https://wiki.factorio.com/Version_history/2.0.0#2.0.77'}]}}));
   await page.route('**/api/session', (route) =>
     route.fulfill({
       json: {
