@@ -18,7 +18,14 @@ export function createModDownloads(fetcher=fetch,{now=Date.now}={}){
       assert(response.ok,secret?'Factorio download failed. Check the connected account and its mod access.':'The mod source is unavailable. Try again later.',502);
       assert(Number(response.headers.get('content-length')||0)<=limit,'Mod download exceeds its size limit.',502);
       const chunks=[];let length=0;const reader=response.body.getReader();
-      try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.length;assert(length<=limit,'Mod download exceeds its size limit.',502);chunks.push(value);}}catch(error){if(secret)throw Error('Factorio download failed. Check the connected account and its mod access.');throw error;}finally{await reader.cancel().catch(()=>{});}
+      try{while(true){const {done,value}=await reader.read();if(done)break;length+=value.length;assert(length<=limit,'Mod download exceeds its size limit.',502);chunks.push(value);}}catch(error){
+        if(secret){
+          // Upstream stream errors may contain account tokens; drop the cause too.
+          // eslint-disable-next-line preserve-caught-error -- Credential redaction deliberately replaces the upstream error.
+          throw Error('Factorio download failed. Check the connected account and its mod access.');
+        }
+        throw error;
+      }finally{await reader.cancel().catch(()=>{});}
       return Buffer.concat(chunks);
     }throw Error('Too many mod download redirects.');
   }

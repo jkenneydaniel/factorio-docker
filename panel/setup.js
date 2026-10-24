@@ -1,8 +1,8 @@
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {setup} from './games/factorio/setup.js';
+import {setup} from './applications/factorio/setup.js';
 import {verifyUpdaterRuntime} from './image-readiness.js';
-export {setup} from './games/factorio/setup.js';
+export {setup} from './applications/factorio/setup.js';
 
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   try{

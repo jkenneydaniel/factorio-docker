@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "id": "rust",
+  "revision": 1,
+  "kind": "game",
+  "screens": [
+    {
+      "id": "overview",
+      "label": "Overview",
+      "permission": "server.view",
+      "component": "overview",
+      "actions": [
+        "start",
+        "restart",
+        "stop"
+      ],
+      "options": {
+        "fields": [
+          {
+            "key": "summary.players.online",
+            "label": "Players online",
+            "format": "integer",
+            "id": "player-count"
+          },
+          {
+            "key": "fps",
+            "label": "Server FPS",
+            "format": "integer",
+            "id": "fps"
+          },
+          {
+            "key": "memory",
+            "label": "Memory",
+            "format": "bytes",
+            "id": "memory"
+          },
+          {
+            "key": "cpu",
+            "label": "CPU",
+            "format": "percent",
+            "id": "cpu"
+          }
+        ]
+      }
+    },
+    {
+      "id": "players",
+      "label": "Players",
+      "permission": "server.view",
+      "component": "table",
+      "options": {
+        "source": "/players",
+        "heading": "Connected players",
+        "empty": "No players online.",
+        "fields": [
+          {
+            "key": "name",
+            "label": "Player"
+          },
+          {
+            "key": "id",
+            "label": "Steam ID"
+          },
+          {
+            "key": "ping",
+            "label": "Ping"
+          },
+          {
+            "key": "connectedSeconds",
+            "label": "Connected",
+            "format": "minutes"
+          }
+        ],
+        "collection": "players",
+        "refreshLabel": "Refresh players",
+        "availableKey": "available",
+        "messageKey": "message"
+      }
+    },
+    {
+      "id": "mods",
+      "label": "Mods",
+      "adminOnly": true,
+      "permission": "mods.manage",
+      "component": "extension",
+      "options": {
+        "provider": "rust.mods",
+        "version": 1
+      }
+    },
+    {
+      "id": "backups",
+      "label": "Backups",
+      "adminOnly": true,
+      "permission": "backups.read",
+      "component": "backups",
+      "options": {
+        "description": "Complete Rust identity archives, including world saves, player progress and blueprints."
+      }
+    },
+    {
+      "id": "logs",
+      "label": "Activity",
+      "adminOnly": true,
+      "permission": "logs.read",
+      "component": "logs",
+      "options": {
+        "source": "/logs",
+        "key": "logs",
+        "description": "Latest 300 lines. Credentials are filtered."
+      }
+    },
+    {
+      "id": "settings",
+      "label": "Settings",
+      "adminOnly": true,
+      "permission": "settings.read",
+      "component": "settings",
+      "options": {
+        "source": "/settings",
+        "action": "save-settings",
+        "valuesKey": "values",
+        "paramsKey": "values",
+        "revisionKey": "revision",
+        "requiresStopped": true,
+        "formId": "settings",
+        "submitLabel": "Save settings",
+        "description": "Stop Rust before saving. Changes apply at the next start. Unlisted settings are preserved.",
+        "fields": [
+          {
+            "key": "server.hostname",
+            "label": "Server name",
+            "type": "text",
+            "max": 120,
+            "default": "Rust server",
+            "required": true
+          },
+          {
+            "key": "server.description",
+            "label": "Description",
+            "type": "text",
+            "max": 500,
+            "default": ""
+          },
+          {
+            "key": "server.maxplayers",
+            "label": "Player limit",
+            "type": "number",
+            "min": 1,
+            "max": 1000,
+            "default": 50
+          },
+          {
+            "key": "server.saveinterval",
+            "label": "Autosave interval (seconds)",
+            "type": "number",
+            "min": 60,
+            "max": 3600,
+            "default": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "access",
+      "label": "Accounts",
+      "adminOnly": true,
+      "permission": "account.self",
+      "component": "accounts",
+      "options": {}
+    },
+    {
+      "id": "operations",
+      "label": "Operations",
+      "adminOnly": true,
+      "component": "operations"
+    }
+  ],
+  "confirmations": {
+    "stop": {
+      "title": "Stop Rust?",
+      "message": "Connected players will be disconnected. Rust will save before stopping."
+    },
+    "restart": {
+      "title": "Restart Rust?",
+      "message": "Connected players will be disconnected while Rust saves and restarts."
+    },
+    "backup": {
+      "title": "Back up Rust?",
+      "message": "Rust will save and briefly stop while its complete identity is copied, then resume if it was running. Players will be disconnected."
+    }
+  }
+}

@@ -1,0 +1,66 @@
+<h2>Mods &amp; plugins</h2>
+<p id="mods-note" class="notice">Loading mod support…</p>
+<div id="mod-library"></div>
+<details id="mod-tools">
+  <summary>Framework, uploads &amp; configuration</summary>
+  <div class="section-heading">
+    <h3 id="framework-current">Framework</h3>
+    <button id="refresh-mods">Refresh</button>
+  </div>
+  <form id="framework" class="inline">
+    <label
+      >Framework<select name="framework">
+        <option value="none">Vanilla (no framework)</option>
+        <option value="carbon">Carbon</option>
+        <option value="oxide">Oxide / uMod</option>
+      </select></label
+    ><button type="submit">Review installation</button
+    ><button type="button" id="recover-framework" hidden>
+      Recover framework
+    </button>
+  </form>
+  <p class="muted">
+    Framework changes need a stopped server. Existing worlds and plugin data are
+    kept. Rust stays stopped until you start it.
+  </p>
+  <h3>Plugins</h3>
+  <p>
+    Upload the original .cs file from an author you trust. Plugins run code on
+    your Rust server.
+  </p>
+  <form id="plugin-upload" class="inline">
+    <label
+      >C# plugin<input name="plugin" type="file" accept=".cs" required /></label
+    ><button type="submit">Install / update plugin</button>
+  </form>
+  <div id="plugins" class="rows"></div>
+  <h3>Plugin configuration</h3>
+  <form id="plugin-config" class="settings-form">
+    <label
+      >Configuration<select name="name" id="plugin-config-name">
+        <option value="">Choose a configuration</option>
+      </select></label
+    ><button id="load-plugin-config" type="button">Load configuration</button
+    ><label
+      >JSON settings<textarea
+        name="source"
+        rows="12"
+        spellcheck="false"
+        maxlength="524288"
+        required
+      ></textarea></label
+    ><button type="submit">Save configuration</button>
+  </form>
+</details>
+<template id="rust-plugin-row"
+  ><div class="row">
+    <div>
+      <strong data-plugin-name></strong><small data-plugin-state></small>
+    </div>
+    <div class="actions">
+      <button data-plugin-toggle data-plugin-operation></button
+      ><button data-plugin-operation="reload">Reload</button
+      ><button data-plugin-operation="remove">Remove</button>
+    </div>
+  </div></template
+>

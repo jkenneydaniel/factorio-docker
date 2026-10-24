@@ -1,0 +1,435 @@
+<template id="factorio-world-preview"
+  ><dialog id="preview-dialog" class="preview-dialog">
+    <button id="close-preview" class="button">Close preview</button
+    ><img id="preview-image" alt="Generated world terrain preview" /></dialog
+></template>
+<template id="world-actions"
+  ><a class="button primary" href="#worlds/create"
+    ><span data-icon="plus"></span> <span data-part="create-label"></span></a
+  ><a class="button" href="#worlds/import"
+    ><span data-icon="upload"></span> Import save</a
+  ></template
+>
+<template id="world-library">
+  <div class="setup-resume">
+    <span data-part="draft-name"></span
+    ><a class="button" href="#worlds/create">Resume world draft</a>
+  </div>
+  <section class="card world-current">
+    <div class="card-body">
+      <div class="eyebrow">ACTIVE WORLD</div>
+      <h2></h2>
+      <p class="hint">
+        Opening a world or its preview leaves the server unchanged. Switching
+        saves and backs up first; connected players will need to rejoin.
+      </p>
+    </div>
+  </section>
+  <div class="world-forms">
+    <details class="card">
+      <summary>Import an existing save</summary>
+      <div class="card-body">
+        <form id="upload-form">
+          <p class="form-note">
+            Add a Factorio save ZIP to the library. Importing does not replace
+            the running world.
+          </p>
+          <label
+            >World ZIP<input
+              class="file-input"
+              name="world"
+              type="file"
+              accept=".zip"
+              required
+          /></label>
+          <p class="form-note">
+            Maximum 128 MB. Match the installed game version and enabled mods.
+          </p>
+          <button class="button">Import to library</button>
+        </form>
+      </div>
+    </details>
+  </div>
+  <div class="tag-tabs" aria-label="Filter worlds">
+    <button data-world-filter="all">All worlds</button
+    ><button data-world-filter="active">Active world</button
+    ><button data-world-filter="library">Library</button
+    ><button data-world-filter="autosaves">Autosaves</button>
+  </div>
+  <label class="world-search"
+    >Find a world<input
+      type="search"
+      id="world-search"
+      placeholder="Search by name"
+  /></label>
+  <section class="card">
+    <div class="card-header">
+      <h2>World library</h2>
+      <span class="hint" data-part="count"></span>
+    </div>
+    <div id="world-results"></div>
+  </section>
+</template>
+<template id="world-table"
+  ><div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>World</th>
+          <th>Updated</th>
+          <th>Size</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table></div
+></template>
+<template id="world-row"
+  ><tr>
+    <td>
+      <div class="world-name-cell">
+        <span data-part="image"></span>
+        <div><span class="name"></span><span class="secondary"></span></div>
+      </div>
+    </td>
+    <td data-part="modified"></td>
+    <td data-part="size"></td>
+    <td>
+      <div class="row-actions">
+        <a class="button small" data-part="download">Download</a
+        ><button class="button small" data-preview>Preview</button
+        ><button class="button small" data-load-world>Switch to world</button>
+      </div>
+    </td>
+  </tr></template
+>
+<template id="world-thumbnail"
+  ><img class="world-thumbnail" loading="lazy"
+/></template>
+<template id="world-created"
+  ><section class="card creation-complete">
+    <span data-icon="circle-check"></span>
+    <h1></h1>
+    <p class="section-spacer"></p>
+    <img class="completed-preview" />
+    <div class="button-group">
+      <a class="button primary" href="#worlds"
+        >Open world library <span data-icon="arrow-right"></span></a
+      ><a class="button" href="#worlds/create">Create another</a>
+    </div>
+  </section></template
+>
+<template id="world-editor">
+  <form id="create-form" novalidate>
+    <div class="creation-heading">
+      <h1>Create a world</h1>
+      <ol class="creation-stepper" aria-label="World creation progress">
+        <li>
+          <button type="button" data-world-step="1">
+            <span class="step-number">1</span>Play style
+          </button>
+        </li>
+        <li>
+          <button type="button" data-world-step="2">
+            <span class="step-number">2</span>Customize
+          </button>
+        </li>
+        <li>
+          <button type="button" data-world-step="3">
+            <span class="step-number">3</span>Review
+          </button>
+        </li>
+      </ol>
+    </div>
+    <div class="world-build-layout">
+      <aside class="world-draft-preview" aria-label="World map preview">
+        <div class="draft-preview-picture">
+          <img
+            id="draft-preview-image"
+            alt="Map preview for your new world settings"
+            role="button"
+            tabindex="0"
+            aria-label="Expand map preview"
+            hidden
+          />
+          <p id="draft-preview-empty">
+            Your map preview will appear here. It uses the installed Factorio
+            generator.
+          </p>
+        </div>
+        <div class="preview-controls">
+          <div class="world-preview-heading">
+            <h3>Map preview</h3>
+            <button
+              type="button"
+              class="button small"
+              id="refresh-draft-preview"
+            >
+              Refresh now
+            </button>
+          </div>
+          <label
+            >Seed<span class="world-seed-choice"
+              ><input
+                name="seed"
+                aria-label="Seed"
+                type="number"
+                min="1"
+                max="4294967295"
+                step="1"
+                placeholder="Random seed"
+              /><button type="button" class="button small" id="roll-world-seed">
+                New seed
+              </button></span
+            ></label
+          >
+          <div class="preview-auto">
+            <label class="check-label"
+              ><input type="checkbox" id="auto-draft-preview" checked />Update
+              as I change settings</label
+            >
+          </div>
+          <p id="draft-preview-state" class="hint" role="status">
+            Preparing your preview…
+          </p>
+          <p class="hint">
+            Terrain, resources and enemy bases. Gameplay rules may not change
+            the image.
+          </p>
+        </div>
+      </aside>
+      <div class="world-inspector">
+        <div class="draft-tools">
+          <div class="draft-status-row">
+            <span id="draft-save-state" class="hint" role="status"></span
+            ><button type="button" class="button small" id="save-draft-now">
+              Save now
+            </button>
+          </div>
+          <details>
+            <summary>Saved presets &amp; draft options</summary>
+            <p class="hint">
+              Reuse a play style. Presets leave your world name and seed as they
+              are.
+            </p>
+            <label>Saved preset<select id="saved-world-preset"></select></label>
+            <div class="button-group">
+              <button type="button" class="button small" id="load-world-preset">
+                Use preset</button
+              ><button
+                type="button"
+                class="button small danger"
+                id="delete-world-preset"
+              >
+                Remove preset
+              </button>
+            </div>
+            <label
+              >Save current settings as a preset<input
+                id="world-preset-name"
+                maxlength="60"
+                placeholder="Room for a railway" /></label
+            ><button type="button" class="button small" id="save-world-preset">
+              <span data-icon="save"></span> Save preset
+            </button>
+            <div class="button-group section-spacer">
+              <button
+                type="button"
+                class="button small"
+                id="export-world-draft"
+              >
+                Download draft copy</button
+              ><button
+                type="button"
+                class="button small danger"
+                id="discard-world-draft"
+              >
+                Start fresh
+              </button>
+            </div>
+            <p id="preset-result" class="hint" role="status"></p>
+          </details>
+          <p class="warning" data-part="image-changed">
+            The installed game image changed since this draft was saved. Review
+            all settings and refresh the preview before creating.
+          </p>
+        </div>
+        <label
+          >World name<input
+            name="name"
+            required
+            maxlength="80"
+            placeholder="Copper Coast"
+          /><span class="hint"
+            >Name your next factory. Letters, numbers, spaces and dashes.</span
+          ></label
+        >
+        <div data-stage="1">
+          <h2>A good place to begin.</h2>
+          <p class="form-note">
+            Choose your starting settings. You can fine-tune everything next.
+          </p>
+          <div data-part="styles"></div>
+          <button type="button" id="copy-world-settings" class="button">
+            <span data-icon="copy"></span> <span data-part="copy-label"></span>
+          </button>
+          <p class="hint" id="world-base-note"></p>
+          <p class="world-achievement-note">
+            Peaceful mode and some enemy changes affect achievements. Review the
+            exact settings before creating.
+          </p>
+        </div>
+        <div data-stage="2">
+          <h2>Make it yours.</h2>
+          <p class="form-note">Fine-tune the world to match your play style.</p>
+          <div id="world-editor-settings"></div>
+        </div>
+        <div data-stage="3" class="world-review">
+          <h2>Your next factory awaits.</h2>
+          <p class="form-note">Review your choices before generation.</p>
+          <div id="world-review"></div>
+          <p class="world-achievement-note">
+            No Lua commands run on the fresh world. Peaceful mode, reduced
+            enemies and other choices can make some achievements unavailable.
+          </p>
+          <label class="check-label"
+            ><input name="preview" type="checkbox" />Keep a preview in the world
+            library</label
+          ><label class="check-label"
+            ><input name="activate" type="checkbox" />Switch to this world when
+            it’s ready</label
+          >
+          <p class="hint">
+            Creating a library world keeps the current server world running.
+            Switching saves and backs up first, then disconnects players.
+          </p>
+        </div>
+      </div>
+    </div>
+    <p id="world-form-error" class="error creation-error" role="alert"></p>
+    <footer class="creation-footer">
+      <p id="creation-impact"></p>
+      <div class="button-group">
+        <a href="#worlds" class="button ghost">Back to worlds</a
+        ><button type="button" class="button" id="world-back">Back</button
+        ><button type="button" class="button primary" id="world-next">
+          <span data-part="next-label"></span>
+          <span data-icon="arrow-right"></span></button
+        ><button type="submit" class="button primary" id="world-create">
+          Create world <span data-icon="arrow-right"></span>
+        </button>
+      </div>
+    </footer>
+  </form>
+</template>
+<template id="world-impact-library"
+  ><span class="dot"></span>Current server world stays online<br />Generate into
+  your library, then choose when to switch.</template
+>
+<template id="world-impact-switch"
+  >Players disconnect after generation.<br />A verified backup is created before
+  switching.</template
+>
+<template id="playstyle"
+  ><label class="playstyle-option"
+    ><input type="radio" name="base" /><span
+      ><span data-part="name"></span><small></small></span></label
+></template>
+<template id="world-settings">
+  <div
+    class="world-editor-tabs"
+    role="tablist"
+    aria-label="World settings"
+  ></div>
+  <div data-part="panels"></div>
+  <details class="world-section" data-part="gameplay">
+    <summary>Gameplay &amp; pollution</summary>
+    <div data-part="fields"></div>
+  </details>
+  <details class="world-section">
+    <summary>Advanced settings</summary>
+    <p class="form-note">
+      Edit the complete terrain and gameplay configuration. Apply changes to
+      update the controls above. The separate Seed field takes precedence.
+    </p>
+    <label
+      >Full world settings (JSON)<textarea
+        id="world-settings-json"
+        class="settings-json"
+        spellcheck="false"
+      ></textarea></label
+    ><button type="button" class="button" id="apply-world-json">
+      Apply advanced settings
+    </button>
+    <p id="world-json-result" class="hint" role="status"></p>
+  </details>
+</template>
+<template id="world-tab"
+  ><button type="button" role="tab">
+    <span data-part="icon"></span> <span data-part="name"></span></button
+></template>
+<template id="world-settings-panel"
+  ><section class="world-section settings-panel" role="tabpanel">
+    <div class="card-body">
+      <h3></h3>
+      <p class="hint"></p>
+    </div>
+    <div data-part="fields"></div></section
+></template>
+<template id="world-settings-group"
+  ><div class="world-settings-grid"></div
+></template>
+<template id="resource-grid"
+  ><div class="resource-grid">
+    <div class="resource-head">
+      <span>Resource</span><span>Frequency %</span><span>Size %</span
+      ><span>Richness %</span>
+    </div>
+    <div data-part="resources"></div>
+    <details>
+      <summary>More resources · Uranium &amp; oil</summary>
+      <div data-part="more"></div>
+    </details></div
+></template>
+<template id="resource-row"
+  ><div class="resource-row"><span class="resource-name"></span></div
+></template>
+<template id="world-boolean-field"
+  ><label class="check-label"
+    ><input type="checkbox" data-world-setting /><span></span></label
+></template>
+<template id="world-custom-field"><p class="form-note"></p></template>
+<template id="world-setting-field"
+  ><label
+    ><span data-part="label"></span><input type="number" required /><span
+      class="hint"
+    ></span></label
+></template>
+<template id="world-slider-field"
+  ><div class="world-slider-field">
+    <div class="world-slider-heading"><label></label><output></output></div>
+    <input type="range" /><input type="number" required /><span
+      class="hint"
+    ></span></div
+></template>
+<template id="world-review-content"
+  ><div class="detail-row">
+    <span>Name</span><strong data-part="name"></strong>
+  </div>
+  <div class="detail-row">
+    <span>Seed</span><strong data-part="seed"></strong>
+  </div>
+  <div class="detail-row">
+    <span>Starting settings</span><strong data-part="baseline"></strong>
+  </div>
+  <h3 class="section-spacer"></h3>
+  <ul></ul>
+  <p class="hint" data-part="defaults">
+    The installed game supplies any omitted low-level defaults.
+  </p>
+  <p class="hint">
+    Your complete configuration, including advanced settings, is included.
+    Return to Customize to inspect the full JSON.
+  </p></template
+>
+<template id="world-review-change"><li></li></template>

@@ -10,7 +10,7 @@ export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 export const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
 export async function readJSON(file, fallback) {
   try { return JSON.parse(await fs.readFile(file, 'utf8')); }
-  catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }
+  catch (error) { if (error.code === 'ENOENT') return fallback; if (error instanceof SyntaxError) throw new HttpError(503,'Stored JSON is invalid. Preserve it for review.'); throw error; }
 }
 export async function writeJSON(file, data) {
   await fs.mkdir(path.dirname(file), {recursive:true});

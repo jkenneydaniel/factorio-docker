@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {LivePlayers,PLAYER_QUERY,parsePlayers} from '../live-players.js';
+import {LivePlayers,PLAYER_QUERY,parsePlayers} from '../applications/factorio/live-players.js';
 
 const scope={running:true,world:'Factory.zip',seed:123};
 const response=players=>'PANEL_LIVE_PLAYERS:'+JSON.stringify({players,seed:123,tick:100});

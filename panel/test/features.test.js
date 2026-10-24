@@ -1,8 +1,9 @@
+import {validateBackup} from '../applications/factorio/backup.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {makeZip} from '../zip.js';
-import {validateBackup,summarizeBackups} from '../backup-health.js';
-import {validateMap} from '../map-export.js';
+import {makeZip} from '../core/archive.js';
+import {summarizeBackups} from '../core/backup-health.js';
+import {validateMap} from '../applications/factorio/map-export.js';
 
 test('backup checks validate nested world data and required settings',()=>{
   const world=makeZip([{name:'Factory/level.dat0',data:Buffer.from('world data')}]);

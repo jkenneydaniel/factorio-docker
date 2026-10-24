@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "id": "arena",
+  "name": "Arena",
+  "revision": 1,
+  "kind": "game",
+  "primary": "server",
+  "services": [
+    {
+      "id": "server",
+      "role": "game",
+      "profile": "managed-game-v1",
+      "required": true,
+      "dependsOn": [],
+      "configuration": {
+        "version": 1,
+        "imagePolicy": {
+          "version": 1,
+          "defaultImage": "registry.example/arena:1-r1",
+          "referencePattern": "^registry\\.example/arena:(?<engine>1)-r(?<revision>[1-9]\\d*)$",
+          "architecture": "amd64",
+          "labels": {
+            "game": "arena"
+          },
+          "captureLabels": {
+            "revision": "revision"
+          }
+        },
+        "catalog": {
+          "version": "fixture",
+          "cpu": 1,
+          "memoryGiB": 2,
+          "creation": {
+            "minMemoryGiB": 1,
+            "maxMemoryGiB": 8,
+            "maxPlayers": 32,
+            "defaultPlayers": 8,
+            "fields": [
+              {
+                "key": "tickRate",
+                "label": "Tick rate",
+                "min": 10,
+                "max": 100,
+                "step": 10,
+                "default": 20
+              }
+            ]
+          },
+          "snapshotHelp": "Copy the saved arena."
+        },
+        "storage": {
+          "dataTarget": "/arena",
+          "backupDirectory": "arena-backups"
+        },
+        "ports": [
+          {
+            "key": "gamePort",
+            "containerPort": 7777,
+            "protocol": "tcp",
+            "offset": 0
+          }
+        ],
+        "helpers": {
+          "archiveReadPaths": [],
+          "execCommands": []
+        },
+        "environment": {
+          "server": {
+            "ARENA_TICK_RATE": [
+              {
+                "field": "tickRate"
+              }
+            ]
+          },
+          "controller": {
+            "ARENA_CONTAINER": [
+              {
+                "field": "container"
+              }
+            ],
+            "ARENA_DATA": [
+              {
+                "literal": "/instance/data"
+              }
+            ],
+            "ARENA_LIVE_RUNTIME": [
+              {
+                "literal": "true"
+              }
+            ],
+            "ARENA_PORT": [
+              {
+                "literal": "7777"
+              }
+            ]
+          }
+        },
+        "snapshots": {
+          "includesPlayerData": false
+        },
+        "secrets": []
+      }
+    }
+  ]
+}

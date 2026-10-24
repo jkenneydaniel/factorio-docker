@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {makeZip} from '../zip.js';
+import {makeZip} from '../core/archive.js';
 import {sha256,unpackRelease} from '../update-source.js';
 import {ReleaseChecks} from '../updates.js';
 import {legacySlug,imageLabel} from '../branding.js';
-import {validateGameImage} from '../update-worker.js';
+import {validateGameImage} from '../applications/factorio/update-worker.js';
 
 test('historical release bundles and configured repository upgrade without renaming installation state',async()=>{
   const version='0.2.7-alpha',name=legacySlug+'-'+version;

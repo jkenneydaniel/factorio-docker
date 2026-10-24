@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {setup} from '../setup.js';
-import {Accounts} from '../accounts.js';
-import {makeZip} from '../zip.js';
+import {Accounts} from '../applications/factorio/accounts.js';
+import {makeZip} from '../core/archive.js';
 
 const options={log:()=>{},url:'http://factory.example:8080'};
 async function fixture(t){const root=await fs.mkdtemp(path.join(os.tmpdir(),'factory-setup-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));return root;}

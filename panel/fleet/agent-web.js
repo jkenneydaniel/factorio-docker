@@ -1,3 +1,4 @@
+import {managementMaintenance} from '../core/management-maintenance.js';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import http2 from 'node:http2';
@@ -24,19 +25,23 @@ export function remoteGateway({env,controller,token}){
    const authorization=await fetch(controller+'/remote/v1/authorize',{headers:{authorization:'Bearer '+token,'x-host-token':bearer.slice(7)},redirect:'error',signal:AbortSignal.timeout(5000)});await authorization.body?.cancel();assert(authorization.ok,'This panel is not paired or its access was revoked.',authorization.status===401?401:502);
   }
   const body=req.method==='POST'?await readBody(req,route.endsWith('/upload')?128*1024**2:1024**2):undefined;
-  await proxyResponse(req,res,controller+url.pathname+url.search,{headers:{authorization:'Bearer '+token,'x-host-token':pair?'':bearer.slice(7),'content-type':req.headers['content-type']||'application/json','x-panel-user':req.headers['x-panel-user']||'administrator'},body,download:route.endsWith('/download'),timeout:route.endsWith('/mod-library')||route.endsWith('/mod-library-plan')?150000:30000});return true;
+  await proxyResponse(req,res,controller+url.pathname+url.search,{headers:{authorization:'Bearer '+token,'x-host-token':pair?'':bearer.slice(7),'content-type':req.headers['content-type']||'application/json','x-panel-user':req.headers['x-panel-user']||'administrator','x-panel-update-kind':req.headers['x-panel-update-kind']==='game'?'game':'any'},body,download:route.endsWith('/download'),timeout:route.endsWith('/mod-library')||route.endsWith('/mod-library-plan')?150000:30000});return true;
  };
 }
 
 export async function startHostAgentWeb({env=process.env,port=Number(env.PORT||8080),hostname='0.0.0.0'}={}){
  const origin=panelOrigin(env.PANEL_ORIGIN);assert(origin?.startsWith('https://'),'The host agent requires its HTTPS origin.');
  const token=(await fs.readFile(env.CONTROLLER_TOKEN_FILE||'/web-state/secrets/controller-token','utf8')).trim();
+ const maintenance=await managementMaintenance(env.FLEET_WEB_ROOT||'/web-state',env,{readOnly:true});
  const gateway=remoteGateway({env,token,controller:env.CONTROLLER_URL||'http://fleet-controller:8091'});
  const persistent=env.AGENT_TRANSPORT==='persistent',identity=persistent?await readAgentIdentity(env.FLEET_WEB_ROOT||'/web-state'):null;
  const handler=(req,res)=>void(async()=>{
   if(persistent)req.setTimeout(180000,()=>req.destroy());
   res.setHeader('x-content-type-options','nosniff');res.setHeader('cache-control','no-store');if(!persistent)res.setHeader('strict-transport-security','max-age=31536000');
+  await maintenance.refresh();
   if(req.method==='GET'&&req.url==='/health')return json(res,200,{ok:true});
+  if(await maintenance.handle(req,res,new URL(req.url,'http://management'),{token}))return;
+  maintenance.assertAvailable();
   req.headers.host??=req.headers[':authority'];checkOrigin(req,[new URL(origin).hostname],origin);const url=new URL(req.url,origin);
   assert(await gateway(req,res,url),'This is a Lobby Goblin game host agent. Open your main panel to manage it.',404);
  })().catch(error=>{if(res.destroyed||res.writableEnded)return;if(!res.headersSent)json(res,error.status||502,{error:error.status?error.message:'The host agent is unavailable.'});else res.destroy();});

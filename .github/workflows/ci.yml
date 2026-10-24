@@ -5,6 +5,43 @@ on:
 permissions:
   contents: read
 jobs:
+  static-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked runtime and quality dependencies
+        run: |
+          npm ci --prefix panel --ignore-scripts --no-audit --no-fund
+          npm ci --prefix panel/quality --ignore-scripts --no-audit --no-fund
+      - name: Check source lint, frontend formatting, shared contracts and served imports
+        run: npm run quality --prefix panel
+  browser-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install locked runtime and browser test dependencies
+        run: |
+          npm ci --prefix panel --ignore-scripts --no-audit --no-fund
+          npm ci --prefix panel/test/browser --ignore-scripts --no-audit --no-fund
+      - name: Install Chromium
+        working-directory: panel/test/browser
+        run: npx playwright install --with-deps chromium
+      - name: Exercise desktop and mobile flows with isolated loopback fixtures
+        run: npm run test:browser --prefix panel
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: browser-regression-failures
+          path: output/playwright/
+          retention-days: 14
   host-setup:
     strategy:
       matrix:
@@ -18,6 +55,7 @@ jobs:
       - name: Exercise host launchers with simulated Docker (no containers)
         run: node --test panel/test/host-setup.test.js panel/test/installation.test.js
   verify:
+    needs: static-quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +71,7 @@ jobs:
       - name: Validate default deployment
         run: docker compose --env-file .env.example config --quiet
       - name: Build alpha image
-        run: docker build -t ghcr.io/jkenneydaniel/lobby-goblin:0.3.6-alpha panel
+        run: docker build -t ghcr.io/jkenneydaniel/lobby-goblin:0.3.7-alpha panel
       - name: Verify updater registry TLS and a build inside its restricted container
         run: |
           docker run --rm --user 0:0 --read-only --cap-drop ALL \
@@ -42,7 +80,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
             --mount "type=bind,source=$PWD/panel,target=/source,readonly" \
-            --entrypoint /bin/sh ghcr.io/jkenneydaniel/lobby-goblin:0.3.6-alpha -ec '
+            --entrypoint /bin/sh ghcr.io/jkenneydaniel/lobby-goblin:0.3.7-alpha -ec '
               export DOCKER_HOST=unix:///var/run/docker.sock DOCKER_CONFIG=/tmp/lobby-goblin-docker
               docker manifest inspect docker:29.9.0-cli >/dev/null
               docker build --pull --progress=plain --tag local/lobby-goblin:updater-smoke /source
@@ -55,7 +93,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount "type=bind,source=$PWD/dist,target=/release,readonly" \
             --mount "type=bind,source=$PWD/panel/test/installer-image-smoke.js,target=/installer-image-smoke.mjs,readonly" \
-            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.6-alpha /installer-image-smoke.mjs
+            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.7-alpha /installer-image-smoke.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: alpha-source

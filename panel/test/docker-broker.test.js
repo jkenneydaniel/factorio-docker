@@ -1,0 +1,1288 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import {fileURLToPath} from 'node:url';
+import {sourceFile} from '../source-layout.js';
+import crypto from 'node:crypto';
+import {startController} from '../core/controller.js';
+import {noManagedUpdater} from '../core/managed-updater.js';
+import {fixtureContract} from './fixtures.js';
+import {startDockerBroker} from '../core/docker-broker.js';
+import {brokerClient, dockerTransport} from '../core/broker-client.js';
+import {resources, labels} from '../core/instance.js';
+import {registeredApplications} from '../applications/index.js';
+import {planBrokerUpgrade} from '../fleet/broker-upgrade.js';
+import {brokerCompose} from '../fleet/broker-compose.js';
+import {hostAgentCompose} from '../fleet/host-compose.js';
+import {FleetManager} from '../fleet/manager.js';
+import {runWorker} from '../fleet/worker.js';
+import {waitForIdleJob, settingsTar} from './fixtures.js';
+import {engineMapSettings} from '../applications/factorio/engine-settings.js';
+import {AgentUpdater} from '../fleet/agent-update.js';
+import {agentOptionsFor} from '../agent-options.js';
+import {writeJSON, readJSON, HttpError} from '../common.js';
+
+const unix = process.platform === 'win32' ? test.skip : test;
+const fleet = 'a'.repeat(32),
+  one = 'b'.repeat(32),
+  two = 'c'.repeat(32),
+  runtime = 'sha256:' + 'd'.repeat(64),
+  gameImageId = 'sha256:' + 'e'.repeat(64);
+const project = 'lobby-goblin-fleet-' + fleet,
+  modules = registeredApplications();
+function engine() {
+  const calls = [],
+    containers = new Map(),
+    volumes = new Map(),
+    networks = new Map(),
+    execs = new Map();
+  let serial = 0,
+    capacity = 32 * 1024 ** 3;
+  const find = (values, ref) =>
+    [...values.values()].find(
+      (value) =>
+        value.Id === ref || value.Name === ref || value.Name === '/' + ref,
+    );
+  const missing = () => {
+    throw new HttpError(404, 'Synthetic resource missing');
+  };
+  for (const suffix of ['state', 'library', 'web', 'broker-transport'])
+    volumes.set(project + '-' + suffix, {
+      Name: project + '-' + suffix,
+      Driver: 'local',
+      Options: null,
+      Labels: {'io.lobby-goblin.fleet': fleet},
+    });
+  containers.set('host', {
+    Id: 'host-id',
+    Name: '/lobby-goblin-host-' + fleet,
+    Image: runtime,
+    Config: {
+      Labels: {
+        'io.lobby-goblin.fleet': fleet,
+        'io.lobby-goblin.role': 'host-controller',
+      },
+    },
+    State: {Running: true},
+  });
+  async function docker(method, route, data) {
+    calls.push({method, route, data: structuredClone(data)});
+    const url = new URL(route, 'http://synthetic'),
+      bits = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    if (method === 'GET' && url.pathname === '/info')
+      return {
+        OSType: 'linux',
+        Architecture: 'amd64',
+        ServerVersion: '29.0.0',
+        MemTotal: capacity,
+        Secret: 'host-private',
+      };
+    if (bits[0] === 'images') {
+      const reference = bits[1],
+        module = modules.find((value) =>
+          reference.includes(value.id + '-server'),
+        );
+      return {
+        Id: gameImageId,
+        Architecture: 'amd64',
+        Os: 'linux',
+        RepoDigests: [
+          (module?.managed.catalog.image || reference).split(':')[0] +
+            '@sha256:' +
+            'f'.repeat(64),
+        ],
+        Config: {
+          Labels: {
+            'io.lobby-goblin.compatibility': '1',
+            'io.lobby-goblin.game': module?.id,
+            'factorio.version': '2.0.77',
+            'io.lobby-goblin.image-revision': module?.id === 'rust' ? '2' : '3',
+          },
+        },
+      };
+    }
+    if (url.pathname === '/containers/json') {
+      const filters = JSON.parse(url.searchParams.get('filters') || '{}');
+      return [...containers.values()]
+        .filter((value) =>
+          (filters.label || []).every((label) => {
+            const at = label.indexOf('=');
+            return (
+              value.Config.Labels?.[label.slice(0, at)] === label.slice(at + 1)
+            );
+          }),
+        )
+        .map((value) => ({
+          Id: value.Id,
+          Names: [value.Name],
+          Labels: value.Config.Labels,
+          State: value.State.Running ? 'running' : 'exited',
+          Ports: [],
+        }));
+    }
+    if (url.pathname === '/volumes/create') {
+      if (!volumes.has(data.Name))
+        volumes.set(data.Name, {
+          ...structuredClone(data),
+          Driver: 'local',
+          Options: null,
+        });
+      return volumes.get(data.Name);
+    }
+    if (bits[0] === 'volumes')
+      return structuredClone(volumes.get(bits[1]) || missing());
+    if (url.pathname === '/networks/create') {
+      const value = {
+        ...structuredClone(data),
+        Id: 'network-' + ++serial,
+        Containers: {},
+      };
+      networks.set(value.Name, value);
+      return {Id: value.Id};
+    }
+    if (bits[0] === 'networks') {
+      const value = find(networks, bits[1]) || missing();
+      if (method === 'GET') return structuredClone(value);
+      if (bits[2] === 'connect') value.Containers[data.Container] = {};
+      if (bits[2] === 'disconnect') delete value.Containers[data.Container];
+      if (method === 'DELETE') networks.delete(value.Name);
+      return null;
+    }
+    if (url.pathname === '/containers/create') {
+      if (containers.has(url.searchParams.get('name')))
+        throw new HttpError(409, 'Synthetic container name already exists');
+      const name = url.searchParams.get('name'),
+        spec = structuredClone(data),
+        value = {
+          Id: 'immutable-' + ++serial,
+          Name: '/' + name,
+          Image: data.Image === runtime ? runtime : gameImageId,
+          Config: {
+            Image: data.Image,
+            Labels: spec.Labels || {},
+            Env: spec.Env || [],
+          },
+          HostConfig: spec.HostConfig,
+          Mounts: spec.HostConfig.Mounts.map((mount) => ({
+            Type: mount.Type,
+            Name: mount.Source,
+            Destination: mount.Target,
+          })),
+          State: {Running: false, Status: 'created', ExitCode: 0},
+          NetworkSettings: {
+            Networks: spec.NetworkingConfig?.EndpointsConfig || {},
+          },
+        };
+      containers.set(name, value);
+      return {Id: value.Id};
+    }
+    if (bits[0] === 'containers') {
+      const value = find(containers, bits[1]) || missing();
+      if (method === 'GET')
+        return bits[2] === 'archive'
+          ? settingsTar({pollution: {enabled: true}})
+          : structuredClone(value);
+      if (bits[2] === 'start') {
+        value.State.Running = true;
+        value.State.Status = 'running';
+      }
+      if (bits[2] === 'stop') {
+        value.State.Running = false;
+        value.State.Status = 'exited';
+      }
+      if (bits[2] === 'wait') return {StatusCode: 0};
+      if (bits[2] === 'exec') {
+        const id = 'exec-' + ++serial;
+        execs.set(id, {ContainerID: value.Id, ExitCode: 0});
+        return {Id: id};
+      }
+      if (method === 'DELETE') containers.delete(value.Name.slice(1));
+      return null;
+    }
+    if (bits[0] === 'exec') {
+      const value = execs.get(bits[1]) || missing();
+      return bits[2] === 'start' ? Buffer.from('synthetic rcon output') : value;
+    }
+    throw Error('Unexpected synthetic Docker route: ' + route);
+  }
+  function seed(id, game = 'factorio') {
+    const module = modules.find((value) => value.id === game),
+      item = {
+        ...resources(fleet, id, game),
+        id,
+        game,
+        image: module.managed.catalog.image,
+      };
+    const info = {
+      Id: 'game-' + id,
+      Name: '/' + item.container,
+      Image: gameImageId,
+      Config: {Image: item.image, Labels: labels(fleet, id, game)},
+      HostConfig: {
+        NetworkMode: item.network,
+        Mounts: [
+          {
+            Type: 'volume',
+            Source: item.volume,
+            Target: module.managed.dataTarget,
+            VolumeOptions: {Subpath: 'data'},
+          },
+        ],
+      },
+      Mounts: [
+        {
+          Type: 'volume',
+          Name: item.volume,
+          Destination: module.managed.dataTarget,
+        },
+      ],
+      State: {Running: true, Status: 'running', ExitCode: 0},
+    };
+    volumes.set(item.volume, {
+      Name: item.volume,
+      Driver: 'local',
+      Options: null,
+      Labels: labels(fleet, id, game),
+    });
+    containers.set(item.container, info);
+    return item;
+  }
+  return {
+    docker,
+    calls,
+    containers,
+    volumes,
+    networks,
+    seed,
+    setCapacity: (value) => {
+      capacity = value;
+    },
+  };
+}
+async function fixture(t) {
+  const directory = await fs.realpath(
+      await fs.mkdtemp(
+        path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'lgb-'),
+      ),
+    ),
+    root = path.join(directory, 'private'),
+    transport = path.join(directory, 'transport'),
+    fake = engine();
+  t.after(() => fs.rm(directory, {recursive: true, force: true}));
+  let broker = await startDockerBroker({
+    env: {FLEET_ID: fleet},
+    root,
+    transport,
+    docker: fake.docker,
+    runtimeImage: runtime,
+  });
+  t.after(async () => {
+    broker.server.closeAllConnections();
+    await new Promise((resolve) => broker.server.close(resolve));
+  });
+  const host = brokerClient({
+    socketPath: broker.socketPath,
+    tokenFile: path.join(transport, 'host/token'),
+  });
+  async function instance(id, game = 'factorio') {
+    await host.grant({id, game});
+    return brokerClient({
+      socketPath: broker.socketPath,
+      tokenFile: path.join(transport, 'instances', id, 'token'),
+    });
+  }
+  return {
+    ...fake,
+    directory,
+    root,
+    transport,
+    host,
+    instance,
+    get broker() {
+      return broker;
+    },
+    async restart() {
+      broker.server.closeAllConnections();
+      await new Promise((resolve) => broker.server.close(resolve));
+      broker = await startDockerBroker({
+        env: {FLEET_ID: fleet},
+        root,
+        transport,
+        docker: fake.docker,
+        runtimeImage: runtime,
+      });
+    },
+  };
+}
+const denied = (error) => [401, 403, 409].includes(error.status);
+
+unix(
+  'real Unix broker authenticates before bodies, scopes credentials, persists revocations and never falls back',
+  async (t) => {
+    const f = await fixture(t),
+      first = f.seed(one),
+      second = f.seed(two),
+      client = await f.instance(one),
+      other = await f.instance(two);
+    assert.equal(
+      (await client.docker('GET', '/containers/' + first.container + '/json'))
+        .Id,
+      'game-' + one,
+    );
+    assert.deepEqual(await client.docker('GET', '/info'), {
+      OSType: 'linux',
+      Architecture: 'amd64',
+      ServerVersion: '29.0.0',
+    });
+    const before = f.calls.filter((call) => call.method !== 'GET').length;
+    for (const [method, route, body] of [
+      ['POST', '/containers/' + second.container + '/stop'],
+      ['POST', '/volumes/create', {Name: 'host-data'}],
+      [
+        'POST',
+        '/containers/' + first.container + '/exec',
+        {Cmd: ['sh'], Privileged: true},
+      ],
+    ])
+      await assert.rejects(client.docker(method, route, body), denied);
+    await assert.rejects(client.grant({id: two, game: 'factorio'}), denied);
+    assert.equal(
+      f.calls.filter((call) => call.method !== 'GET').length,
+      before,
+    );
+    await client.docker('POST', '/containers/' + first.container + '/stop');
+    assert.equal(f.calls.at(-1).route, '/containers/game-' + one + '/stop');
+    assert.equal(f.containers.get(second.container).State.Running, true);
+    await f.host.revoke(one);
+    await f.restart();
+    await assert.rejects(
+      client.docker('GET', '/containers/' + first.container + '/json'),
+      denied,
+    );
+    assert.equal(
+      (await other.docker('GET', '/containers/' + second.container + '/json'))
+        .Id,
+      'game-' + two,
+    );
+    await assert.rejects(f.host.grant({id: one, game: 'factorio'}), denied);
+    const response = await new Promise((resolve, reject) => {
+      const request = http.request(
+        {
+          socketPath: f.broker.socketPath,
+          path: '/v1/docker',
+          method: 'POST',
+          headers: {
+            'content-length': '1048576',
+            authorization: 'Bearer ' + 'x'.repeat(43),
+          },
+        },
+        (result) => {
+          result.resume();
+          result.once('end', () => resolve(result.statusCode));
+        },
+      );
+      request.on('error', reject);
+      request.end();
+    });
+    assert.equal(response, 401);
+    let fallback = 0;
+    const unavailable = dockerTransport(
+      {
+        DOCKER_BROKER_SOCKET: path.join(f.directory, 'missing.sock'),
+        DOCKER_BROKER_TOKEN_FILE: path.join(f.transport, 'host/token'),
+      },
+      () => {
+        fallback++;
+      },
+    );
+    await assert.rejects(unavailable.docker('GET', '/info'));
+    assert.equal(fallback, 0);
+    assert.throws(() =>
+      dockerTransport({DOCKER_BROKER_SOCKET: '/missing'}, () => {}),
+    );
+  },
+);
+
+unix(
+  'old data-root helpers allow inspection and teardown, while new helpers require private state scratch',
+  async (t) => {
+    const f = await fixture(t), item = f.seed(one), client = await f.instance(one), id = crypto.randomUUID(), name = 'factorio-panel-preview-' + id;
+    const spec = {Image: gameImageId, HostConfig: {NetworkMode: 'none', Memory: 1024 ** 3, Mounts: [{Type: 'volume', Source: item.volume, Target: '/factorio', VolumeOptions: {Subpath: 'data/.panel-work/preview-' + id, NoCopy: true}}]}};
+    const writes = () => f.calls.filter(call => call.method !== 'GET').length, before = writes();
+    await assert.rejects(client.docker('POST', '/containers/create?name=' + name, spec), denied);
+    assert.equal(writes(), before);
+    const current = structuredClone(spec); current.HostConfig.Mounts[0].VolumeOptions.Subpath = 'state/.panel-work/preview-' + id;
+    const created = await client.docker('POST', '/containers/create?name=' + name, current);
+    const old = f.containers.get(name); delete old.Config.Labels['io.lobby-goblin.worker-kind']; old.HostConfig.Mounts[0].VolumeOptions.Subpath = spec.HostConfig.Mounts[0].VolumeOptions.Subpath;
+    assert.equal((await client.docker('GET', '/containers/' + created.Id + '/json')).Id, created.Id);
+    for (const operation of ['start', 'restart', 'exec']) await assert.rejects(client.docker('POST', '/containers/' + created.Id + '/' + operation, operation === 'exec' ? {Cmd: ['rcon', '/version']} : undefined), denied);
+    await client.docker('POST', '/containers/' + created.Id + '/stop');
+    await client.docker('DELETE', '/containers/' + created.Id);
+    assert.equal(f.containers.has(name), false);
+  },
+);
+
+unix(
+  'compromised instance cannot create host mounts, exec storage helpers or exhaust preview workers',
+  async (t) => {
+    const f = await fixture(t),
+      item = f.seed(one),
+      client = await f.instance(one),
+      id = crypto.randomUUID(),
+      name = 'factorio-panel-preview-' + id;
+    const spec = {
+      Image: gameImageId,
+      HostConfig: {
+        NetworkMode: 'none',
+        Memory: 1024 ** 3,
+        Mounts: [
+          {
+            Type: 'volume',
+            Source: item.volume,
+            Target: '/factorio',
+            VolumeOptions: {
+              Subpath: 'state/.panel-work/preview-' + id,
+              NoCopy: true,
+            },
+          },
+        ],
+      },
+    };
+    for (const change of [
+      {Binds: ['/var/run/docker.sock:/socket']},
+      {PidMode: 'host'},
+      {Devices: [{}]},
+      {Privileged: true},
+    ])
+      await assert.rejects(
+        client.docker('POST', '/containers/create?name=' + name, {
+          ...spec,
+          HostConfig: {...spec.HostConfig, ...change},
+        }),
+        denied,
+      );
+    await assert.rejects(
+      client.docker('POST', '/containers/create?name=' + name, {
+        ...spec,
+        HostConfig: {
+          ...spec.HostConfig,
+          Mounts: [
+            {
+              Type: 'volume',
+              Source: project + '-broker-transport',
+              Target: '/factorio',
+              VolumeOptions: {Subpath: 'host'},
+            },
+          ],
+        },
+      }),
+      denied,
+    );
+    assert.deepEqual(
+      await engineMapSettings(item.container, item.image, {
+        docker: client.docker,
+      }),
+      {pollution: {enabled: true}},
+    );
+    await assert.rejects(
+      client.docker(
+        'GET',
+        '/containers/' + item.container + '/archive?path=%2Fproc%2F1%2Froot',
+      ),
+      denied,
+    );
+    await assert.rejects(
+      client.docker('POST', '/exec/foreign-command/start', {
+        Detach: false,
+        Tty: false,
+      }),
+      denied,
+    );
+    const created = await client.docker(
+      'POST',
+      '/containers/create?name=' + name,
+      spec,
+    );
+    const exec = await client.docker(
+      'POST',
+      '/containers/' + created.Id + '/exec',
+      {Cmd: ['rcon', '/version'], AttachStdout: true, AttachStderr: true},
+    );
+    assert.equal(
+      (
+        await client.docker(
+          'POST',
+          '/exec/' + exec.Id + '/start',
+          {Detach: false, Tty: false},
+          {raw: true},
+        )
+      ).toString(),
+      'synthetic rcon output',
+    );
+    await client.docker(
+      'POST',
+      '/containers/create?name=factorio-panel-job-' + crypto.randomUUID(),
+      spec,
+    );
+    await assert.rejects(
+      client.docker(
+        'POST',
+        '/containers/create?name=factorio-panel-map-' + crypto.randomUUID(),
+        spec,
+      ),
+      (error) => error.status === 429,
+    );
+    const storage = {
+      Id: 'storage-helper',
+      Name: '/lobby-goblin-worker-' + 'f'.repeat(32),
+      Image: runtime,
+      Config: {
+        Labels: {
+          ...labels(fleet, one, 'factorio'),
+          'io.lobby-goblin.worker': 'true',
+        },
+      },
+      HostConfig: {
+        Mounts: [{Type: 'volume', Source: item.volume, Target: '/instance'}],
+      },
+      State: {Running: true},
+    };
+    f.containers.set(storage.Name.slice(1), storage);
+    await assert.rejects(
+      client.docker('POST', '/containers/storage-helper/exec', {Cmd: ['sh']}),
+      denied,
+    );
+    assert.ok(
+      !f.calls.some(
+        (call) =>
+          call.method === 'POST' &&
+          call.route === '/containers/storage-helper/exec',
+      ),
+    );
+  },
+);
+
+unix(
+  'host capability cannot mount the daemon, create privileged runtimes, exec management or adopt foreign resources',
+  async (t) => {
+    const f = await fixture(t),
+      item = f.seed(one),
+      h = f.host;
+    assert.equal((await h.docker('GET', '/info')).Secret, undefined);
+    for (const [method, route, data] of [
+      [
+        'POST',
+        '/containers/create?name=escape',
+        {Image: runtime, HostConfig: {Privileged: true, Binds: ['/:/host']}},
+      ],
+      [
+        'POST',
+        '/containers/lobby-goblin-host-' + fleet + '/exec',
+        {Cmd: ['sh']},
+      ],
+      ['DELETE', '/containers/lobby-goblin-host-' + fleet],
+      ['POST', '/images/create?fromImage=attacker/image&platform=linux/amd64'],
+      [
+        'POST',
+        '/volumes/create',
+        {
+          Name: item.volume,
+          Labels: labels(fleet, one, 'factorio'),
+          DriverOpts: {device: '/'},
+        },
+      ],
+      ['DELETE', '/volumes/' + item.volume],
+    ])
+      await assert.rejects(h.docker(method, route, data), denied);
+    f.volumes.set(item.volume, {
+      Name: item.volume,
+      Labels: labels('9'.repeat(32), one, 'factorio'),
+    });
+    await assert.rejects(
+      h.docker('POST', '/volumes/create', {
+        Name: item.volume,
+        Labels: labels(fleet, one, 'factorio'),
+      }),
+      denied,
+    );
+    f.volumes.set(item.volume, {
+      Name: item.volume,
+      Driver: 'local',
+      Options: {type: 'none', o: 'bind', device: '/'},
+      Labels: labels(fleet, one, 'factorio'),
+    });
+    await assert.rejects(
+      h.docker('POST', '/volumes/create', {
+        Name: item.volume,
+        Labels: labels(fleet, one, 'factorio'),
+      }),
+      denied,
+    );
+    assert.equal(f.calls.filter((call) => call.method !== 'GET').length, 0);
+  },
+);
+
+unix(
+  'broker audit survives restart, excludes credentials and fails before a Docker mutation when storage fails',
+  async (t) => {
+    const f = await fixture(t),
+      item = f.seed(one),
+      client = await f.instance(one),
+      token = await fs.readFile(
+        path.join(f.transport, 'instances', one, 'token'),
+        'utf8',
+      );
+    const write = fs.writeFile;
+    t.mock.method(fs, 'writeFile', async (file, ...args) => {
+      if (String(file).startsWith(path.join(f.root, 'audit.json.')))
+        throw Error('Synthetic full disk');
+      return write(file, ...args);
+    });
+    await assert.rejects(
+      client.docker('POST', '/containers/' + item.container + '/stop'),
+      (error) => error.status === 503,
+    );
+    assert.equal(f.containers.get(item.container).State.Running, true);
+    t.mock.restoreAll();
+    await client.docker('POST', '/containers/' + item.container + '/stop');
+    await f.restart();
+    const history = await f.broker.audit.list();
+    assert.ok(
+      history.events.some(
+        (event) =>
+          event.actor === 'instance:' + one && event.outcome === 'succeeded',
+      ),
+    );
+    assert.ok(!JSON.stringify(history).includes(token));
+    assert.ok(
+      !(
+        await fs.readFile(path.join(f.root, 'capabilities.json'), 'utf8')
+      ).includes(token),
+    );
+  },
+);
+
+test('fresh Compose definitions give only the broker a daemon socket and isolate credential subdirectories', async () => {
+  const template = await fs.readFile(
+    await sourceFile(
+      fileURLToPath(new URL('../../', import.meta.url)),
+      'fleet.compose.yaml',
+    ),
+    'utf8',
+  );
+  const managerTemplate = template.slice(
+    template.indexOf('  fleet-controller:'),
+    template.indexOf('  fleet-web:'),
+  );
+  assert.equal(
+    (
+      template.match(/- \/var\/run\/docker\.sock:\/var\/run\/docker\.sock/g) ||
+      []
+    ).length,
+    1,
+  );
+  assert.ok(!managerTemplate.includes('/var/run/docker.sock'));
+  assert.ok(
+    managerTemplate.includes('subpath: socket') &&
+      managerTemplate.includes('subpath: host'),
+  );
+  const config = brokerCompose('official-runtime', fleet),
+    options = agentOptionsFor(
+      {domain: 'host.example.test', address: 'host.example.test', memory: 16},
+      '0.3.6-alpha',
+    ),
+    compose = hostAgentCompose(options, fleet);
+  assert.equal(config.service.network_mode, 'none');
+  assert.equal(config.service.ports, undefined);
+  assert.equal(
+    compose.services['fleet-controller'].environment.DOCKER_BROKER_SOCKET,
+    '/broker/socket/docker.sock',
+  );
+  for (const [name, service] of Object.entries(compose.services))
+    assert.equal(
+      service.volumes?.some(
+        (value) =>
+          typeof value === 'string' && value.includes('/var/run/docker.sock'),
+      ) || false,
+      name === 'docker-broker',
+    );
+  assert.deepEqual(
+    config.mounts.map((value) => [value.read_only, value.volume.subpath]),
+    [
+      [true, 'socket'],
+      [true, 'host'],
+    ],
+  );
+});
+
+unix(
+  'a configured broker refuses an existing legacy registry before controller adoption',
+  async (t) => {
+    const f = await fixture(t),
+      root = path.join(f.directory, 'manager');
+    await fs.mkdir(root);
+    await writeJSON(path.join(root, 'registry.json'), {
+      version: 1,
+      jobs: [],
+      snapshots: [],
+      servers: [
+        {
+          id: one,
+          game: 'factorio',
+          state: 'installed',
+          container: 'legacy-game',
+        },
+      ],
+    });
+    const manager = new FleetManager({
+      docker: f.host.docker,
+      broker: f.host,
+      brokerVolume: project + '-broker-transport',
+      root,
+      library: path.join(f.directory, 'library'),
+      fleet,
+      stateVolume: project + '-state',
+      libraryVolume: project + '-library',
+      image: runtime,
+      hostContainer: 'lobby-goblin-host-' + fleet,
+    });
+    await assert.rejects(manager.init(), /reviewed broker upgrade/);
+    assert.equal(f.calls.length, 0);
+    assert.equal(
+      (await readJSON(path.join(root, 'registry.json'))).servers[0].container,
+      'legacy-game',
+    );
+    const updater = new AgentUpdater(manager, {enabled: true});
+    assert.equal((await updater.status()).supported, false);
+    await assert.rejects(
+      updater.plan({version: '0.3.7-alpha'}),
+      /reviewed operator update/,
+    );
+  },
+);
+
+unix(
+  'real manager provisioning crosses the broker without mounting Docker into games or controllers',
+  async (t) => {
+    const f = await fixture(t),
+      root = path.join(f.directory, 'manager'),
+      library = path.join(f.directory, 'library'),
+      instances = new Map();
+    const manager = new FleetManager({
+      docker: f.host.docker,
+      broker: f.host,
+      brokerVolume: project + '-broker-transport',
+      root,
+      library,
+      fleet,
+      stateVolume: project + '-state',
+      libraryVolume: project + '-library',
+      image: runtime,
+      hostContainer: 'lobby-goblin-host-' + fleet,
+      memoryBudgetGiB: 24,
+    });
+    await manager.init();
+    // Model a worker's private volume mounts while using the real storage adapter.
+    // Its Docker create/start/wait/delete requests still cross the real broker.
+    const write = async (item, config) => {
+      const directory = path.join(f.directory, item.id);
+      await fs.mkdir(directory);
+      instances.set(item.id, directory);
+      return runWorker(
+        {...config, fleet, id: item.id, game: item.game},
+        {instance: directory, library},
+      );
+    };
+    const originalHelper = manager.helper.bind(manager);
+    manager.helper = async (item, config, options) => {
+      const result = await originalHelper(item, config, options);
+      await write(item, config);
+      return result;
+    };
+    manager.request = async (item, route) => {
+      assert.equal(route, '/jobs');
+      await manager.ownedContainer(item.controller, item.id);
+      return {id: 'synthetic-start', state: 'running'};
+    };
+    for (const game of ['factorio', 'rust']) {
+      const submitted = await manager.submit('create', {
+        game,
+        name: 'Broker ' + game,
+      });
+      const completed = await waitForIdleJob(
+        async () => ({jobs: manager.state.jobs, active: manager.active}),
+        submitted.id,
+        {
+          attempts: 1000,
+          pause: () => new Promise((resolve) => setTimeout(resolve, 5)),
+        },
+      );
+      assert.equal(completed.state, 'succeeded', completed.message);
+      const item = manager.server(completed.result.serverId),
+        info = f.containers.get(item.controller),
+        gameInfo = f.containers.get(item.container);
+      const controllerSpec = f.calls.find(
+        (call) =>
+          call.method === 'POST' &&
+          call.route.startsWith('/containers/create?') &&
+          new URL(call.route, 'http://docker').searchParams.get('name') ===
+            item.controller,
+      ).data;
+      // Operator metadata maintenance must never become a panel helper grant.
+      const maintenanceWorker = structuredClone(
+        f.calls.find(
+          (call) =>
+            call.method === 'POST' &&
+            call.route.startsWith('/containers/create?') &&
+            call.data?.Labels?.['io.lobby-goblin.instance'] === item.id &&
+            call.data?.Labels?.['io.lobby-goblin.worker'] === 'true',
+        ).data,
+      );
+      const maintenanceRequest = '8'.repeat(32),
+        beforeMaintenance = f.calls.filter(
+          (call) => call.method === 'POST',
+        ).length;
+      maintenanceWorker.Entrypoint = [
+        'node',
+        '/app/fleet/management-storage-worker.js',
+      ];
+      maintenanceWorker.HostConfig.Mounts[0].VolumeOptions.Subpath =
+        'requests/' + maintenanceRequest;
+      await assert.rejects(
+        f.host.docker(
+          'POST',
+          '/containers/create?name=lobby-goblin-worker-' + maintenanceRequest,
+          maintenanceWorker,
+        ),
+        denied,
+      );
+      assert.equal(
+        f.calls.filter((call) => call.method === 'POST').length,
+        beforeMaintenance,
+      );
+      const mutations = [
+        (spec) => {
+          spec.HostConfig.Privileged = true;
+        },
+        (spec) => {
+          spec.HostConfig.Mounts[2].VolumeOptions.Subpath = 'host';
+        },
+        (spec) => {
+          spec.HostConfig.Mounts[2].Source = project + '-broker-state';
+        },
+        (spec) => {
+          spec.Entrypoint = ['sh', '-c'];
+        },
+        (spec) => {
+          spec.Env.push('NODE_OPTIONS=--require=/instance/data/evil.js');
+        },
+      ];
+      for (const mutate of mutations) {
+        const attack = structuredClone(controllerSpec),
+          before = f.calls.filter((call) => call.method === 'POST').length;
+        mutate(attack);
+        await assert.rejects(
+          f.host.docker(
+            'POST',
+            '/containers/create?name=' + item.controller,
+            attack,
+          ),
+          denied,
+        );
+        assert.equal(
+          f.calls.filter((call) => call.method === 'POST').length,
+          before,
+        );
+      }
+      assert.equal(item.isolationVersion, 1);
+      assert.ok(
+        info.Config.Env.includes(
+          'DOCKER_BROKER_SOCKET=/broker/socket/docker.sock',
+        ),
+      );
+      assert.ok(
+        info.HostConfig.Mounts.every((mount) => mount.Type === 'volume'),
+      );
+      assert.deepEqual(
+        info.HostConfig.Mounts.slice(1).map((mount) => [
+          mount.ReadOnly,
+          mount.VolumeOptions.Subpath,
+        ]),
+        [
+          [true, 'socket'],
+          [true, 'instances/' + item.id],
+        ],
+      );
+      assert.ok(
+        gameInfo.HostConfig.Mounts.every(
+          (mount) => mount.Source === item.volume,
+        ),
+      );
+      assert.deepEqual(gameInfo.HostConfig.CapDrop, ['ALL']);
+      assert.equal(gameInfo.HostConfig.PidsLimit, 1024);
+      assert.equal(
+        await fs.readFile(
+          path.join(instances.get(item.id), 'control/controller-token'),
+          'utf8',
+        ),
+        item.controllerToken,
+      );
+      const client = brokerClient({
+        socketPath: f.broker.socketPath,
+        tokenFile: path.join(f.transport, 'instances', item.id, 'token'),
+      });
+      await client.docker(
+        'POST',
+        '/containers/' +
+          item.container +
+          '/stop?t=' +
+          (game === 'rust' ? '-1' : '120'),
+      );
+      assert.equal(gameInfo.State.Running, false);
+    }
+    assert.equal(manager.state.servers.length, 2);
+    assert.equal((await f.host.docker('GET', '/info')).OSType, 'linux');
+    const first = manager.state.servers[0],
+      client = brokerClient({
+        socketPath: f.broker.socketPath,
+        tokenFile: path.join(f.transport, 'instances', first.id, 'token'),
+      });
+    const removal = await manager.submit('remove', {
+      serverId: first.id,
+      name: first.name,
+      confirm: true,
+    });
+    const removed = await waitForIdleJob(
+      async () => ({jobs: manager.state.jobs, active: manager.active}),
+      removal.id,
+    );
+    assert.equal(removed.state, 'succeeded', removed.message);
+    assert.ok(f.volumes.has(first.volume));
+    assert.ok(
+      !f.calls.some(
+        (call) =>
+          call.method === 'DELETE' && call.route.startsWith('/volumes/'),
+      ),
+    );
+    await assert.rejects(
+      client.docker('GET', '/containers/' + first.container + '/json'),
+      (error) => error.status === 401,
+    );
+    assert.equal(manager.state.servers[1].state, 'installed');
+  },
+);
+
+unix(
+  'concurrent instance creates cannot overrun the broker host memory allowance',
+  async (t) => {
+    const f = await fixture(t);
+    f.seed(one);
+    f.seed(two);
+    const a = await f.instance(one),
+      b = await f.instance(two);
+    f.setCapacity(3 * 1024 ** 3);
+    const spec = (id) => ({
+      Image: gameImageId,
+      HostConfig: {
+        NetworkMode: 'none',
+        Memory: 1024 ** 3,
+        Mounts: [
+          {
+            Type: 'volume',
+            Source: resources(fleet, id, 'factorio').volume,
+            Target: '/factorio',
+            VolumeOptions: {
+              Subpath: 'state/.panel-work/job-' + crypto.randomUUID(),
+              NoCopy: true,
+            },
+          },
+        ],
+      },
+    });
+    const results = await Promise.allSettled([
+      a.docker(
+        'POST',
+        '/containers/create?name=factorio-panel-job-' + crypto.randomUUID(),
+        spec(one),
+      ),
+      b.docker(
+        'POST',
+        '/containers/create?name=factorio-panel-job-' + crypto.randomUUID(),
+        spec(two),
+      ),
+    ]);
+    assert.equal(
+      results.filter((result) => result.status === 'fulfilled').length,
+      1,
+    );
+    assert.equal(
+      results.find((result) => result.status === 'rejected').reason.status,
+      409,
+    );
+    assert.equal(
+      [...f.containers.values()].filter(
+        (value) =>
+          value.Config.Labels['io.lobby-goblin.worker-kind'] === 'game-preview',
+      ).length,
+      1,
+    );
+  },
+);
+
+unix(
+  'a real instance controller uses the broker without a second incompatible Docker wrapper',
+  async (t) => {
+    const f = await fixture(t),
+      item = f.seed(one);
+    await f.instance(one);
+    const state = path.join(f.directory, 'controller'),
+      tokenFile = path.join(f.directory, 'controller-token');
+    await fs.writeFile(tokenFile, 'synthetic-controller-token');
+    const module = {
+      ...modules.find((value) => value.id === 'factorio'),
+      // This transport-only fixture declares its own historical v1 surface.
+      definition: undefined,
+      application: undefined,
+      presentation: undefined,
+      routes: [],
+      web: {
+        ...modules.find((value) => value.id === 'factorio').web,
+        adminReadRoutes: [],
+      },
+      contract: fixtureContract(['create']),
+      configuration: () => ({
+        state,
+        library: path.join(f.directory, 'world-library'),
+        backupDir: path.join(f.directory, 'backups'),
+        container: item.container,
+      }),
+      createUpdater: () => noManagedUpdater('fixture'),
+      createController: async (ctx) => ({
+        actions: {
+          create: async () => {
+            const id = crypto.randomUUID(),
+              name = 'factorio-panel-job-' + id,
+              spec = {
+                Image: gameImageId,
+                HostConfig: {
+                  NetworkMode: 'none',
+                  Memory: 1024 ** 3,
+                  Mounts: [
+                    {
+                      Type: 'volume',
+                      Source: item.volume,
+                      Target: '/factorio',
+                      VolumeOptions: {
+                        Subpath: 'state/.panel-work/' + id,
+                        NoCopy: true,
+                      },
+                    },
+                  ],
+                },
+              };
+            await ctx.docker('POST', '/containers/create?name=' + name, spec);
+            await ctx.docker('POST', '/containers/' + name + '/start');
+            await ctx.docker(
+              'POST',
+              '/containers/' + name + '/wait?condition=not-running',
+            );
+            await ctx.docker('DELETE', '/containers/' + name);
+            return 'Synthetic generation completed';
+          },
+        },
+        status: async () => ({ready: true, running: true}),
+        handle: async () => {},
+        validateAction() {},
+        backupFiles: async () => [],
+        validateBackup() {},
+        backupVerified: () => '',
+        init: async () => {},
+        start: async () => {},
+        beforeJob: async () => {},
+        afterJob: async () => {},
+        waitIdle: async () => {},
+        invalidate() {},
+        recentStatus: () => null,
+        locations: [],
+      }),
+    };
+    const controller = await startController(module, {
+      hostname: '127.0.0.1',
+      port: 0,
+      env: {
+        FLEET_ID: fleet,
+        FLEET_INSTANCE: one,
+        FLEET_VOLUME: item.volume,
+        CONTROLLER_TOKEN_FILE: tokenFile,
+        UPDATE_STATE_DIR: path.join(f.directory, 'updates'),
+        DOCKER_BROKER_SOCKET: f.broker.socketPath,
+        DOCKER_BROKER_TOKEN_FILE: path.join(
+          f.transport,
+          'instances',
+          one,
+          'token',
+        ),
+      },
+      docker: () => assert.fail('Raw Docker fallback must not be used'),
+    });
+    t.after(
+      () =>
+        new Promise((resolve) => {
+          controller.closeAllConnections();
+          controller.close(resolve);
+        }),
+    );
+    const origin = 'http://127.0.0.1:' + controller.address().port,
+      headers = {
+        authorization: 'Bearer synthetic-controller-token',
+        'content-type': 'application/json',
+      };
+    const response = await fetch(origin + '/jobs', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({action: 'create', actor: 'Fixture'}),
+    });
+    assert.equal(response.status, 202);
+    const job = await response.json();
+    const result = await waitForIdleJob(
+      async () => (await fetch(origin + '/jobs', {headers})).json(),
+      job.id,
+    );
+    assert.equal(result.state, 'succeeded', result.message);
+    assert.equal(f.containers.get(item.container).State.Running, true);
+  },
+);
+
+test('upgrade planning preserves game metadata, excludes credentials and refuses custom or interrupted installations', () => {
+  const item = {
+    ...resources(fleet, one, 'factorio'),
+    id: one,
+    game: 'factorio',
+    image: modules[0].managed.catalog.image,
+    state: 'installed',
+  };
+  const registry = {version: 1, servers: [item], jobs: []},
+    marker = labels(fleet, one, 'factorio');
+  const game = {
+    Id: 'unchanged-game',
+    Name: '/' + item.container,
+    Image: gameImageId,
+    Config: {
+      Image: item.image,
+      Labels: marker,
+      Env: ['RCON_PASSWORD=never-copy-this-secret'],
+    },
+    Mounts: [{Type: 'volume', Name: item.volume, Destination: '/factorio'}],
+    HostConfig: {
+      NetworkMode: item.network,
+      Mounts: [
+        {
+          Type: 'volume',
+          Source: item.volume,
+          Target: '/factorio',
+          VolumeOptions: {Subpath: 'data'},
+        },
+      ],
+    },
+    NetworkSettings: {Networks: {[item.network]: {}}},
+  };
+  const controller = {
+    Id: 'existing-controller',
+    Name: '/' + item.controller,
+    Config: {Labels: marker, Env: ['CONTROLLER_TOKEN=never-copy-this-secret']},
+    Mounts: [
+      {Type: 'volume', Name: item.volume, Destination: '/instance'},
+      {
+        Type: 'bind',
+        Source: '/var/run/docker.sock',
+        Destination: '/var/run/docker.sock',
+      },
+    ],
+    NetworkSettings: {Networks: {[item.network]: {}}},
+  };
+  const host = {
+    Id: 'existing-host',
+    Name: '/lobby-goblin-host-' + fleet,
+    Config: {
+      Labels: {
+        'io.lobby-goblin.fleet': fleet,
+        'io.lobby-goblin.role': 'host-controller',
+      },
+    },
+    Mounts: [
+      {Type: 'volume', Name: project + '-state', Destination: '/fleet'},
+      {
+        Type: 'bind',
+        Source: '/var/run/docker.sock',
+        Destination: '/var/run/docker.sock',
+      },
+    ],
+  };
+  const input = {
+      fleet,
+      runtimeReference:
+        'ghcr.io/jkenneydaniel/lobby-goblin@sha256:' + 'f'.repeat(64),
+      registry,
+      containers: [host, game, controller],
+    },
+    before = structuredClone(input),
+    plan = planBrokerUpgrade(input);
+  assert.deepEqual(input, before);
+  assert.equal(plan.appliesChanges, false);
+  assert.equal(plan.servers[0].unchangedGame.id, game.Id);
+  assert.equal(plan.servers[0].controller.expectedId, controller.Id);
+  assert.ok(!JSON.stringify(plan).includes('never-copy-this-secret'));
+  const custom = structuredClone(input);
+  custom.containers[2].Mounts.push({
+    Type: 'bind',
+    Source: '/anything',
+    Destination: '/custom',
+  });
+  assert.throws(() => planBrokerUpgrade(custom), /manual review/);
+  assert.throws(
+    () =>
+      planBrokerUpgrade({
+        ...input,
+        registry: {...registry, jobs: [{state: 'interrupted'}]},
+      }),
+    /Review existing operations/,
+  );
+});
+
+unix(
+  'broker startup refuses unrelated nonempty storage without adopting or changing it',
+  async (t) => {
+    const directory = await fs.realpath(
+      await fs.mkdtemp(
+        path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'lgb-'),
+      ),
+    );
+    t.after(() => fs.rm(directory, {recursive: true, force: true}));
+    const root = path.join(directory, 'unrelated');
+    await fs.mkdir(root);
+    await fs.writeFile(path.join(root, 'keep.txt'), 'unchanged');
+    let calls = 0;
+    await assert.rejects(
+      startDockerBroker({
+        env: {FLEET_ID: fleet},
+        root,
+        transport: path.join(directory, 'transport'),
+        runtimeImage: runtime,
+        docker: () => {
+          calls++;
+          assert.fail('No engine access is allowed');
+        },
+      }),
+      /existing directory was preserved/,
+    );
+    assert.deepEqual(await fs.readdir(root), ['keep.txt']);
+    assert.equal(
+      await fs.readFile(path.join(root, 'keep.txt'), 'utf8'),
+      'unchanged',
+    );
+    assert.equal(calls, 0);
+  },
+);

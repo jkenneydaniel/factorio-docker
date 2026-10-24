@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {WorldPreviews,previewKey} from '../world-preview.js';
+import {WorldPreviews,previewKey} from '../applications/factorio/world-preview.js';
 const png=Buffer.concat([Buffer.from('89504e470d0a1a0a','hex'),Buffer.alloc(24)]);
 const input=(seed=123)=>({configuration:{map_gen_settings:{width:0,height:0,autoplace_controls:{coal:{size:1}}},map_settings:{pollution:{enabled:true}}},seed,image:'factorio:2.0.77'});
 const flush=()=>new Promise(resolve=>setImmediate(resolve));

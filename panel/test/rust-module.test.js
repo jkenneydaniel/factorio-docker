@@ -7,22 +7,22 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {rust,rustConfiguration} from '../games/rust/index.js';
-import {createRust} from '../games/rust/controller.js';
-import {createWebRcon,webRcon,sanitizeLogs} from '../games/rust/transport.js';
-import {inventory,writeArchive,verifyArchive} from '../games/rust/archive.js';
-import {fields,parseSettings,renderSettings,validateSettings} from '../games/rust/settings.js';
-import {prepareRust} from '../games/rust/setup.js';
+import {rust,rustConfiguration} from '../applications/rust/index.js';
+import {createRust} from '../applications/rust/controller.js';
+import {createWebRcon,webRcon,sanitizeLogs} from '../applications/rust/transport.js';
+import {writeArchive,verifyArchive} from '../applications/rust/archive.js';
+import {parseSettings,renderSettings,validateSettings} from '../applications/rust/settings.js';
+import {prepareRust} from '../applications/rust/setup.js';
 import {startController} from '../core/controller.js';
 import {startWeb} from '../core/web.js';
 import {hashPassword} from '../auth.js';
 import {writeJSON} from '../common.js';
 import {waitForIdleJob} from './fixtures.js';
-import {selectedGame} from '../games/index.js';
+import {selectedApplication} from '../applications/index.js';
 import {BackupRetention} from '../backup-retention.js';
 
 const image='ghcr.io/jkenneydaniel/rust-server:steam-lg.1@sha256:'+'a'.repeat(64),instance='b'.repeat(32),password='isolated_rust_password_123456789012345';
-async function fixture(t,{running=true}={}){
+async function fixture(t,{running=true,jobs=[]}={}){
   const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lobby-goblin-rust-test-')));t.after(()=>fs.rm(root,{recursive:true,force:true}));
   const env={RUST_INSTANCE_ID:instance,RUST_CONTAINER:`lobby-goblin-rust-${instance}`,RUST_IMAGE:image,RUST_HOST_DATA:path.join(root,'host-data'),
     RUST_DATA:path.join(root,'rust-data'),RUST_STATE_DIR:path.join(root,'rust-state'),RUST_BACKUPS_DIR:path.join(root,'rust-backups'),RUST_RCON_PASSWORD_FILE:path.join(root,'rcon-password'),
@@ -34,6 +34,7 @@ async function fixture(t,{running=true}={}){
   await fs.writeFile(path.join(identityRoot,'player.states.db-wal'),'WAL fixture');await fs.writeFile(path.join(identityRoot,'proceduralmap.4000.123.map'),'Map fixture');
   await fs.writeFile(path.join(identityRoot,'cfg/server.cfg'),'// Existing setting\nserver.hostname "Fixture Rust"\nserver.maxplayers 50\nserver.seed 123\n');
   await fs.writeFile(env.RUST_RCON_PASSWORD_FILE,password);await fs.writeFile(env.CONTROLLER_TOKEN_FILE,'test-token');
+  await writeJSON(path.join(config.state,'jobs.json'),jobs);
   await fs.writeFile(path.join(root,'factorio-world-sentinel.zip'),'do not modify');
   const info={State:{Running:running,Status:running?'running':'exited',ExitCode:0,Health:{Status:'healthy'}},Config:{Image:image,Labels:{'io.lobby-goblin.game':'rust','io.lobby-goblin.instance':instance}},Mounts:[{Type:'bind',Source:config.hostData,Destination:'/steamcmd/rust'}],HostConfig:{RestartPolicy:{Name:'unless-stopped'}},NetworkSettings:{Networks:{isolated:{IPAddress:'192.0.2.2'}}}};
   let failSave=false,failStatus=false,players=[{SteamID:'76561198000000001',DisplayName:'Builder <one>',Ping:31,ConnectedSeconds:125,Address:'private-player-ip'}];
@@ -65,7 +66,7 @@ async function fixture(t,{running=true}={}){
 }
 
 test('Rust registry is explicit and configuration cannot inherit Factorio settings',()=>{
-  assert.equal(selectedGame().id,'factorio');assert.equal(selectedGame('rust').id,'rust');
+  assert.equal(selectedApplication().id,'factorio');assert.equal(selectedApplication('rust').id,'rust');
   assert.throws(()=>rustConfiguration({FACTORIO_CONTAINER:'factorio-server',FACTORIO_DATA:'/factorio'}),/separate Rust/);
   const valid={RUST_INSTANCE_ID:instance,RUST_CONTAINER:`lobby-goblin-rust-${instance}`,RUST_IMAGE:image,RUST_HOST_DATA:'/dedicated/rust/data'};
   assert.throws(()=>rustConfiguration({...valid,RUST_CONTAINER:'factorio-server'}),/name must match/);
@@ -83,12 +84,32 @@ test('Rust status, players and bounded logs use only the dedicated container',{t
   assert.equal(await fs.readFile(path.join(f.root,'factorio-world-sentinel.zip'),'utf8'),'do not modify');
 });
 
+test('an interrupted stop can be inspected and explicitly retried once without replaying a lost response',async t=>{
+  const f=await fixture(t,{jobs:[{id:'old-stop',action:'stop',actor:'Owner',state:'running'}]});
+  assert.equal((await f.request('/jobs/recovery',{id:'old-stop',operation:'retry',confirm:true,requestId:'reviewed-stop-retry'})).status,409);
+  const checked=await(await f.request('/jobs/recovery',{id:'old-stop',operation:'inspect'})).json();
+  assert.equal(checked.recovery.required,true);assert.equal(checked.recovery.retryable,true);
+  const body={id:'old-stop',operation:'retry',confirm:true,requestId:'reviewed-stop-retry'};
+  const response=await f.request('/jobs/recovery',body);assert.equal(response.status,202);
+  const job=await f.settle(await response.json());assert.equal(job.state,'succeeded');assert.equal(job.retryOf,'old-stop');
+  const repeated=await f.request('/jobs/recovery',body);assert.equal(repeated.status,202);assert.equal((await repeated.json()).id,job.id);
+  assert.equal(f.calls.filter(([method,route])=>method==='POST'&&route.endsWith('/stop?t=-1')).length,1);
+  assert.equal(f.calls.filter(([method,command])=>method==='RCON'&&command==='server.save').length,1);
+});
+
+test('an already stopped server reconciles an interrupted stop without lifecycle writes',async t=>{
+  const f=await fixture(t,{running:false,jobs:[{id:'old-stop',action:'stop',state:'running'}]});const before=f.calls.length;
+  const result=await(await f.request('/jobs/recovery',{id:'old-stop',operation:'inspect'})).json();
+  assert.equal(result.state,'succeeded');assert.equal(result.recovery.required,false);
+  assert.ok(f.calls.slice(before).every(([method])=>method==='GET'));
+});
+
 test('Rust requires confirmations, serializes lifecycle, and will not stop after a failed save',{timeout:10000},async t=>{
   const f=await fixture(t);
   assert.equal((await f.request('/jobs',{action:'stop'})).status,400);
   f.failSave(true);assert.equal((await f.settle(await f.submit('stop',{confirm:true}))).state,'failed');assert.ok(!f.calls.some(([,route])=>route.includes('/stop?')));
   f.failSave(false);assert.equal((await f.settle(await f.submit('restart',{confirm:true}))).state,'succeeded');
-  const commands=f.calls.filter(([method,route])=>method==='RCON'||method==='POST');
+  const commands=f.calls.filter(([method,_route])=>method==='RCON'||method==='POST');
   assert.ok(commands.findIndex(([,value])=>value==='server.save')<commands.findIndex(([,value])=>value.endsWith('/stop?t=-1')));
   assert.ok(commands.findIndex(([,value])=>value.endsWith('/stop?t=-1'))<commands.findIndex(([,value])=>value.endsWith('/start')));
   assert.equal((await f.settle(await f.submit('stop',{confirm:true}))).state,'succeeded');assert.equal(f.info.State.Running,false);
@@ -159,7 +180,7 @@ test('Rust preparation refuses existing destinations and creates an independent 
   const env=await fs.readFile(path.join(directory,'.env'),'utf8'),compose=await fs.readFile(path.join(directory,'compose.yaml'),'utf8');
   assert.ok(!env.includes('FACTORIO'));assert.ok(!compose.includes('factorio-server'));assert.match(compose,/GAME_MODULE: rust/);assert.ok(!compose.includes('28016:28016'));
   const secret=await fs.readFile(path.join(directory,'control/secrets/rust-rcon-password'),'utf8');assert.match(await fs.readFile(path.join(directory,'rust.env'),'utf8'),new RegExp(secret.trim()));
-  assert.ok((await fs.stat(path.join(directory,'panel/core/controller.js'))).isFile());assert.ok((await fs.stat(path.join(directory,'panel/public/rust/app.js'))).isFile());
+  assert.ok((await fs.stat(path.join(directory,'panel/core/controller.js'))).isFile());assert.ok((await fs.stat(path.join(directory,'panel/applications/rust/public/app.js'))).isFile());
   assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory,'panel/package-lock.json'),'utf8')).packages[''].dependencies,JSON.parse(await fs.readFile(new URL('../package.json',import.meta.url),'utf8')).dependencies);
   await assert.rejects(prepareRust({directory,image}),/EEXIST/);await assert.rejects(prepareRust({directory:path.resolve('nested-rust'),image}),/outside the Factorio checkout/);
   assert.deepEqual(await fs.readdir(path.join(directory,'backups')),['.lobby-goblin-rust.json']);

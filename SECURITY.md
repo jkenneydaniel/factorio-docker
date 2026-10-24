@@ -7,7 +7,11 @@ for a single owner. Public self-registration, multiple replicas and multi-tenant
 hosting remain unsupported.
 
 The web app checks allowed hostnames, same-origin mutations, sessions, CSRF tokens
-and roles. Registration requires invitations. These controls do not make an HTTP
+and roles/server assignments. Registration requires invitations. Existing
+administrator and read-only accounts retain their installation-wide access;
+assigned-server accounts start empty and require explicit per-server grants.
+Executable mods and game-image changes have separate grants. See
+[access controls and audit history](docs/ACCESS.md). These controls do not make an HTTP
 connection confidential: use only a network you trust. Do not forward standalone
 panel, controller, Docker or RCON ports from a router. Hosted setup publishes only
 its HTTPS gateway, keeps the application port on loopback, and declares the
@@ -15,14 +19,19 @@ expected public origin for same-origin checks and Secure cookies. It does not
 trust client forwarding headers or configure your firewall. Production Internet
 deployment still needs a security review and deployment acceptance.
 
-The controller mounts the Docker socket. A compromised controller or powerful
-administrator can effectively control the Docker host. Do not treat container
-capability restrictions as isolation from the host when a socket is mounted.
-The web service does not receive that socket, game files or full backups.
+New managed-host definitions give the Docker socket only to a separate local
+broker. Managers and game controllers use scoped credentials and enforced broker
+contracts. The broker remains trusted Docker-host software. Existing/standalone
+installations retain their historical socket mounts until an explicit reviewed
+upgrade; their controllers can still control the Docker host. The web service
+receives neither the daemon/broker socket nor game files/full backups. See
+[Docker access and isolation](docs/ISOLATION.md).
 
-Administrator-confirmed updates launch a temporary root worker with the Docker
+Confirmed updates launch a temporary root worker with the Docker
 socket and installation directory mounted. It can replace application source and
 containers and retains private recovery copies under `.panel-data/updates/`.
+Panel software updates remain administrator-only. Game-image changes may be
+delegated explicitly and validate the saved game plan before effects.
 Treat releases and the configured release repository as trusted host software.
 Checksums detect damaged downloads; they do not authenticate a compromised
 publisher. Only supported state contracts and unmodified source installations
@@ -42,3 +51,12 @@ For a suspected vulnerability, use the repository's GitHub private vulnerability
 reporting feature when enabled. If unavailable, ask the maintainer for a private
 reporting channel without posting exploitation details, tokens, passwords or saves
 in a public issue. No reporting address or response-time commitment is set yet.
+
+Assigned-server checks and the external broker provide process boundaries within
+one trusted installation. The legacy in-process adapter can still be bypassed by
+a compromised legacy controller with its daemon socket. Neither layout provides
+a hostile-tenant kernel boundary.
+Executable Rust plugins run with the game process's authority. Mutually untrusted
+operators require separately isolated hosts/VMs and additional deployment review.
+Audit history is private, bounded, chained JSON with explicit retention; it is
+not externally anchored, tamper-proof or guaranteed durable through power loss.

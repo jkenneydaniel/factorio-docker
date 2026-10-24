@@ -1,5 +1,15 @@
 # Updates through the panel
 
+Broker-enabled hosts use the explicit [management update command](MANAGEMENT_UPDATES.md)
+to update the broker and management services together. The legacy panel updater
+is refused on those hosts. The operator workflow preserves application containers
+and data, with pre-activation rollback and committed forward recovery. Unfinished
+updates and cleanup block another update or an installation start.
+
+For legacy standalone installations, the existing panel update path below remains
+available. Its interrupted updates require inspection and explicit acknowledgement
+before another update. Required world recovery cannot be acknowledged away.
+
 ## Lobby Goblin naming compatibility
 
 The canonical repository is `jkenneydaniel/lobby-goblin`. Current code maps the

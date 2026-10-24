@@ -1,3 +1,4 @@
+import {assertManagementStartAllowed,managementInstallationRuntime} from './core/management-installation.js';
 // Prepare a game-host agent on the target machine. Starting is explicit and
 // limited to a fresh project; existing installations are never adopted.
 import fs from 'node:fs/promises';
@@ -40,11 +41,13 @@ export async function startHostInstallation(directory,record,{execute=run,log=co
  const lock=await fs.open(path.join(directory,'.start.lock'),'wx',0o600).catch(()=>{throw Error('Another host-agent start may be in progress. Inspect .start.lock before retrying.');});
  try{
   assert(JSON.stringify(await readHostInstallation(directory))===JSON.stringify(record),'Host-agent installation changed. Review it first.');
-  const host=await checkHost({execute});assert(host.memoryGiB>=record.options.memory+2,'Docker needs the selected game budget plus at least 2 GiB of management headroom.');
-  const args=hostComposeArgs(directory,record),docker=tail=>execute('docker',[...args,...tail],{cwd:directory,env:installationEnvironment()});
+  await assertManagementStartAllowed(directory);
+  const runtime=await managementInstallationRuntime(directory,record);
+  const host=await checkHost({execute});if(runtime.engine)assert((await execute('docker',['info','--format','{{.ID}}'])).trim()===runtime.engine,'This management update belongs to another Docker engine. No containers were started.');assert(host.memoryGiB>=record.options.memory+2,'Docker needs the selected game budget plus at least 2 GiB of management headroom.');
+  const args=[...hostComposeArgs(directory,record),...runtime.arguments],docker=tail=>execute('docker',[...args,...tail],{cwd:directory,env:installationEnvironment()});
   if(await docker(['ps','--all','--quiet'])){log('This host-agent installation already has containers. They were left unchanged. Use --pairing-code to issue a new code.');return {started:false};}
   await docker(['config','--quiet']);await docker(['pull']);
-  await execute('docker',['run','--rm','--entrypoint','node',record.options.image,'--input-type=module','-e',`const m=await import('./host-install.js');if(m.HOST_INSTALLER_FORMAT!==1${record.options.transport==='persistent'?'||m.AGENT_TRANSPORT_VERSION!==1':''})process.exit(1);await import('./fleet/agent-web.js')`],{env:installationEnvironment()});
+  await execute('docker',['run','--rm','--entrypoint','node',runtime.image,'--input-type=module','-e',`const m=await import('./host-install.js');if(m.HOST_INSTALLER_FORMAT!==1${record.options.transport==='persistent'?'||m.AGENT_TRANSPORT_VERSION!==1':''})process.exit(1);await import('./fleet/agent-web.js')`+(JSON.parse(await fs.readFile(path.join(directory,'host.compose.json'),'utf8')).services['docker-broker']?";const b=await import('./core/docker-broker.js');if(b.BROKER_PROTOCOL!==1)process.exit(1)":'')],{env:installationEnvironment()});
   assert(JSON.stringify(await readHostInstallation(directory))===JSON.stringify(record),'Host-agent installation changed. Review it first.');
   await docker(['up','-d','--no-build','--wait','--wait-timeout','180']);
   log('Game-host agent started. No game servers were created. Confirm agent-port reachability from your main panel.');

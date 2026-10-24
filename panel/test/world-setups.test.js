@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {Accounts} from '../accounts.js';
-import {emptySetups,changeSetups,validateDraft} from '../world-setups.js';
+import {Accounts} from '../applications/factorio/accounts.js';
+import {emptySetups,changeSetups,validateDraft} from '../applications/factorio/world-setups.js';
 const configuration=JSON.parse(await fs.readFile(new URL('../world-defaults.json',import.meta.url)));
 const draft=()=>({name:'Copper Coast',seed:'12345',image:'test:2.0.77',base:'defaults',step:2,configuration:JSON.stringify(configuration),advanced:'{ unfinished',advancedDirty:true,inputs:{'map_gen_settings.starting_area':''},preview:true,activate:true});
 test('unfinished drafts retain exact input, enforce bounds, and never restore activation',()=>{

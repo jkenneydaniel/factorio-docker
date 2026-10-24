@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {jsonWithComments,archiveText,mergeSettings} from '../engine-settings.js';
+import {jsonWithComments,archiveText,mergeSettings} from '../applications/factorio/engine-settings.js';
 
 import {settingsTar} from './fixtures.js';
 test('installed engine settings parse comments/strings and read only the requested TAR member',()=>{

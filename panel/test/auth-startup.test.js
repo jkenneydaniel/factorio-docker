@@ -1,53 +1,98 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import vm from 'node:vm';
+import {createSessionController} from '../public/shared/session.js';
 
-// Run each real entry point against a delayed session response. Unrelated
-// server-data loading is stubbed so these tests exercise authentication alone.
-for (const variant of [
-  {dir:'', auth:'login-view', shell:'app-view'},
-  {dir:'rust/', auth:'auth', shell:'shell'},
-  {dir:'fleet/', auth:'auth', shell:'dashboard'},
-]) {
-  async function fixture(hash='') {
-    const base=new URL('../public/'+variant.dir,import.meta.url);
-    const html=await fs.readFile(new URL('index.html',base),'utf8');
-    const source=await fs.readFile(new URL('app.js',base),'utf8');
-    const nodes=new Map();
-    const node=selector=>{
-      if(!nodes.has(selector)){
-        const tag=html.match(new RegExp('<[^>]*id="'+selector.slice(1)+'"[^>]*>'))?.[0]||'';
-        const elements=new Proxy({}, {get(target,key){return target[key]??=( {value:'',checked:false} );}});
-        nodes.set(selector,{hidden:/\bhidden\b/.test(tag),elements,dataset:{},classList:{toggle(){},remove(){}},addEventListener(){},reset(){},querySelector:node});
-      }
-      return nodes.get(selector);
-    };
-    let settle,fail;
-    const response=new Promise((resolve,reject)=>{settle=resolve;fail=reject;});
-    const document={querySelector:node,querySelectorAll:()=>[]};
-    const context=vm.createContext({document,location:{hash,pathname:'/',origin:'http://test'},history:{replaceState(){}},
-      URLSearchParams,console,fetch:route=>String(route).endsWith('/session')?response:Promise.resolve({ok:true,json:async()=>({role:'admin'})}),
-      mountHosts:()=>({}),hostRoute:(host,route)=>route,serverKey:s=>s.id,serverPath:value=>value,icon:()=>'',cleanWorldPreview(){},clearWorldDraft(){},addEventListener(){},clearInterval(){},setInterval(){},setTimeout(){}});
-    const boot=vm.runInContext('(async()=>{'+source.replace(/^import .*;\r?\n/gm,'')+'\nasync function navigate(){}\nasync function load(){}\nasync function refresh(){}\n})()',context);
-    return {node,boot,settle,fail};
-  }
-  for(const outcome of ['signed-in','signed-out','network-error'])test(`${variant.dir||'factorio/'} waits for session before showing sign-in (${outcome})`,async()=>{
-    const {node,boot,settle,fail}=await fixture();
-    assert.equal(node('#'+variant.auth).hidden,true,'sign-in must be hidden in initial HTML');
-    assert.equal(node('#'+variant.shell).hidden,true,'protected UI must start hidden');
-    assert.equal(node('#session-loading').hidden,false);
-    if(outcome==='network-error')fail(Error('Connection lost'));
-    else settle({ok:outcome==='signed-in',status:401,json:async()=>({username:'Engineer',role:'admin',csrf:'test'})});
-    await boot;
-    assert.equal(node('#session-loading').hidden,true);
-    assert.equal(node('#'+variant.auth).hidden,outcome==='signed-in');
-    assert.equal(node('#'+variant.shell).hidden,outcome!=='signed-in');
+const user = {username: 'Engineer', role: 'admin', csrf: 'before'};
+
+test('shared session waits for bootstrap and emits the authenticated session once', async () => {
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
   });
-  if(variant.dir!=='fleet/')test(`${variant.dir||'factorio/'} invitation opens registration without waiting for a session`,async()=>{
-    const {node,boot}=await fixture('#register=fixture-token');await boot;
-    assert.equal(node('#session-loading').hidden,true);
-    assert.equal(node('#'+variant.auth).hidden,false);
-    assert.equal(node('#'+variant.shell).hidden,true);
+  const changes = [],
+    calls = [];
+  const session = createSessionController({
+    request: async (route) => {
+      calls.push(route);
+      return pending;
+    },
+    onChange: (value) => changes.push(value),
   });
-}
+  const boot = session.bootstrap();
+  assert.equal(session.current, null);
+  assert.deepEqual(changes, []);
+  release(user);
+  assert.equal(await boot, user);
+  assert.equal(session.current, user);
+  assert.deepEqual(changes, [user]);
+  assert.deepEqual(calls, ['/session']);
+});
+
+for (const message of ['Please sign in.', 'Connection lost'])
+  test(
+    'shared session clears stale authentication after ' + message,
+    async () => {
+      const session = createSessionController({
+        request: async () => {
+          throw Error(message);
+        },
+      });
+      session.set(user);
+      assert.equal(await session.bootstrap(), null);
+      assert.equal(session.current, null);
+    },
+  );
+
+test('invitation bootstrap clears an old session without fetching protected data', async () => {
+  const session = createSessionController({
+    request: async () => assert.fail('An invitation must not fetch a session'),
+  });
+  session.set(user);
+  assert.equal(await session.bootstrap({invitation: true}), null);
+  assert.equal(session.current, null);
+});
+
+test('sign-in, registration and password rotation replace the session used for subsequent writes', async () => {
+  const calls = [];
+  const session = createSessionController({
+    request: async (route, options) => {
+      calls.push({route, options, current: session.current});
+      return {...user, csrf: route};
+    },
+  });
+  const login = {username: user.username, password: 'fixture-password'};
+  await session.signIn(login);
+  assert.equal(session.current.csrf, '/login');
+  await session.changePassword({
+    currentPassword: 'fixture-password',
+    password: 'replacement-password',
+  });
+  assert.equal(calls.at(-1).current.csrf, '/login');
+  assert.equal(session.current.csrf, '/password');
+  await session.signOut();
+  assert.equal(calls.at(-1).current.csrf, '/password');
+  assert.equal(session.current, null);
+  await session.register({...login, token: 'fixture-invitation'});
+  assert.equal(session.current.csrf, '/register');
+  assert.deepEqual(
+    calls.map((call) => call.route),
+    ['/login', '/password', '/logout', '/register'],
+  );
+  assert.ok(calls.every((call) => call.options.method === 'POST'));
+  assert.deepEqual(calls[0].options.body, login);
+});
+
+test('failed password and sign-in requests do not replace the current session', async () => {
+  const session = createSessionController({
+    request: async () => {
+      throw Error('Rejected');
+    },
+  });
+  session.set(user);
+  await assert.rejects(
+    session.changePassword({password: 'invalid'}),
+    /Rejected/,
+  );
+  await assert.rejects(session.signIn({username: 'invalid'}), /Rejected/);
+  assert.equal(session.current, user);
+});

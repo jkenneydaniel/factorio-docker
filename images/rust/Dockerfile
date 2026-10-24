@@ -14,7 +14,7 @@ RUN test "$TARGETARCH" = amd64 \
 WORKDIR /app
 COPY panel/package.json panel/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
-COPY panel/games/rust/transport.js ./transport.js
+COPY panel/applications/rust/transport.js ./transport.js
 COPY panel/games/rust/image/entrypoint.mjs ./entrypoint.mjs
 LABEL org.opencontainers.image.title="Lobby Goblin Rust server" \
  org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" \

@@ -8,15 +8,15 @@ import http from 'node:http';
 import {makeZip} from '../core/archive.js';
 import {createModDownloads,digest} from '../core/mod-downloads.js';
 import {createModStore} from '../core/mod-store.js';
-import {createFactorioModLibrary} from '../games/factorio/mod-library.js';
-import {createRustModLibrary} from '../games/rust/mod-library.js';
-import {createModManager} from '../games/rust/mods.js';
+import {createFactorioModLibrary} from '../applications/factorio/mod-library.js';
+import {createRustModLibrary} from '../applications/rust/mod-library.js';
+import {createModManager} from '../applications/rust/mods.js';
 import {validateLibraryAction} from '../core/mod-library.js';
 import {startWeb} from '../core/web.js';
 import {hashPassword} from '../auth.js';
-import {factorio as factorioModule} from '../games/factorio/index.js';
-import {rust as rustModule} from '../games/rust/index.js';
-import {inventory as archiveInventory} from '../games/rust/archive.js';
+import {factorio as factorioModule} from '../applications/factorio/index.js';
+import {rust as rustModule} from '../applications/rust/index.js';
+import {inventory as archiveInventory} from '../applications/rust/archive.js';
 
 async function temporary(t){const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lg-mod-library-')));t.after(()=>fs.rm(root,{recursive:true,force:true}));return root;}
 async function request(library,route,body){const req=Readable.from([Buffer.from(JSON.stringify(body))]);req.method='POST';req.headers={};let result;await library.handle(req,{writeHead(){},end(value){result=JSON.parse(value);}},new URL(route,'http://fixture'));return result;}
@@ -120,8 +120,8 @@ test('Rust refuses duplicate enabled/disabled sources instead of overwriting eit
 test('downloads restrict redirect hosts, bound response bytes, cache metadata and never include account secrets in errors',async()=>{
   const downloads=createModDownloads(async()=>new Response('',{status:302,headers:{location:'https://untrusted.invalid/plugin.cs'}}));await assert.rejects(downloads.bytes('https://umod.org/plugins/Example.cs',{hosts:['umod.org']}),/Unexpected mod download/);
   const huge=createModDownloads(async()=>new Response('12345'));await assert.rejects(huge.bytes('https://umod.org/file',{hosts:['umod.org'],limit:4}),/size limit/);
-  const failure=createModDownloads(async()=>{throw Error('https://mods.factorio.com/?token=secret');});await assert.rejects(failure.bytes('https://mods.factorio.com/download?token=secret',{hosts:['mods.factorio.com'],secret:true}),error=>!error.message.includes('secret'));
-  const streamFailure=createModDownloads(async()=>new Response(new ReadableStream({start(controller){controller.error(Error('token=secret'));}})));await assert.rejects(streamFailure.bytes('https://mods.factorio.com/download?token=secret',{hosts:['mods.factorio.com'],secret:true}),error=>!error.message.includes('secret'));
+  const failure=createModDownloads(async()=>{throw Error('https://mods.factorio.com/?token=secret');});await assert.rejects(failure.bytes('https://mods.factorio.com/download?token=secret',{hosts:['mods.factorio.com'],secret:true}),error=>!error.message.includes('secret')&&error.cause===undefined);
+  const streamFailure=createModDownloads(async()=>new Response(new ReadableStream({start(controller){controller.error(Error('token=secret'));}})));await assert.rejects(streamFailure.bytes('https://mods.factorio.com/download?token=secret',{hosts:['mods.factorio.com'],secret:true}),error=>!error.message.includes('secret')&&error.cause===undefined);
   let now=0,available=true,count=0;const cached=createModDownloads(async()=>{count++;if(!available)throw Error('offline');return Response.json({value:42});},{now:()=>now});const options={hosts:['umod.org']};await cached.json('https://umod.org/catalogue',options);await cached.json('https://umod.org/catalogue',options);assert.equal(count,1);available=false;now=300001;assert.equal((await cached.json('https://umod.org/catalogue',options)).stale,true);await assert.rejects(cached.json('https://umod.org/catalogue',{...options,refresh:true}),/unavailable/);now=86400001;await assert.rejects(cached.json('https://umod.org/catalogue',options),/unavailable/);
 });
 test('mod stores refuse linked roots and linked files; library jobs require reviewed confirmation',async t=>{

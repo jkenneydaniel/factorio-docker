@@ -43,8 +43,11 @@ Docker Desktop configuration is changed. The address must match an allowed
 hostname; game and panel ports default to all interfaces for LAN use.
 
 The manager has a new account database. Existing standalone accounts are not
-copied. Invitations create administrators or read-only users; these roles apply
-to all local and paired servers in this host manager. Per-server user ACLs are not implemented.
+copied. Existing administrator and read-only roles apply to all local and paired
+servers in this host manager. Invitations can also create **Assigned servers**
+accounts with no initial server access. Administrators explicitly assign each
+server and its tools in Accounts. Local and remote host scopes are independent;
+see [server permissions, audit history and isolation](ACCESS.md).
 Keep the invitation private; it expires after 24 hours. It is stored at
 `/web-state/registration-link.txt` in the controller for an interrupted setup.
 
@@ -156,3 +159,12 @@ independent same-game volumes, publish/clone and check hashes/credentials, open
 both server URLs and prove unrelated resources are refused. Never run acceptance
 through the production Compose project. See `docs/VERIFICATION.md` for recorded
 results and limitations rather than treating configured tests as completed work.
+
+## Docker isolation in new definitions
+
+Fresh managed hosts use a local Docker broker; neither the host manager nor an
+instance controller mounts the daemon socket. Credentials and instance
+permissions are enforced outside game controllers. Existing installations retain
+their historical definitions until an explicit reviewed upgrade. Broker-enabled
+hosts require operator-reviewed management updates instead of the legacy
+socket-bearing agent helper. See [the isolation and upgrade contract](ISOLATION.md).

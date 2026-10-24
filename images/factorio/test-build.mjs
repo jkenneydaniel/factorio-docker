@@ -4,10 +4,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 const root=await fs.stat(new URL('../../panel/package.json',import.meta.url)).catch(()=>null)?new URL('../../',import.meta.url):new URL('../',import.meta.url);
-const {gameSources,parseGameImage}=await import(new URL('panel/public/game-images.js',root));
+const {gameSources,parseGameImage}=await import(new URL('panel/applications/factorio/public/game-images.js',root));
 const {imageDefinition,buildImage,testImage}=await import(new URL('tools/factorio-image.mjs',root));
 const {publicSource,sourceSnapshot,unpackRelease,sha256}=await import(new URL('panel/update-source.js',root));
-const {makeZip}=await import(new URL('panel/zip.js',root));
+const {makeZip}=await import(new URL('panel/core/archive.js',root));
 const owned=gameSources.factory.repository;
 test('the independent image definition pins Debian, the official archive and the x86 platform and owns deployment defaults',async()=>{
   const definition=await imageDefinition(),calls=[];await buildImage(definition,async args=>calls.push(args));
@@ -59,7 +59,7 @@ test('image CI watches the Factorio image validator implementation for pushes an
   for(const event of ['push','pull_request']){
     const paths=workflow.match(new RegExp('  '+event+':\\n    paths: (\\[[^\\n]+\\])'))?.[1];
     assert.ok(paths,event+' must have image path filters');
-    assert.ok(paths.includes("'panel/games/factorio/update-worker.js'"),event+' must watch the implementation');
+    assert.ok(paths.includes("'panel/applications/factorio/update-worker.js'"),event+' must watch the implementation');
     assert.ok(paths.includes("'panel/update-worker.js'"),event+' must keep watching the wrapper');
   }
 });

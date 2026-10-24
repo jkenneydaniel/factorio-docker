@@ -1,6 +1,6 @@
 FROM docker:29.9.0-cli AS docker-cli
 FROM node:24.22.0-bookworm-slim
-LABEL org.opencontainers.image.title="Lobby Goblin" org.opencontainers.image.version="0.3.6-alpha" org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.title="Lobby Goblin" org.opencontainers.image.version="0.3.7-alpha" org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" io.lobby-goblin.runtime="1"
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
@@ -13,7 +13,7 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean -
 COPY --chown=node:node LICENSE ./LICENSE
 COPY --chown=node:node public ./public
 COPY --chown=node:node core ./core
-COPY --chown=node:node games ./games
+COPY --chown=node:node applications ./applications
 COPY --chown=node:node fleet ./fleet
 USER node
 ENV NODE_ENV=production

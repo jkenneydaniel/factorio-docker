@@ -1,0 +1,262 @@
+import {assert} from '../common.js';
+import {definitionData, freezeDefinition} from './definition-data.js';
+import {serviceOrder} from './application-services.js';
+import {isApplicationDefinition} from './application-definition.js';
+import {registerManagedBinding} from './managed-bindings.js';
+import {ensureGameImage, validateImagePolicy} from './image-policy.js';
+import {validateManagedGame} from './managed-game.js';
+import {
+  validateEnvironmentBindings,
+  renderEnvironment,
+} from './environment-bindings.js';
+
+const exact = (value, keys) =>
+  value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.keys(value).every((key) => keys.includes(key));
+function declaration(definition) {
+  const services = serviceOrder(definition),
+    service = services[0];
+  assert(
+    definition.kind === 'game' &&
+      services.length === 1 &&
+      service.id === definition.primary &&
+      service.role === 'game' &&
+      service.profile === 'managed-game-v1',
+    'The compatibility runtime profile needs one managed game service.',
+  );
+  assert(
+    !definition.secrets?.length && !definition.deployment,
+    'The game compatibility profile uses its reviewed credential and update adapters.',
+  );
+  const data = service.configuration;
+  definitionData(data);
+  assert(
+    exact(data, [
+      'version',
+      'imagePolicy',
+      'catalog',
+      'storage',
+      'ports',
+      'helpers',
+      'environment',
+      'snapshots',
+      'secrets',
+    ]) && data.version === 1,
+    'Unsupported managed runtime declaration.',
+  );
+  assert(
+    exact(data.imagePolicy, [
+      'version',
+      'defaultImage',
+      'referencePattern',
+      'architecture',
+      'labels',
+      'captureLabels',
+    ]),
+    'Unknown runtime image policy field.',
+  );
+  validateImagePolicy(data.imagePolicy);
+  assert(
+    data.imagePolicy.architecture === 'amd64',
+    'The managed-game-v1 host profile currently requires amd64 images.',
+  );
+  assert(
+    exact(data.storage, ['dataTarget', 'backupDirectory']) &&
+      exact(data.catalog, [
+        'version',
+        'cpu',
+        'memoryGiB',
+        'creation',
+        'snapshotHelp',
+      ]) &&
+      exact(data.catalog.creation, [
+        'minMemoryGiB',
+        'maxMemoryGiB',
+        'maxPlayers',
+        'defaultPlayers',
+        'defaults',
+        'fields',
+        'help',
+      ]),
+    'Unknown runtime catalogue or storage field.',
+  );
+  assert(
+    exact(data.helpers, [
+      'previewWorker',
+      'archiveReadPaths',
+      'execCommands',
+    ]) &&
+      exact(data.environment, ['server', 'controller']) &&
+      exact(data.snapshots, ['includesPlayerData']),
+    'Unknown runtime helper, environment or snapshot field.',
+  );
+  assert(
+    Array.isArray(data.ports) &&
+      data.ports.length > 0 &&
+      data.ports.length <= 16 &&
+      data.ports.every((port) =>
+        exact(port, ['key', 'containerPort', 'protocol', 'offset']),
+      ) &&
+      Array.isArray(data.helpers.execCommands),
+    'Invalid runtime port or helper list.',
+  );
+  const reserved = new Set([
+    'game',
+    'name',
+    'cpu',
+    'memoryGiB',
+    'seed',
+    'maxPlayers',
+    'snapshotId',
+    'autoStart',
+    'id',
+    'container',
+    'controller',
+    'volume',
+    'network',
+    'image',
+    'definition',
+    'isolationVersion',
+    'created',
+    'state',
+    'controllerToken',
+    'rconPassword',
+    ...data.ports.map((port) => port.key),
+  ]);
+  assert(
+    (data.catalog.creation.defaults === undefined ||
+      (exact(
+        data.catalog.creation.defaults,
+        Object.keys(data.catalog.creation.defaults),
+      ) &&
+        Object.entries(data.catalog.creation.defaults).every(
+          ([key, value]) =>
+            /^[a-z][A-Za-z0-9]*$/.test(key) &&
+            !reserved.has(key) &&
+            !/password|token|secret/i.test(key) &&
+            ['string', 'number', 'boolean'].includes(typeof value),
+        ))) &&
+      Array.isArray(data.catalog.creation.fields) &&
+      data.catalog.creation.fields.every((field) =>
+        exact(field, [
+          'key',
+          'label',
+          'control',
+          'lockOnClone',
+          'min',
+          'max',
+          'step',
+          'default',
+        ]),
+      ),
+    'Runtime defaults cannot override core instance fields.',
+  );
+  assert(
+    data.ports.every((port) =>
+      exact(port, ['key', 'containerPort', 'protocol', 'offset']),
+    ) &&
+      data.helpers.execCommands.every((command) =>
+        exact(command, ['executable', 'arguments', 'maxArgumentBytes']),
+      ) &&
+      (!data.helpers.previewWorker ||
+        exact(data.helpers.previewWorker, [
+          'target',
+          'root',
+          'entrypoint',
+          'namePrefixes',
+        ])),
+    'Unknown runtime port or helper field.',
+  );
+  assert(
+    Array.isArray(data.secrets) &&
+      data.secrets.length <= 1 &&
+      data.secrets.every((name) => name === 'rconPassword'),
+    'The game compatibility profile supports only its private RCON credential.',
+  );
+  validateEnvironmentBindings(data.environment.server, {secrets: data.secrets});
+  validateEnvironmentBindings(data.environment.controller, {
+    controllerPrefix: definition.id.replaceAll('-', '_').toUpperCase() + '_',
+  });
+  return data;
+}
+function publicFields(item, context = {}) {
+  return {
+    ...Object.fromEntries(
+      Object.entries(item).filter(
+        ([name]) => !/password|token|secret/i.test(name),
+      ),
+    ),
+    ...context,
+  };
+}
+// The JSON profile owns policy and environment assembly. Reviewed adapters own
+// protocol/storage/snapshot behavior; they cannot overwrite these declarations.
+export function compileManagedDefinition(definition, adapter) {
+  assert(
+    isApplicationDefinition(definition),
+    'Register the application definition before compiling its runtime.',
+  );
+  const data = declaration(definition);
+  assert(
+    exact(adapter, [
+      'legacyMigration',
+      'creationFromSnapshot',
+      'prepareStorage',
+      'configureStorage',
+      'snapshots',
+    ]),
+    'Unknown managed runtime adapter hook.',
+  );
+  assert(
+    exact(adapter.snapshots, ['compatible', 'collect', 'restore']),
+    'Unknown snapshot adapter hook.',
+  );
+  const metadata = freezeDefinition({
+    version: 1,
+    catalog: {
+      ...data.catalog,
+      image: data.imagePolicy.defaultImage,
+      ...Object.fromEntries(
+        data.ports.map((port) => [port.key, port.containerPort]),
+      ),
+    },
+    ...data.storage,
+    ports: data.ports,
+    ...data.helpers,
+  });
+  const managed = {
+    ...metadata,
+    ...(adapter.legacyMigration
+      ? {legacyMigration: Object.freeze({...adapter.legacyMigration})}
+      : {}),
+    ensureImage: (docker, image) =>
+      ensureGameImage(docker, data.imagePolicy, image),
+    creationFromSnapshot: adapter.creationFromSnapshot || ((input) => input),
+    gameEnvironment: (item) =>
+      renderEnvironment(data.environment.server, publicFields(item), {
+        rconPassword: item.rconPassword,
+      }),
+    controllerEnvironment: (item, context) =>
+      renderEnvironment(
+        data.environment.controller,
+        publicFields(item, context),
+        {},
+        {controller: true},
+      ),
+    prepareStorage: adapter.prepareStorage,
+    configureStorage: adapter.configureStorage,
+    snapshots: Object.freeze({...data.snapshots, ...adapter.snapshots}),
+  };
+  validateManagedGame({
+    id: definition.id,
+    name: definition.name,
+    imagePolicy: data.imagePolicy,
+    contract: {policy: {}},
+    managed,
+  });
+  Object.freeze(managed);
+  registerManagedBinding(managed, definition, data.imagePolicy);
+  return managed;
+}

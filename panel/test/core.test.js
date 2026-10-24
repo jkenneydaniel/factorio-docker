@@ -1,10 +1,11 @@
+import {validateWorld} from '../applications/factorio/world-archive.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deflateRawSync} from 'node:zlib';
-import {makeZip,zipEntries,validateWorld,crc32} from '../zip.js';
+import {makeZip,zipEntries,crc32} from '../core/archive.js';
 import {hashPassword,checkPassword,checkOrigin,requireAdmin} from '../auth.js';
 import {inside,safeName,redact} from '../common.js';
-import {demultiplex} from '../docker.js';
+import {demultiplex} from '../core/docker.js';
 
 test('backup ZIP round-trips binary save data and configuration',()=>{
   const files=[{name:'saves/Factory.zip',data:Buffer.from([0,1,255,128])},{name:'config/server-settings.json',data:Buffer.from('{"auto_pause":true}')}];

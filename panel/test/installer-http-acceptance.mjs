@@ -25,11 +25,11 @@ function status(response,expected){assert.equal(response.status,expected,respons
 let state;
 if(phase==='initial'){
   const invitation=await fs.readFile(process.env.ACCEPTANCE_INVITATION||'/acceptance/registration-link.txt','utf8');
-  const link=new URL(invitation.match(/https?:\/\/[^\s]+\/\#register=[^\s]+/)[0]);
+  const link=new URL(invitation.match(/https?:\/\/[^\s]+\/#register=[^\s]+/)[0]);
   assert.equal(link.origin,origin.origin);
   state={username:'InstallAcceptance',password:crypto.randomBytes(24).toString('base64url'),token:link.hash.slice('#register='.length)};
   const landing=status(await request('/'),200);assert.match(landing.text,/confirmPassword/);
-  status(await request('/fleet-onboarding.js'),200);checks.push('registration page and onboarding asset served');
+  status(await request('/fleet/onboarding.js'),200);checks.push('registration page and onboarding asset served');
   status(await request('/api/status'),401);
   const inspection=status(await request('/api/registration',{body:{token:state.token}}),200).json();assert.equal(inspection.owner,true);
   const registered=status(await request('/api/register',{body:state}),200);

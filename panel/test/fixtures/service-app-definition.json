@@ -1,0 +1,334 @@
+{
+  "version": 1,
+  "id": "web-stack",
+  "name": "Web application",
+  "revision": 1,
+  "kind": "application",
+  "primary": "web",
+  "services": [
+    {
+      "id": "web",
+      "role": "web",
+      "profile": "synthetic-process",
+      "required": true,
+      "dependsOn": [],
+      "secretRefs": [
+        "appKey"
+      ],
+      "configuration": {
+        "version": 1,
+        "storage": {
+          "shared": [
+            "uploads"
+          ],
+          "private": [
+            "cache"
+          ]
+        },
+        "environment": {
+          "APP_NAME": [
+            {
+              "field": "applicationName"
+            }
+          ],
+          "APP_KEY": [
+            {
+              "secret": "appKey"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "queue",
+      "role": "worker",
+      "profile": "synthetic-process",
+      "required": true,
+      "dependsOn": [
+        "web"
+      ],
+      "secretRefs": [
+        "appKey"
+      ],
+      "configuration": {
+        "version": 1,
+        "storage": {
+          "shared": [
+            "uploads"
+          ],
+          "private": [
+            "cache"
+          ]
+        },
+        "environment": {
+          "APP_NAME": [
+            {
+              "field": "applicationName"
+            }
+          ],
+          "APP_KEY": [
+            {
+              "secret": "appKey"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "scheduler",
+      "role": "scheduler",
+      "profile": "synthetic-process",
+      "required": true,
+      "dependsOn": [
+        "web"
+      ],
+      "secretRefs": [
+        "appKey"
+      ],
+      "configuration": {
+        "version": 1,
+        "storage": {
+          "shared": [
+            "uploads"
+          ],
+          "private": [
+            "cache"
+          ]
+        },
+        "environment": {
+          "APP_NAME": [
+            {
+              "field": "applicationName"
+            }
+          ],
+          "APP_KEY": [
+            {
+              "secret": "appKey"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "presentation": {
+    "version": 1,
+    "id": "web-stack",
+    "revision": 1,
+    "kind": "application",
+    "screens": [
+      {
+        "id": "overview",
+        "label": "Overview",
+        "component": "overview",
+        "permission": "server.view",
+        "actions": [
+          "start",
+          "restart",
+          "stop"
+        ],
+        "options": {
+          "fields": [
+            {
+              "key": "summary.state",
+              "label": "Application status"
+            },
+            {
+              "key": "summary.name",
+              "label": "Application"
+            }
+          ]
+        }
+      },
+      {
+        "id": "services",
+        "label": "Services",
+        "component": "table",
+        "permission": "server.view",
+        "options": {
+          "source": "/services",
+          "collection": "services",
+          "heading": "Application services",
+          "refreshLabel": "Refresh services",
+          "empty": "No services.",
+          "fields": [
+            {
+              "key": "id",
+              "label": "Service"
+            },
+            {
+              "key": "role",
+              "label": "Role"
+            },
+            {
+              "key": "ready",
+              "label": "Ready"
+            },
+            {
+              "key": "running",
+              "label": "Running"
+            },
+            {
+              "key": "error",
+              "label": "Issue"
+            }
+          ]
+        }
+      },
+      {
+        "id": "deployment",
+        "label": "Deployment",
+        "component": "table",
+        "permission": "server.view",
+        "actions": [
+          "deploy"
+        ],
+        "options": {
+          "source": "/deployment",
+          "collection": "steps",
+          "heading": "Application deployment",
+          "refreshLabel": "Refresh deployment",
+          "empty": "No deployment steps.",
+          "actionAvailability": {
+            "deploy": "stopped"
+          },
+          "fields": [
+            {
+              "key": "label",
+              "label": "Step"
+            },
+            {
+              "key": "service",
+              "label": "Service"
+            },
+            {
+              "key": "state",
+              "label": "Outcome"
+            }
+          ]
+        }
+      },
+      {
+        "id": "settings",
+        "label": "Configuration",
+        "component": "settings",
+        "permission": "settings.read",
+        "options": {
+          "source": "/settings",
+          "action": "save-settings",
+          "valuesKey": "values",
+          "paramsKey": "values",
+          "revisionKey": "revision",
+          "requiresStopped": true,
+          "formId": "settings",
+          "submitLabel": "Save configuration",
+          "description": "Stop all application services before saving. The new configuration is passed to each service at its next start.",
+          "fields": [
+            {
+              "key": "applicationName",
+              "label": "Application name",
+              "type": "text",
+              "max": 100,
+              "required": true,
+              "default": "Sandbox application"
+            },
+            {
+              "key": "concurrency",
+              "label": "Queue concurrency",
+              "type": "number",
+              "min": 1,
+              "max": 8,
+              "default": 2
+            },
+            {
+              "key": "schedulerEnabled",
+              "label": "Enable scheduled tasks",
+              "type": "boolean",
+              "default": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "logs",
+        "label": "Logs",
+        "component": "logs",
+        "permission": "logs.read",
+        "adminOnly": true,
+        "options": {
+          "source": "/logs",
+          "key": "logs",
+          "description": "Logs from the application services."
+        }
+      },
+      {
+        "id": "backups",
+        "label": "Backups",
+        "component": "backups",
+        "permission": "backups.read",
+        "options": {
+          "description": "Stop all services before backing up this synthetic application."
+        }
+      },
+      {
+        "id": "accounts",
+        "label": "Accounts",
+        "component": "accounts",
+        "permission": "account.self"
+      },
+      {
+        "id": "operations",
+        "label": "Operations",
+        "adminOnly": true,
+        "component": "operations"
+      }
+    ],
+    "confirmations": {
+      "stop": {
+        "title": "Stop application?",
+        "message": "The web service, queue workers and scheduler will stop."
+      },
+      "restart": {
+        "title": "Restart application?",
+        "message": "The application will be unavailable while its services restart."
+      },
+      "deploy": {
+        "title": "Deploy application?",
+        "message": "The reviewed steps initialize storage, rebuild caches and apply a database migration. Services must be stopped. Uncertain migrations require inspection."
+      }
+    }
+  },
+  "secrets": [
+    {
+      "id": "appKey",
+      "provider": "fixture-key"
+    }
+  ],
+  "deployment": {
+    "version": 1,
+    "permission": "application.web-stack.deploy",
+    "requiresStopped": true,
+    "steps": [
+      {
+        "id": "initialize",
+        "label": "Initialize application storage",
+        "service": "web",
+        "task": "initialize",
+        "replay": "manual"
+      },
+      {
+        "id": "cache",
+        "label": "Build application caches",
+        "service": "web",
+        "task": "cache",
+        "replay": "manual"
+      },
+      {
+        "id": "migrate",
+        "label": "Apply reviewed database migration",
+        "service": "web",
+        "task": "migrate",
+        "replay": "manual"
+      }
+    ]
+  }
+}

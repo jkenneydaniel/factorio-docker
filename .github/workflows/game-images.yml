@@ -1,9 +1,9 @@
 name: Lobby Goblin game images
 on:
   push:
-    paths: ['images/factorio/**', 'images/rust/**', 'panel/games/rust/transport.js', 'panel/games/rust/mods.js', 'panel/games/rust/mod-packages.js', 'panel/core/image-migration.js', 'panel/core/game-images.js', 'panel/test/image-acceptance.mjs', 'panel/package*.json', 'panel/source-layout.js', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', 'panel/games/factorio/update-worker.js', '.github/workflows/game-images.yml']
+    paths: ['images/factorio/**', 'images/rust/**', 'panel/applications/rust/transport.js', 'panel/applications/rust/mods.js', 'panel/applications/rust/mod-packages.js', 'panel/core/image-migration.js', 'panel/core/game-images.js', 'panel/test/image-acceptance.mjs', 'panel/package*.json', 'panel/source-layout.js', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', 'panel/applications/factorio/update-worker.js', '.github/workflows/game-images.yml']
   pull_request:
-    paths: ['images/factorio/**', 'images/rust/**', 'panel/games/rust/transport.js', 'panel/games/rust/mods.js', 'panel/games/rust/mod-packages.js', 'panel/core/image-migration.js', 'panel/core/game-images.js', 'panel/test/image-acceptance.mjs', 'panel/package*.json', 'panel/source-layout.js', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', 'panel/games/factorio/update-worker.js', '.github/workflows/game-images.yml']
+    paths: ['images/factorio/**', 'images/rust/**', 'panel/applications/rust/transport.js', 'panel/applications/rust/mods.js', 'panel/applications/rust/mod-packages.js', 'panel/core/image-migration.js', 'panel/core/game-images.js', 'panel/test/image-acceptance.mjs', 'panel/package*.json', 'panel/source-layout.js', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', 'panel/applications/factorio/update-worker.js', '.github/workflows/game-images.yml']
   workflow_dispatch:
     inputs:
       game:

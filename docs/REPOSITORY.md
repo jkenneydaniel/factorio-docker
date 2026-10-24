@@ -25,7 +25,7 @@ docs/verification/                         Historical design verification
 
 `compose.yaml` and `.env.example` stay at the root because existing standalone
 setup, migration and update logic use that installation layout. Rust's separate
-Compose template stays at `panel/games/rust/compose.yaml`: its preparation code
+Compose template stays at `panel/applications/rust/compose.yaml`: its preparation code
 and published runtime consume that file. Moving it outside `panel/` would change
 the runtime build contract without simplifying the user installation.
 
@@ -70,7 +70,7 @@ with local source edits should continue to fail the updater's baseline check.
 
 ## Ownership and workflows
 
-- `panel/core/`, `panel/fleet/` and `panel/games/` own application and controller
+- `panel/core/`, `panel/fleet/` and `panel/applications/` own application and controller
   behavior. Image bootstraps belong in `images/`, not inside a game adapter.
 - `.github/workflows/game-images.yml` builds/tests Factorio and Rust and supports
   deliberate image publication. `.github/workflows/panel-image.yml` owns the

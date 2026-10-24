@@ -7,9 +7,9 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {makeZip,zipEntries} from '../zip.js';
+import {makeZip,zipEntries} from '../core/archive.js';
 import {hashPassword} from '../auth.js';
-import {PLAYER_QUERY} from '../live-players.js';
+import {PLAYER_QUERY} from '../applications/factorio/live-players.js';
 import {settingsTar,waitForIdleJob} from './fixtures.js';
 
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -36,6 +36,7 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     const value=body?JSON.parse(body):{},url=new URL(req.url,'http://docker');const reply=(status,data)=>{res.writeHead(status,{'content-type':'application/json'});res.end(data===undefined?'':JSON.stringify(data));};
     if(url.pathname==='/containers/json')return reply(200,[]);
     if(url.pathname==='/containers/factorio-server/archive'){res.writeHead(200,{'content-type':'application/x-tar'});return res.end(settingsTar(worldDefaults.map_settings));}
+    if(url.pathname==='/containers/factorio-panel-controller/json')return reply(200,{Mounts:[{Type:'bind',Source:state,Destination:state}]});
     if(url.pathname==='/containers/factorio-server/json')return reply(200,{Image:'sha256:installed-game',State:{Running:running,Status:running?'running':'exited',StartedAt:startedAt},Config:{Image:'factoriotools/factorio:2.0.77'},Mounts:[{Type:'bind',Source:data,Destination:'/factorio'}]});
     if(url.pathname.endsWith('/stats'))return reply(200,{cpu_stats:{cpu_usage:{total_usage:20},system_cpu_usage:100,online_cpus:2},precpu_stats:{cpu_usage:{total_usage:10},system_cpu_usage:50},memory_stats:{usage:123456}});
     if(url.pathname==='/containers/create'){assert.equal(url.searchParams.get('platform'),'linux/amd64');assert.equal(value.Image,'sha256:installed-game');if(value.Labels?.['factorio-panel.preview']==='true')previewHelper=value;helpers.set(url.searchParams.get('name'),value);return reply(201,{Id:url.searchParams.get('name')});}

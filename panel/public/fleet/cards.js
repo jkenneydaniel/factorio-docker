@@ -1,0 +1,53 @@
+import {escapeHTML as esc} from '../shared/view.js';
+import {playerCount} from '../client.js';
+import {serverKey} from './host-paths.js';
+export function serverCards({servers, hosts, live, hostJobs, assigned}, admin) {
+  const hostBusy = (id) => !!hostJobs.get(id);
+  if (assigned)
+    return servers.length
+      ? servers
+          .map(
+            (item) =>
+              `<article class="card"><h2>${esc(item.name)}</h2><p>${esc(item.game)} · ${esc(item.address || '')}</p><a class="button" href="${esc(item.manageUrl)}">Open server</a></article>`,
+          )
+          .join('')
+      : '<p>No servers have been assigned to your account yet. Ask an administrator for access.</p>';
+  return servers.length
+    ? servers
+        .map((s) => {
+          const status = live.get(serverKey(s)),
+            removed = s.state === 'removed',
+            unavailable =
+              !hosts.find((h) => h.id === s.hostId)?.connected || s.unavailable,
+            busy = hostBusy(s.hostId),
+            state = removed
+              ? 'Removed · data kept'
+              : unavailable
+                ? 'Host unavailable'
+                : status?.ready
+                  ? 'Ready'
+                  : status?.running
+                    ? 'Starting'
+                    : status?.state === 'exited'
+                      ? 'Stopped'
+                      : s.state === 'attention'
+                        ? 'Needs attention'
+                        : s.state === 'creating'
+                          ? 'Creating'
+                          : 'Checking';
+          return `<article class="card"><span class="game">${esc(s.game.toUpperCase())} · ${esc(s.hostName)}</span><h2>${esc(s.name)}</h2><span class="status ${unavailable || s.state === 'attention' ? 'attention' : ''}">${esc(state)}</span><p><code>${esc(s.address)}</code></p><div class="stats"><div><strong>${unavailable || status?.players == null ? '—' : playerCount(status.players)}</strong>players</div><div><strong>${esc(s.cpu)}</strong>CPU cores</div><div><strong>${esc(s.memoryGiB)} GiB</strong>memory limit</div></div>${removed ? '<p class="remove-note">Your isolated storage and published snapshots were retained.</p>' : `<div class="actions"><a class="button primary" href="${esc(s.manageUrl)}">Open server</a>${admin ? `<button data-snapshot="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Publish snapshot</button><button class="quiet" data-remove="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Remove</button>` : ''}</div>`}</article>`;
+        })
+        .join('')
+    : '<div class="empty"><h2>Your first server starts here.</h2><p>Create a Factorio factory or a Rust island on this machine or a paired game host.</p></div>';
+}
+export function snapshotCards({snapshots, hostJobs}, admin) {
+  const hostBusy = (id) => !!hostJobs.get(id);
+  return snapshots.length
+    ? snapshots
+        .map(
+          (s) =>
+            `<article class="card"><span class="game">${esc(s.game.toUpperCase())} · ${esc(s.hostName)}</span><h2>${esc(s.title)}</h2><p>From ${esc(s.sourceName)} · ${esc(new Date(s.created).toLocaleDateString())}</p><p class="hint">${s.files} verified files · ${(s.bytes / 1024 ** 2).toFixed(1)} MiB${s.includesPlayerData ? ' · Includes player progress and blueprints' : ''}</p>${admin ? `<button data-clone="${serverKey(s)}" class="primary" ${hostBusy(s.hostId) || s.unavailable ? 'disabled' : ''}>Create server on this host</button>` : ''}</article>`,
+        )
+        .join('')
+    : '<div class="empty"><h2>A library worth returning to.</h2><p>Publish a consistent saved world from a managed server. Each snapshot stays on its source host; clones become independent servers there.</p></div>';
+}

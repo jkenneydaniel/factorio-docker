@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {completedSave,saveVersion,SaveMapQueue} from '../save-map.js';
+import {completedSave,saveVersion,SaveMapQueue} from '../applications/factorio/save-map.js';
 
 const loaded='0.1 Loading map /factorio/saves/Factory.zip: 100 bytes.\n';
 test('completed saves include autosaves, manual saves, disconnect saves, and shutdown saves',()=>{

@@ -1,0 +1,163 @@
+<template id="map">
+  <p id="map-refresh-state" class="form-note" role="status"></p>
+  <div data-part="banners"></div>
+  <div class="warning" data-part="stale">
+    This snapshot belongs to a different world. Refresh to draw the current
+    world.
+  </div>
+  <div class="warning" data-part="limited">
+    This large map is limited to 2,048 explored chunks nearest spawn and 80,000
+    objects.
+  </div>
+  <div class="map-summary">
+    <span><span data-icon="world"></span> <span data-part="world"></span></span
+    ><span data-part="created"></span><span data-part="counts"></span
+    ><span data-part="seed"></span>
+  </div>
+  <section class="map-shell">
+    <div class="map-tools">
+      <div class="button-group">
+        <button id="map-plus" class="button small" aria-label="Zoom in">
+          <span data-icon="plus"></span></button
+        ><button id="map-minus" class="button small" aria-label="Zoom out">
+          <span data-icon="minus"></span></button
+        ><button id="map-fit" class="button small">Fit map</button
+        ><button id="map-base" class="button small">Base / spawn</button>
+      </div>
+      <span id="map-coordinates">X 0 · Y 0</span>
+    </div>
+    <canvas
+      id="world-map"
+      tabindex="0"
+      aria-label="Explored factory map. Drag to pan, scroll or pinch to zoom. Arrow keys pan, plus and minus zoom, zero fits the map."
+    ></canvas>
+    <div class="map-layers">
+      <label class="check-label"
+        ><input
+          type="checkbox"
+          data-map-layer="resources"
+          checked
+        />Resources</label
+      >
+      <label class="check-label"
+        ><input
+          type="checkbox"
+          data-map-layer="buildings"
+          checked
+        />Buildings</label
+      >
+      <label class="check-label"
+        ><input
+          type="checkbox"
+          data-map-layer="railways"
+          checked
+        />Railways</label
+      >
+      <label class="check-label"
+        ><input type="checkbox" data-map-layer="power" />Power</label
+      >
+      <label class="check-label"
+        ><input type="checkbox" data-map-layer="enemies" checked />Enemies &amp;
+        bases</label
+      >
+      <label class="check-label"
+        ><input type="checkbox" data-map-layer="pollution" />Pollution</label
+      >
+      <label class="check-label"
+        ><input
+          type="checkbox"
+          data-map-layer="players"
+          checked
+        />Players</label
+      >
+      <label class="check-label"
+        ><input type="checkbox" data-map-layer="pins" checked />Pins</label
+      >
+    </div>
+  </section>
+  <p class="hint">
+    Drag to pan · Scroll or pinch to zoom · Tap objects or players for details.
+    Red diamonds mark enemy bases, circles mark worms, and small dots mark enemy
+    units. Enemies reflect the saved snapshot, including explored areas under
+    fog of war; they are not live positions.<span data-part="older">
+      Refresh this older snapshot to include enemy units.</span
+    >
+    Live players may move beyond its edges. Terrain uses one sample per 2 × 2
+    tiles.
+  </p>
+  <div class="section-spacer">
+    <section class="card">
+      <div class="card-header"><h2>Player positions</h2></div>
+      <div class="card-body">
+        <p id="live-player-state" class="form-note" role="status">
+          Checking player tracking…
+        </p>
+        <div id="live-player-list"></div>
+        <button id="toggle-live-players" class="button" disabled>
+          Checking tracking…
+        </button>
+      </div>
+    </section>
+  </div>
+  <div class="split-layout section-spacer">
+    <section class="card">
+      <div class="card-header"><h2>Inspect the map</h2></div>
+      <div class="card-body">
+        <h3 id="map-selection-title">Choose an object or enemy.</h3>
+        <p id="map-selection-detail" class="hint">
+          Tap the map to inspect an object or select coordinates for a shared
+          pin.
+        </p>
+      </div>
+    </section>
+    <section class="card">
+      <div class="card-header"><h2>Shared pins</h2></div>
+      <div class="card-body">
+        <div data-part="pins"></div>
+        <form id="pin-form" class="section-spacer">
+          <label
+            >Pin label<input
+              name="label"
+              maxlength="80"
+              required
+              placeholder="Next iron mine"
+          /></label>
+          <div class="form-grid">
+            <label
+              >X<input
+                name="x"
+                type="number"
+                required
+                step="1"
+                value="0" /></label
+            ><label
+              >Y<input name="y" type="number" required step="1" value="0"
+            /></label>
+          </div>
+          <button class="button">Add shared pin</button>
+        </form>
+      </div>
+    </section>
+  </div>
+</template>
+<template id="map-empty"
+  ><p id="map-refresh-state" class="form-note" role="status"></p>
+  <div data-part="banners"></div>
+  <div data-part="empty"></div
+></template>
+<template id="pin"
+  ><div class="detail-row">
+    <button class="text-button" data-map-pin></button
+    ><button class="button small danger" data-remove-pin>Remove</button>
+  </div></template
+>
+<template id="pins-empty"><p class="hint">No shared pins yet.</p></template>
+<template id="live-player"
+  ><div class="detail-row live-player-row">
+    <span></span><button class="button small"></button></div
+></template>
+<template id="live-empty"
+  ><p class="hint">
+    Nobody is online. Players appear here when they join.
+  </p></template
+>

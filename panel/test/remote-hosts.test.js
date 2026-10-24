@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {fileURLToPath,pathToFileURL} from 'node:url';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import {execFile} from 'node:child_process';
@@ -10,13 +11,13 @@ import {promisify} from 'node:util';
 import ssh2 from 'ssh2';
 const {Server}=ssh2;
 import {Readable} from 'node:stream';
-import {createFactorio} from '../games/factorio/controller.js';
+import {createFactorio} from '../applications/factorio/controller.js';
 import {startFleetController} from '../fleet/controller.js';
 import {startFleetWeb} from '../fleet/web.js';
 import {startHostAgentWeb} from '../fleet/agent-web.js';
 import {RemoteHosts,remoteRoute,hostOrigin} from '../fleet/hosts.js';
 import {HostSetup,setupInput,setupScript} from '../fleet/host-setup.js';
-import {probeSSH,runSSH,fingerprint} from '../fleet/ssh.js';
+import {probeSSH,runSSH} from '../fleet/ssh.js';
 import {runAgentUpdate} from '../fleet/agent-update-worker.js';
 import {AgentUpdater,agentVersion} from '../fleet/agent-update.js';
 import {optionsFor} from '../install.js';
@@ -72,7 +73,7 @@ test('central login keeps remote reads, administrator changes and CSRF checks sc
  const login=async(username,password)=>{const r=await fetch(origin+'/api/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({username,password})});assert.equal(r.status,200);return {cookie:r.headers.get('set-cookie').split(';')[0],...await r.json()};};const admin=await login('Admin','test-admin-long-password'),viewer=await login('Viewer','test-viewer-long-password');
  const call=(route,user=admin,body,csrf=true)=>fetch(origin+route,{method:body===undefined?'GET':'POST',headers:{origin,cookie:user.cookie,'content-type':'application/json',...(csrf?{'x-csrf-token':user.csrf}:{})},body:body===undefined?undefined:JSON.stringify(body)});
  assert.equal((await call('/api/hosts',viewer)).status,200);assert.equal((await call('/api/host-pairing',viewer)).status,403);assert.equal((await call('/api/host-setup',viewer)).status,403);assert.equal((await call('/api/host-setup-plan',viewer,{})).status,403);assert.equal((await call('/api/hosts',admin,{},false)).status,403);
- const prefix='/hosts/'+two+'/servers/'+serverId;const html=await call(prefix+'/');assert.equal(html.status,200);assert.ok((await html.text()).includes(prefix+'/app.js'));assert.equal((await call(prefix+'/api/session',viewer)).status,200);assert.equal((await call(prefix+'/api/jobs',viewer,{action:'start'})).status,403);assert.equal((await call(prefix+'/api/mod-library',viewer)).status,403);assert.equal((await call(prefix+'/api/jobs',admin,{action:'start'},false)).status,403);
+ const prefix='/hosts/'+two+'/servers/'+serverId;const html=await call(prefix+'/');assert.equal(html.status,200);const markup=await html.text(),entry=new URL(markup.match(/<script[^>]+src="([^"]+)"/)[1],origin+prefix+'/');assert.equal(entry.pathname,prefix+'/app.js');assert.equal((await call(entry.pathname)).status,200);assert.equal((await(await call(prefix+'/application-definition.json')).json()).id,'factorio');assert.equal((await call(prefix+'/api/session',viewer)).status,200);assert.equal((await call(prefix+'/api/jobs',viewer,{action:'start'})).status,403);assert.equal((await call(prefix+'/api/mod-library',viewer)).status,403);assert.equal((await call(prefix+'/api/jobs',admin,{action:'start'},false)).status,403);
  const body=JSON.stringify(await(await call('/api/hosts')).json());assert.ok(!body.includes(f.central.hosts.host(two).token));
  const removed=await call('/api/hosts/'+two+'/disconnect',admin,{name:'Remote game host',confirm:true});assert.equal(removed.status,200);assert.equal((await call(prefix+'/')).status,404);assert.equal(f.remote.manager.state.servers[0].state,'installed');
 });
@@ -187,4 +188,27 @@ test('agent recovery uses the current owned runtime without registry access or a
  const updater=new AgentUpdater(manager,{enabled:true});await writeJSON(updater.file,{...f.state,state:'attention'});await updater.apply({recover:true,confirm:true});
  for(let n=0;n<100&&updater.busy;n++)await sleep(5);
  const helper=calls.find(call=>call.route.startsWith('/containers/create'));assert.ok(helper,'Recovery should launch a helper with the cached current image');assert.equal(helper.data.Image,runtime);assert.equal(helper.data.HostConfig.NetworkMode,'none');assert.equal(f.game.State.Running,true);
+});
+
+test('game-only update context survives paired host and agent gateways to the instance controller',async t=>{
+ const f=await pair(t),forwarded=[],original=globalThis.fetch;
+ f.remote.manager.state.servers=[{id:serverId,game:'factorio',state:'installed',controller:'synthetic-controller',controllerToken:'synthetic-instance-token'}];
+ f.remote.manager.ownedContainer=async()=>({Id:'synthetic-owned-controller'});
+ t.mock.method(globalThis,'fetch',async(url,options)=>{
+  if(String(url).startsWith('http://synthetic-controller:8081/')){forwarded.push(options.headers);assert.equal(options.headers.authorization,'Bearer synthetic-instance-token');return new Response('{"id":"game-update"}',{status:202,headers:{'content-type':'application/json'}});}
+  return original(url,options);
+ });
+ const response=await fetch(f.central.origin+'/hosts/'+two+'/servers/'+serverId+'/controller/update-install',{method:'POST',headers:{authorization:'Bearer '+f.central.token,'content-type':'application/json','x-panel-user':'Assigned','x-panel-update-kind':'game'},body:JSON.stringify({planId:'fixture',confirm:true})});
+ assert.equal(response.status,202,await response.clone().text());assert.equal(forwarded.length,1);assert.equal(forwarded[0]['x-panel-update-kind'],'game');assert.match(forwarded[0]['x-panel-user'],/remote:.*Assigned/);
+});
+
+
+test('SSH bootstrap carries a closed set of installer imports including the broker compose definition',async t=>{
+ const root=await temporary(t),payload=path.join(root,'payload'),source=fileURLToPath(new URL('../',import.meta.url)),version=JSON.parse(await fs.readFile(path.join(source,'package.json'))).version;
+ const plan={...setupInput({name:'Fixture',host:'host.example.test',username:'root',domain:'host.example.test',memory:16,useSudo:false,installDocker:false},version),id:'e'.repeat(32)};
+ const staged=[];await setupScript(plan,{read:async file=>{const relative=path.relative(source,file);assert.ok(!relative.startsWith('..')&&!path.isAbsolute(relative));const bytes=await fs.readFile(file),target=path.join(payload,relative);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,bytes);staged.push(relative);return bytes;}});
+ assert.ok(staged.includes('fleet/broker-compose.js'));
+ assert.ok(staged.includes('core/management-installation.js'));
+ const installer=await import(pathToFileURL(path.join(payload,'host-install.js')).href),files=installer.hostInstallationFiles(plan.options,'f'.repeat(32)),compose=JSON.parse(files['host.compose.json']);
+ assert.equal(compose.services['docker-broker'].labels['io.lobby-goblin.role'],'docker-broker');assert.equal(compose.services['fleet-controller'].environment.DOCKER_BROKER_SOCKET,'/broker/socket/docker.sock');
 });

@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "id": "arena",
+  "revision": 1,
+  "kind": "game",
+  "screens": [
+    {
+      "id": "overview",
+      "label": "Overview",
+      "component": "resource",
+      "permission": "server.view",
+      "options": {"source": "/score", "heading": "Arena", "fields": [{"key": "score", "label": "Score", "id": "arena-score"}]}
+    },
+    {
+      "id": "arena",
+      "label": "Arena",
+      "component": "resource",
+      "permission": "game.arena.rotate",
+      "actions": ["rotate"],
+      "options": {"source": "/score", "fields": [{"key": "score", "label": "Score", "id": "arena-score"}]}
+    },
+    {"id": "accounts", "label": "Accounts", "component": "accounts", "permission": "account.self"}
+  ]
+}

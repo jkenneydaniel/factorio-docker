@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {gameSources,parseGameImage,gameUpdate} from '../public/game-images.js';
-import {gameUpdateForm} from '../public/game-update.js';
+import {gameSources,parseGameImage,gameUpdate,gameUpdateModel} from '../applications/factorio/public/game-images.js';
 const owned=gameSources.factory.repository;
 test('image references accept only pinned supported repositories and exact revisions',()=>{
   assert.equal(parseGameImage('factoriotools/factorio:2.0.77'),null);
@@ -16,9 +15,15 @@ test('only first-party updates are offered and legacy sources cannot be selected
  assert.throws(()=>gameUpdate('factoriotools/factorio:2.0.77',{target:'2.0.78'}),/migrate first/);
 });
 test('image selection keeps the current provider and revision and disables unrecognized installations',()=>{
-  assert.match(gameUpdateForm(owned+':2.0.77-fc.3'),/value="factory" selected/);
-  assert.match(gameUpdateForm(owned+':2.0.77-fc.3'),/value="3"/);
-  assert.doesNotMatch(gameUpdateForm('factoriotools/factorio:2.0.77'),/value="upstream"/);
-  assert.match(gameUpdateForm('custom/server:latest'),/reviewed host upgrade/);
-  assert.match(gameUpdateForm('custom/server:latest'),/<select name="source" aria-label="Image source" disabled/);
+  const recognized=gameUpdateModel(owned+':2.0.77-fc.3');
+  assert.equal(recognized.current.source,'factory');
+  assert.equal(recognized.current.revision,3);
+  assert.equal(recognized.blocked,false);
+  assert.equal(gameUpdateModel(owned+':2.0.77-fc.3',true).blocked,true);
+  for(const image of ['factoriotools/factorio:2.0.77','custom/server:latest']){
+    const model=gameUpdateModel(image);
+    assert.equal(model.current,null);
+    assert.equal(model.blocked,true);
+    assert.deepEqual(model.sources.map(source=>source.id),['factory']);
+  }
 });
