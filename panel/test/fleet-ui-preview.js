@@ -11,12 +11,13 @@ import {hashPassword} from '../auth.js';
 import {writeJSON,json,requestJSON,assert} from '../common.js';
 import {setupInput} from '../fleet/host-setup.js';
 const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lobby-host-ui-'))),auth=path.join(root,'auth'),tokenFile=path.join(root,'token'),token='f'.repeat(64),fleet='a'.repeat(32);
-await fs.mkdir(auth);await fs.writeFile(tokenFile,token);await writeJSON(path.join(auth,'users.json'),{Preview:{...hashPassword('isolated-panel-preview-password'),role:'admin'},Viewer:{...hashPassword('isolated-panel-preview-password'),role:'viewer'}});
+await fs.mkdir(auth);await fs.writeFile(tokenFile,token);await writeJSON(path.join(auth,'users.json'),{Preview:{...hashPassword('isolated-panel-preview-password'),role:'admin'},Viewer:{...hashPassword('isolated-panel-preview-password'),role:'viewer'},Assigned:{...hashPassword('isolated-panel-preview-password'),role:'member',grants:{['/servers/'+'b'.repeat(32)]:['server.view','server.operate']},accessRevision:0}});
 const manager=new FleetManager({root:path.join(root,'state'),library:path.join(root,'library'),fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,hostContainer:'fixture',image:'fixture',memoryBudgetGiB:24,docker:async(method,route)=>{assert(method==='GET'&&route==='/info','This preview cannot use Docker.');return {MemTotal:32*1024**3};}});await manager.init();
 manager.state.servers=[{id:'b'.repeat(32),game:'factorio',name:'Friday factory',state:'installed',memoryGiB:3,cpu:2,gamePort:35000},{id:'c'.repeat(32),game:'rust',name:'Island crew',state:'installed',memoryGiB:12,cpu:4,gamePort:35003}];await manager.persist();
 const remoteId='d'.repeat(32),previewVersion='0.3.5-alpha';let remote=null,setupPlan=null;const setupJobs=[];
 const backend=http.createServer((req,res)=>{void(async()=>{
  assert(req.headers.authorization==='Bearer '+token,'Unauthorized',401);
+ if(req.method==='GET'&&req.url==='/status')return json(res,200,{ready:true});
  if(req.url==='/host-settings'){if(req.method==='GET')return json(res,200,await manager.hostSettings());return json(res,200,await manager.updateHostSettings(await requestJSON(req),'preview'));}
  if(req.url==='/hosts'){
   if(req.method==='POST'){await requestJSON(req);remote={id:remoteId,name:'Weekend game host',origin:'https://host.example.test:24443',connection:'persistent',local:false,connected:true,version:'0.3.4-alpha',panelVersion:previewVersion,aligned:false,agentOnly:true};return json(res,201,remote);}
@@ -30,7 +31,7 @@ const backend=http.createServer((req,res)=>{void(async()=>{
   if(req.method==='POST'){await requestJSON(req);remote={id:remoteId,name:setupPlan.name,origin:setupPlan.options.origin,connection:'persistent',local:false,connected:true,version:previewVersion,panelVersion:previewVersion,aligned:true,agentOnly:true};setupJobs.unshift({id:'setup',name:remote.name,host:setupPlan.host,state:'succeeded',message:'Host connected. You can create a server on it now.'});return json(res,202,setupJobs[0]);}
   return json(res,200,{jobs:setupJobs,active:null});
  }
- let route=req.url;
+ let route=new URL(req.url,'http://fixture').pathname;
  if(route.startsWith('/hosts/'+remoteId+'/')){
   assert(remote,'Remote fixture is disconnected.',404);route=route.slice(('/hosts/'+remoteId).length);
   if(route==='/disconnect'){await requestJSON(req);remote=null;return json(res,200,{disconnected:true,revoked:true,message:'Synthetic host disconnected; no real servers were contacted.'});}
@@ -52,7 +53,7 @@ const backend=http.createServer((req,res)=>{void(async()=>{
  json(res,404,{error:'Unavailable in isolated preview.'});
  })().catch(error=>json(res,error.status||500,{error:error.message}));});
 await new Promise(r=>backend.listen(0,'127.0.0.1',r));
-const web=await startFleetWeb({env:{AUTH_DIR:auth,CONTROLLER_TOKEN_FILE:tokenFile,CONTROLLER_URL:'http://127.0.0.1:'+backend.address().port,PANEL_HOSTS:'127.0.0.1,localhost'},port:Number(process.env.UI_PREVIEW_PORT||8098),hostname:'127.0.0.1'});
+const web=await startFleetWeb({env:{AUTH_DIR:auth,CONTROLLER_TOKEN_FILE:tokenFile,CONTROLLER_URL:'http://127.0.0.1:'+backend.address().port,PANEL_HOSTS:'127.0.0.1,localhost',RELEASE_CHECKS:'false'},port:Number(process.env.UI_PREVIEW_PORT||8098),hostname:'127.0.0.1'});
 let shutting=false;async function cleanup(){if(shutting)return;shutting=true;web.closeAllConnections();backend.closeAllConnections();await Promise.all([new Promise(r=>web.close(r)),new Promise(r=>backend.close(r))]);await fs.rm(root,{recursive:true,force:true});}
 process.on('SIGINT',()=>void cleanup().then(()=>process.exit()));process.on('SIGTERM',()=>void cleanup().then(()=>process.exit()));
 console.log('Disposable host-settings UI fixture ready on loopback. Host setup, pairing, updates and creation are synthetic.');

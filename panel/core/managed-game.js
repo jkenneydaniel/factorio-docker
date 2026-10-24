@@ -1,5 +1,7 @@
 import {assert} from '../common.js';
 import {validId} from './instance.js';
+import {imageMatch} from './image-policy.js';
+import {validateManagedBinding} from './managed-bindings.js';
 
 // Versioned, trusted built-in adapters. No module path or image comes from a request.
 export function validateManagedGame(module) {
@@ -146,11 +148,22 @@ export function validateManagedGame(module) {
     assert(
       /^\/[A-Za-z0-9_/-]+$/.test(managed.previewWorker.target) &&
         !managed.previewWorker.target.includes('..') &&
-        /^data\/[A-Za-z0-9_.-]+$/.test(managed.previewWorker.root) &&
-        !['data/.', 'data/..'].includes(managed.previewWorker.root),
+        /^state\/[A-Za-z0-9_.-]+$/.test(managed.previewWorker.root) &&
+        !['state/.', 'state/..'].includes(managed.previewWorker.root),
       'Invalid game preview worker.',
     );
-  return managed;
+  if (module.contract?.policy) {
+    assert(imageMatch(module.imagePolicy, managed.catalog.image), 'Managed image differs from its game policy.');
+    const paths = managed.archiveReadPaths;
+    assert(Array.isArray(paths) && paths.length <= 16 && paths.every(value => typeof value === 'string' && /^\/[A-Za-z0-9_./-]+$/.test(value) && !value.split('/').includes('..')), 'Invalid game archive-read policy.');
+    assert(Array.isArray(managed.execCommands) && managed.execCommands.length <= 16 && managed.execCommands.every(value => /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value.executable) && Number.isInteger(value.arguments) && value.arguments >= 0 && value.arguments <= 16 && Number.isInteger(value.maxArgumentBytes) && value.maxArgumentBytes > 0 && value.maxArgumentBytes <= 65536), 'Invalid game command-helper policy.');
+    if (managed.previewWorker) {
+      const worker = managed.previewWorker;
+      assert(Array.isArray(worker.entrypoint) && worker.entrypoint.length > 0 && worker.entrypoint.length <= 8 && worker.entrypoint.every(value => typeof value === 'string' && value.length > 0 && value.length <= 256) && /^\/[A-Za-z0-9_./-]+$/.test(worker.entrypoint[0]) && !worker.entrypoint[0].split('/').includes('..'), 'Invalid game worker entrypoint.');
+      assert(Array.isArray(worker.namePrefixes) && worker.namePrefixes.length > 0 && worker.namePrefixes.length <= 8 && worker.namePrefixes.every(value => /^[a-z][a-z0-9-]{0,63}-$/.test(value)), 'Invalid game worker names.');
+    }
+  }
+  validateManagedBinding(module);return managed;
 }
 
 export function gameCatalog(module) {

@@ -1,6 +1,7 @@
+import {agentOperationJournal} from './operation-sources.js';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {assert,readJSON,writeJSON,sleep} from '../common.js';
+import {assert,readJSON,sleep} from '../common.js';
 import {docker as dockerAPI} from '../core/docker.js';
 import {replacementSpec} from '../core/image-migration.js';
 
@@ -53,5 +54,5 @@ export async function runAgentUpdate(state,{docker=dockerAPI,save,wait=sleep}={}
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const file='/fleet/agent-update.json',state=await readJSON(file,null);assert(state?.fleet===process.env.FLEET_ID,'Agent update does not belong to this helper.');await sleep(2000);
- await runAgentUpdate(state,{save:next=>writeJSON(file,next)});
+ await runAgentUpdate(state,{save:next=>agentOperationJournal(file).write(next)});
 }

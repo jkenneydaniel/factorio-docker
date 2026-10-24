@@ -26,7 +26,8 @@ The fixture rejects unscoped requests so a scope regression cannot appear to wor
 The production shared shell/client assets are served by these fixtures too.
 
 `node panel/test/fleet-ui-preview.js` serves the host manager on loopback port
-8098 (`UI_PREVIEW_PORT` overrides it). Sign in as `Preview` or read-only `Viewer`
+8098 (`UI_PREVIEW_PORT` overrides it). Sign in as `Preview`, read-only `Viewer`,
+or assigned-server `Assigned`
 with `isolated-panel-preview-password`. SSH installation, code pairing, agent
 updates and creation are synthetic; no real SSH/Docker/game resources are used.
 `node --test panel/test/remote-hosts.test.js` additionally exercises disposable
@@ -65,7 +66,7 @@ simulations only; real lifecycle, account writes and installations stay blocked.
 ## Build without deploying
 
 ```sh
-docker build -t local/lobby-goblin:0.3.6-alpha panel
+docker build -t local/lobby-goblin:0.3.7-alpha panel
 docker compose --env-file .env.example config --quiet
 ```
 
@@ -143,3 +144,98 @@ before attaching installer metadata containing `panelImage`. Bump package/lock,
 Dockerfile labels and default image references together. Development builds can
 still use explicit local tags; installation updates consume verified published
 digests. Neither workflow deploys a game or changes its world.
+
+## Automated browser regression coverage
+
+Use Node 24 or newer. Browser tooling is isolated under `panel/test/browser/` and
+is excluded from runtime images; production dependencies are unchanged.
+
+```sh
+npm ci --prefix panel --ignore-scripts
+npm ci --prefix panel/test/browser --ignore-scripts
+cd panel/test/browser
+npx playwright install chromium
+npm test
+```
+
+From the repository root, `npm run test:browser --prefix panel` also runs the
+suite after those dependencies are installed. It runs Chromium at desktop and
+390 px mobile widths against disposable loopback fixtures. Ports 41731–41737
+must be free: the runner deliberately refuses to reuse an existing listener.
+There is no configurable live-panel URL or real Docker/game transport. The
+browser context blocks external requests, and recovery fixtures reject host
+mutations. Temporary accounts/storage are removed when fixture processes exit.
+
+Coverage includes scoped creation/completion/reload, setup completion/deferral,
+delayed authentication, game creation defaults, viewer permissions, expired
+sessions, cancellation of disruptive actions, and persisted recovery review.
+Shared account coverage checks invitation scope, password confirmation and renewed
+CSRF. Both games exercise scheduling and cleanup presentation, with Rust downtime
+consent and draft preservation. Extracted game screens, mod restrictions and
+host-budget drafts are exercised at both widths.
+CI installs Chromium, runs the same suite, and uploads traces/screenshots on
+failure. Local reports and recovery screenshots are under `output/playwright/`.
+
+## Static quality gates
+
+Install the separate, locked developer package, then run all checks from the
+repository root:
+
+```sh
+npm ci --prefix panel --ignore-scripts
+npm ci --prefix panel/quality --ignore-scripts
+npm run quality --prefix panel
+```
+
+The quality package provides:
+
+- ESLint recommended checks with zero warnings across first-party JavaScript in
+  `panel/`, `tools/` and `images/`. Browser and Node globals are distinct. Frozen
+  updater fixtures, generated output and dependencies are excluded.
+- Prettier checks for all frontend JavaScript/CSS and quality-tool source.
+  To format changed frontend files, use
+  `node panel/quality/node_modules/prettier/bin/prettier.cjs --config panel/quality/prettier.json --write <files>`.
+- Strict, no-emit JavaScript type checking for shared session/operation/view
+  contracts, including negative probes that must remain invalid. This is a
+  checked shared boundary, not a claim that every legacy screen or backend file
+  is typed. Type declarations use JSDoc in `.js` files to preserve older updater
+  archive compatibility.
+- Served import-graph checks for both games and fleet, including nested module
+  imports, compatibility entrypoints, stylesheet imports and scoped server URLs.
+  Self-checks prove missing imports, incorrect aliases, scope escapes and dynamic
+  import paths are rejected.
+
+Individual lanes are `npm run lint --prefix panel/quality`, `npm run format --prefix panel/quality`, `npm run typecheck --prefix panel/quality` and
+`npm run assets --prefix panel/quality`. `format` checks without rewriting.
+These tools do not start a panel, connect to Docker, inspect installation data or
+run a game. They are excluded from runtime images and do not change the runtime
+package or lockfile. They remain in source bundles for development.
+
+CI requires this gate before its build job. The reusable panel-image workflow
+also runs it before building or publishing, so release image publication cannot
+bypass the static checks. Hosted execution is separate evidence from a local
+successful run. See [the local results](verification/frontend-quality.md).
+
+## Access, audit and isolation checks
+
+The [access contract](ACCESS.md) defines capabilities, scopes and limitations.
+Focused regressions are in `permissions.test.js`, `permissions-http.test.js`,
+`audit.test.js` and `isolation.test.js`. They exercise exact local/remote
+assignments, changed-session revocation, trusted actors, explicit mods/images,
+saved-plan validation, audit failures, retention/integrity and Docker fencing.
+Shared-core/update tests cover propagation of game-only update restrictions.
+All use temporary state and mock host/game transports. The Rust browser fixture
+also has `member / rust-preview-password`, with only standalone view/mod access.
+Do not substitute live accounts, controller URLs, Docker sockets or game paths.
+See [local verification](verification/access-audit-isolation.md).
+
+## Broker regression fixtures
+
+`panel/test/docker-broker.test.js` runs a real Unix-socket broker against a fake
+engine in temporary directories. It verifies adversarial scoped requests,
+credential revocation/restart, no transport fallback, host provisioning,
+controller generation helpers, memory concurrency and review-only upgrade plans.
+Native Windows skips Unix cases; production broker sockets live in Linux
+containers. No test uses the host Docker socket. New broker modules are covered
+by both historical and current source-bundle validation. See
+[isolation evidence](verification/docker-broker.md) before operational acceptance.

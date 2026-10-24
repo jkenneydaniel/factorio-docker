@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {assert,readJSON,writeJSON} from './common.js';
+import {assert} from './common.js';
+import {ConfigurationRepository} from './core/storage/state-repositories.js';
 
 const day=86400000, lifetime=10*60000;
 export const defaultRetention={enabled:false,days:30,includeManual:false,includeSafety:false};
@@ -39,11 +40,11 @@ export function retentionSelection(items,{policy,cutoff,keep=null,protectedNames
 // Only this directory's regular archives in the configured format are eligible. World libraries,
 // autosaves, directories and symbolic links never enter a deletion plan.
 export class BackupRetention{
-  constructor({root,file,extension='.zip',protectedNames=()=>[],validations=()=>({}),onDeleted=async()=>{},now=Date.now}){
-    Object.assign(this,{root,file,extension,protectedNames,validations,onDeleted,now});this.plans=new Map();this.writes=Promise.resolve();
+  constructor({root,file,extension='.zip',protectedNames=()=>[],validations=()=>({}),onDeleted=async()=>{},now=Date.now,repository=new ConfigurationRepository(path.dirname(file),'backup-retention',{}, {file:path.basename(file)})}){
+    Object.assign(this,{root,file,extension,protectedNames,validations,onDeleted,now,repository});this.plans=new Map();this.writes=Promise.resolve();
   }
   async init(){
-    const saved=await readJSON(this.file,{});
+    this.storageSnapshot=await this.repository.read();const saved=this.storageSnapshot.value;
     this.record={policy:retentionPolicy({...defaultRetention,...saved.policy}),revision:saved.revision||0,lastRun:saved.lastRun||null};
   }
   status(){return structuredClone(this.record);}
@@ -86,7 +87,7 @@ export class BackupRetention{
       assert(fingerprint(entry.plan.policy)===fingerprint(policy),'Review this policy before enabling automatic cleanup.',409);
     }
     const record={...this.record,policy,revision:this.record.revision+1};
-    await writeJSON(this.file,record);this.record=record;this.plans.clear();return this.status();
+    await this.repository.save(this.storageSnapshot,record);this.record=record;this.plans.clear();return this.status();
   }
   async remove(items,candidates){
     const deleted=[];let bytes=0;
@@ -106,5 +107,5 @@ export class BackupRetention{
     const items=await this.inventory(),selection=await this.selection(items,this.record.policy,null,{keep});
     return this.remove(items,selection.candidates);
   }
-  ran(){return this.queue(async()=>{const record={...this.record,lastRun:new Date(this.now()).toISOString()};await writeJSON(this.file,record);this.record=record;});}
+  ran(){return this.queue(async()=>{const record={...this.record,lastRun:new Date(this.now()).toISOString()};await this.repository.save(this.storageSnapshot,record);this.record=record;});}
 }

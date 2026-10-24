@@ -5,9 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {gzipSync} from 'node:zlib';
 import {makeZip} from '../core/archive.js';
-import {createModManager,validateModAction} from '../games/rust/mods.js';
-import {frameworkFiles,frameworkRelease,sha256} from '../games/rust/mod-packages.js';
-import {inventory,writeArchive,verifyArchive} from '../games/rust/archive.js';
+import {createModManager,validateModAction} from '../applications/rust/mods.js';
+import {frameworkFiles,frameworkRelease,sha256} from '../applications/rust/mod-packages.js';
+import {inventory,writeArchive,verifyArchive} from '../applications/rust/archive.js';
 import {extractRust,publishSnapshot} from '../fleet/snapshots.js';
 import {sourceFile} from '../source-layout.js';
 import {fileURLToPath,pathToFileURL} from 'node:url';
@@ -71,4 +71,13 @@ test('Carbon bootstrap sets only the game child loader environment and refuses p
  await fs.unlink(path.join(f.root,'server/lobby-goblin-rust/world.sav'));
  const result=await startup(env,f.root);assert.equal(result.modEnv.LD_PRELOAD,path.join(f.root,'libdoorstop.so'));assert.equal(result.modEnv.DOORSTOP_ENABLED,'1');
  await fs.writeFile(path.join(f.root,'.lobby-goblin-mods.json'),JSON.stringify({format:1,status:'pending',framework:'carbon'}));await assert.rejects(startup(env,f.root),/incomplete/);
+});
+test('review cleanup failure cannot roll back a committed framework or change world data',async t=>{
+ const f=await fixture(t),plan=await f.manager.plan('oxide'),unlink=fs.unlink;
+ fs.unlink=async file=>{if(path.basename(file)==='plan-'+plan.id+'.json')throw Error('Cleanup unavailable');return unlink(file);};
+ try{await f.manager.install(plan.id);}finally{fs.unlink=unlink;}
+ assert.equal((await f.manager.status()).framework,'oxide');
+ assert.equal((await f.manager.status()).recoveryRequired,false);
+ assert.equal(await fs.readFile(path.join(f.root,'RustDedicated_Data/Managed/Assembly-CSharp.dll'),'utf8'),'oxide patched game');
+ assert.equal(await fs.readFile(path.join(f.root,'server/lobby-goblin-rust/world.sav'),'utf8'),'WORLD SENTINEL');
 });

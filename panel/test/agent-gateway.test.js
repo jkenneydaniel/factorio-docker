@@ -17,7 +17,7 @@ test('every remote POST gateway authenticates peers before consuming chunked or 
  }));
  for(const transport of [undefined,'https','persistent'])for(const headers of [{'transfer-encoding':'chunked'},{'content-length':String(128*1024**2)}])for(const route of ['/servers/'+serverId+'/controller/upload?name=fixture.zip','/host-settings','/disconnect'])for(const denied of [401,503]){
   status=denied;let consumed=0;const before=probes;
-  const req={method:'POST',headers:{authorization:'Bearer '+peer,...headers},socket:{remoteAddress:'127.0.0.1'},async *[Symbol.asyncIterator](){consumed++;throw Error('Request body was consumed before authentication.');}};
+  const req={method:'POST',headers:{authorization:'Bearer '+peer,...headers},socket:{remoteAddress:'127.0.0.1'},async *[Symbol.asyncIterator](){yield* [];consumed++;throw Error('Request body was consumed before authentication.');}};
   const gateway=remoteGateway({env:{PANEL_ORIGIN:origin,AGENT_TRANSPORT:transport},controller,token});
   await assert.rejects(gateway(req,{},new URL('/remote/v1'+route,origin)),{status:denied===401?401:502});
   assert.equal(consumed,0);assert.equal(probes,before+1);

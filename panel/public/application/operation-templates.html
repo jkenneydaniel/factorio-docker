@@ -1,0 +1,50 @@
+<template id="history">
+  <section class="product-card product-workflow product-operation-history">
+    <h2>Operation history</h2>
+    <p>
+      Progress and recovery from application and management workflows. Checking
+      an outcome does not replay the operation.
+    </p>
+    <div class="button-group">
+      <label data-operation-location-label
+        >Host<select data-operation-location aria-label="Host"></select
+      ></label>
+      <label
+        >Show operations<select
+          data-operation-filter
+          aria-label="Show operations"
+        >
+          <option value="all">All operations</option>
+          <option value="review">Needs review</option>
+          <option value="active">In progress</option>
+        </select></label
+      ><button class="button" data-operation-refresh>Refresh history</button>
+    </div>
+    <div data-operation-sources role="status"></div>
+    <div data-operation-list></div>
+  </section>
+</template>
+<template id="operation-record"
+  ><details class="product-card">
+    <summary>
+      <strong data-title></strong> <span class="mini-pill" data-state></span>
+    </summary>
+    <p data-message></p>
+    <p class="hint" data-context></p>
+    <p class="hint" data-correlation></p>
+    <p class="hint" data-legacy>
+      Detailed phases were not recorded for this historical operation.
+    </p>
+    <ol data-phases></ol>
+    <div data-recovery>
+      <p data-recovery-message></p>
+      <div class="button-group" data-recovery-actions></div>
+    </div></details
+></template>
+<template id="phase"><li></li></template>
+<template id="source-unavailable"><p class="warning"></p></template>
+<template id="empty"
+  ><p class="hint">No matching recorded operations.</p></template
+>
+<template id="action"><button type="button" class="button"></button></template>
+<template id="link"><a class="button"></a></template>

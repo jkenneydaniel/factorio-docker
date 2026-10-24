@@ -1,3 +1,4 @@
+import {assertManagementStartAllowed,managementInstallationRuntime} from './core/management-installation.js';
 // Installation operates on a fresh, separately named host manager. It never
 // imports existing accounts, containers or game storage.
 import fs from 'node:fs/promises';
@@ -104,20 +105,23 @@ export function installationEnvironment(env=process.env){return Object.fromEntri
 
 export async function startInstallation(directory,manifest,dependencies={}){
   let lock;
-  try{lock=await fs.open(path.join(directory,'.start.lock'),'wx',0o600);}catch(error){if(error.code==='EEXIST')throw Error('Another installation is starting, or an interrupted start needs review. Inspect .start.lock before retrying.');throw error;}
+  try{lock=await fs.open(path.join(directory,'.start.lock'),'wx',0o600);}catch(error){if(error.code==='EEXIST')throw Error('Another installation is starting, or an interrupted start needs review. Inspect .start.lock before retrying.',{cause:error});throw error;}
   try{return await startPreparedInstallation(directory,manifest,dependencies);}finally{await lock.close();await fs.unlink(path.join(directory,'.start.lock'));}
 }
 async function startPreparedInstallation(directory,manifest,{execute=run,host,log=console.log}={}){
   insist(JSON.stringify(await readInstallation(directory))===JSON.stringify(manifest),'The installation record changed. Review it before starting.');
+  await assertManagementStartAllowed(directory);
+  const runtime=await managementInstallationRuntime(directory,manifest);
   host??=await checkHost({execute});
+  if(runtime.engine)insist((await execute('docker',['info','--format','{{.ID}}'])).trim()===runtime.engine,'This management update belongs to another Docker engine. No containers were started.');
   insist(Number.isFinite(host.memoryGiB)&&host.memoryGiB>=manifest.options.memory+2,'The budget needs at least 2 GiB of additional Docker memory. Reduce --memory or increase Docker memory; leave more room for existing workloads.');
-  const args=composeArgs(directory,manifest),docker=(tail,extra)=>execute('docker',[...args,...tail],{cwd:directory,env:installationEnvironment(),...extra});
+  const args=[...composeArgs(directory,manifest),...runtime.arguments],docker=(tail,extra)=>execute('docker',[...args,...tail],{cwd:directory,env:installationEnvironment(),...extra});
   const containers=await docker(['ps','--all','--quiet']);
   if(containers){log('This installation already has containers. They were not recreated or restarted. Open '+manifest.options.origin+' or inspect its existing installation manually.');return {started:false};}
   await docker(['config','--quiet']);
   await docker(['pull'],{inherit:true});
   // An older published image cannot silently bypass the HTTPS/origin changes.
-  await execute('docker',['run','--rm','--entrypoint','node',manifest.options.image,'--input-type=module','-e',"const m=await import('./install.js');if(m.INSTALLER_FORMAT!==1)process.exit(1)"],{inherit:true});
+  await execute('docker',['run','--rm','--entrypoint','node',runtime.image,'--input-type=module','-e',"const m=await import('./install.js');if(m.INSTALLER_FORMAT!==1)process.exit(1)"+((await fs.readFile(path.join(directory,'fleet.compose.yaml'),'utf8')).includes('MODE: docker-broker')?";const b=await import('./core/docker-broker.js');if(b.BROKER_PROTOCOL!==1)process.exit(1)":'')],{inherit:true});
   insist(JSON.stringify(await readInstallation(directory))===JSON.stringify(manifest),'The installation record changed. Review it before starting.');
   log('Starting only the new host manager. No game server is created.');
   await docker(['up','-d','--no-build','--wait','--wait-timeout','180'],{inherit:true});

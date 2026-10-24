@@ -7,16 +7,16 @@ import {
 } from '../core/snapshot-files.js';
 import {validateManagedGame} from '../core/managed-game.js';
 import {validId} from '../core/instance.js';
-import {selectedGame} from '../games/index.js';
+import {selectedApplication} from '../applications/index.js';
 export {hashFile} from '../core/snapshot-files.js';
 // Historical import retained for callers of the original fleet snapshot helper.
-export {extractRust} from '../games/rust/snapshots.js';
+export {extractRust} from '../applications/rust/snapshots.js';
 
 export async function publishSnapshot({
   library,
   record,
   backup,
-  module = selectedGame(record.game),
+  module = selectedApplication(record.game),
 }) {
   assert(
     validId(record.id) && validId(record.sourceId) && module.id === record.game,
@@ -92,7 +92,7 @@ export async function cloneSnapshot({
   data,
   game,
   image,
-  module = selectedGame(game),
+  module = selectedApplication(game),
 }) {
   const adapter = validateManagedGame(module).snapshots;
   const manifest = await verifySnapshot(library, id, hash);

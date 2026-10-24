@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {Accounts} from '../accounts.js';
+import {Accounts} from '../applications/factorio/accounts.js';
 import {hashPassword,checkPassword} from '../auth.js';
 
 test('registration survives restart, consumes invitations once, and preserves account roles',async t=>{

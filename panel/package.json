@@ -1,11 +1,13 @@
 {
   "name": "lobby-goblin",
-  "version": "0.3.6-alpha",
+  "version": "0.3.7-alpha",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "test:browser": "npm --prefix test/browser test",
+    "quality": "npm --prefix quality run check"
   },
   "engines": {
     "node": ">=24"

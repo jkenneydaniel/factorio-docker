@@ -9,8 +9,8 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import crypto from 'node:crypto';
 import assert from 'node:assert/strict';
-import {parseGameImage,gameSources} from '../panel/public/game-images.js';
-import {compatibleGameImage,validateGameImage,inspectGameImage,gameImageProbe,reportsGameVersion} from '../panel/update-worker.js';
+import {parseGameImage,gameSources} from '../panel/applications/factorio/public/game-images.js';
+import {compatibleGameImage,validateGameImage,inspectGameImage,gameImageProbe,reportsGameVersion} from '../panel/applications/factorio/update-worker.js';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const exec=promisify(execFile);
 export async function imageDefinition(directory=root){

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import {navigationAllowed} from '../public/shared/access.js';
 import vm from 'node:vm';
 
 const source = (
@@ -38,7 +39,7 @@ function fixture(options = {}) {
       querySelector: () => null,
     };
   const context = vm.createContext({
-    document,
+    document,navigationAllowed,
     pagePath: (hash) => '/' + hash,
     serverPath: (value) => value,
     clearTimeout() {},

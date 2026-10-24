@@ -1,24 +1,28 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
-import {readJSON,writeJSON,assert} from '../common.js';
+import {assert} from '../common.js';
+import {AccountsRepository} from './storage/document-repository.js';
+import {normalizeGrants,permissionCatalog} from './permissions.js';
 import {hashPassword,checkPassword} from '../auth.js';
 
+const summarizeAccess = user => ({role:user?.role||'removed',grants:structuredClone(user?.grants||{})});
+function accessChange(before,after){
+ const scopes=[...new Set([...Object.keys(before.grants),...Object.keys(after.grants)])];
+ return {roles:[before.role,after.role],assignments:scopes.filter(scope=>JSON.stringify(before.grants[scope]||[])!==JSON.stringify(after.grants[scope]||[])).map(scope=>({scope,before:before.grants[scope]||[],after:after.grants[scope]||[]}))};
+}
 const digest=value=>crypto.createHash('sha256').update(value).digest('hex');
 export class Accounts {
-  constructor(root){this.file=path.join(root,'users.json');this.queue=Promise.resolve();}
+  constructor(root,{permissionCatalog:catalog=permissionCatalog,repository=new AccountsRepository(root)}={}){this.permissionCatalog=catalog;this.file=path.join(root,'users.json');this.repository=repository;this.queue=Promise.resolve();}
   transaction(action){
-    const result=this.queue.then(async()=>{
-      const value=await readJSON(this.file,{});
-      const state=value.version===2?value:{version:2,users:value,invitations:{}};
-      return action(state,()=>writeJSON(this.file,state));
-    });
+    const result=this.queue.then(()=>this.repository.transaction(action));
     this.queue=result.catch(()=>{});return result;
   }
   async onDelete(){}
+  async deletionRecords(){return [];}
   users(){return this.transaction(state=>state.users);}
-  list(){return this.transaction(state=>({users:Object.entries(state.users).map(([username,user])=>({username,role:user.role,created:user.created})),invitations:Object.entries(state.invitations).filter(([,item])=>item.expires>Date.now()).map(([id,item])=>({id,role:item.role,expires:item.expires,createdBy:item.createdBy}))}));}
+  list(){return this.transaction(state=>({users:Object.entries(state.users).map(([username,user])=>({username,role:user.role,created:user.created,...(user.role==='member'?{grants:user.grants||{},accessRevision:user.accessRevision||0}:{})})),invitations:Object.entries(state.invitations).filter(([,item])=>item.expires>Date.now()).map(([id,item])=>({id,role:item.role,expires:item.expires,createdBy:item.createdBy}))}));}
   invite(role,createdBy,{bootstrap=false}={}){
-    assert(['admin','viewer'].includes(role),'Choose administrator or read-only access.');
+    assert(['admin','viewer','member'].includes(role),'Choose administrator, read-only or assigned-server access.');
     return this.transaction(async(state,save)=>{
       state.invitations=Object.fromEntries(Object.entries(state.invitations).filter(([,item])=>item.expires>Date.now()));
       assert(Object.keys(state.invitations).length<100,'Revoke an unused invitation before creating another.');
@@ -46,7 +50,7 @@ export class Accounts {
       assert(!Object.keys(state.users).some(name=>name.toLowerCase()===username.toLowerCase()&&!(retire[name]&&retire[name]===state.users[name].hash)),'That username is already in use.',409);
       assert(Object.keys(state.users).length<100,'The account limit has been reached.');
       for(const [name,hash] of Object.entries(retire))if(state.users[name]?.hash===hash)delete state.users[name];
-      const user={...hashPassword(password),role:invitation.role,created:new Date().toISOString()};
+      const user={...hashPassword(password),role:invitation.role,...(invitation.role==='member'?{grants:{},accessRevision:0}:{}),created:new Date().toISOString()};
       if(invitation.retire)user.onboarding={completed:false};
       state.users[username]=user;delete state.invitations[digest(token)];await save();return {username,role:user.role};
     });
@@ -62,16 +66,24 @@ export class Accounts {
     assert(typeof password==='string'&&password.length>=12&&password.length<=128,'Use a password between 12 and 128 characters.');
     state.users[username]={...state.users[username],...hashPassword(password)};await save();return state.users[username];
   });}
-  update({username,operation,role,confirm}){return this.transaction(async(state,save)=>{
+  update({username,operation,role,grants,revision,confirm}){return this.transaction(async(state,save,storageSnapshot)=>{
     assert(confirm===true,'Confirm this account change.');
     assert(typeof username==='string'&&Object.hasOwn(state.users,username),'Account not found.',404);
-    assert(['delete','role'].includes(operation),'Unsupported account action.');
-    if(operation==='role')assert(['admin','viewer'].includes(role),'Choose administrator or read-only access.');
+    assert(['delete','role','grants'].includes(operation),'Unsupported account action.');
+    if(operation==='role')assert(['admin','viewer','member'].includes(role),'Choose administrator, read-only or assigned-server access.');
     if(state.users[username].role==='admin'&&(operation==='delete'||role!=='admin'))assert(Object.values(state.users).filter(user=>user.role==='admin').length>1,'Keep at least one administrator account.',409);
+    const before=summarizeAccess(state.users[username]);
+    if(operation==='grants'){
+      const user=state.users[username];
+      assert(user.role==='member','Server assignments apply only to assigned-server accounts.');
+      assert(Number.isSafeInteger(revision)&&revision===(user.accessRevision||0),'Access changed in another session. Reload accounts before saving.',409);
+      user.grants=normalizeGrants(grants,this.permissionCatalog,user.grants||{});user.accessRevision=revision+1;
+      await save();return {ok:true,accessChange:accessChange(before,summarizeAccess(user))};
+    }
     const removed=state.users[username];
-    if(operation==='delete')delete state.users[username];else state.users[username].role=role;
-    await save();
-    if(operation==='delete')await this.onDelete(removed);
-    return {ok:true};
+    if(operation==='delete')delete state.users[username];else {state.users[username].role=role;delete state.users[username].grants;state.users[username].accessRevision=(state.users[username].accessRevision||0)+1;if(role==='member')state.users[username].grants={};}
+    await save(operation==='delete'?await this.deletionRecords(removed,storageSnapshot):[]);
+    if(operation==='delete')await this.onDelete(removed,storageSnapshot);
+    return {ok:true,accessChange:accessChange(before,summarizeAccess(state.users[username]))};
   });}
 }

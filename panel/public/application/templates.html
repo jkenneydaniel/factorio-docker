@@ -1,0 +1,114 @@
+<template id="overview">
+  <div class="product-workflow">
+    <div data-onboarding-resume hidden>
+      <p>Finish the setup guide when you are ready.</p>
+      <a data-onboarding-link></a>
+    </div>
+    <section class="product-card">
+      <div class="application-heading">
+        <div>
+          <h2 id="server-name"></h2>
+          <p id="game-address"></p>
+        </div>
+        <div data-actions class="application-actions"></div>
+      </div>
+      <div data-fields class="application-metrics"></div>
+    </section>
+    <section class="product-card">
+      <h2>Recent operations</h2>
+      <div id="jobs"></div>
+    </section>
+  </div>
+</template>
+<template id="resource">
+  <section class="product-card">
+    <h2 data-heading></h2>
+    <div data-fields class="application-metrics"></div>
+    <div data-actions class="application-actions"></div>
+  </section>
+</template>
+<template id="logs">
+  <section class="product-card">
+    <div class="application-heading">
+      <h2 data-heading>Logs</h2>
+      <button id="refresh-logs">Refresh logs</button>
+    </div>
+    <p data-description></p>
+    <pre id="logs" tabindex="0" aria-label="Application logs"></pre>
+  </section>
+  <div data-forms class="product-workflow-grid"></div>
+</template>
+<template id="settings">
+  <section class="product-card">
+    <div class="application-heading">
+      <h2 data-heading>Configuration</h2>
+      <button type="button" data-reload-settings>
+        Reload saved configuration
+      </button>
+    </div>
+    <p id="settings-note" role="status"></p>
+    <form data-configuration class="settings-form">
+      <div data-settings-fields></div>
+      <button class="primary" type="submit"></button>
+    </form>
+  </section>
+</template>
+<template id="table">
+  <section class="product-card">
+    <div class="application-heading">
+      <h2 data-heading></h2>
+      <button data-refresh></button>
+    </div>
+    <div data-actions class="application-actions"></div>
+    <p data-note role="status"></p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr data-columns></tr>
+        </thead>
+        <tbody data-rows></tbody>
+      </table>
+    </div>
+  </section>
+  <div data-forms class="product-workflow-grid"></div>
+</template>
+<template id="metric"
+  ><div><span data-label></span><strong data-value></strong></div
+></template>
+<template id="field"
+  ><label
+    ><span data-label></span><span data-control></span
+    ><small data-help></small></label
+></template>
+<template id="operation"
+  ><div class="application-operation">
+    <div>
+      <strong data-action></strong>
+      <p data-message></p>
+      <small data-time></small>
+    </div>
+    <span data-state></span></div
+></template>
+
+<template id="action-form"
+  ><section class="product-card">
+    <h2 data-heading></h2>
+    <p data-description></p>
+    <form class="settings-form">
+      <div data-fields></div>
+      <button type="submit"></button>
+    </form>
+    <pre data-result hidden></pre></section
+></template>
+<template id="mod-library"
+  ><section class="product-card">
+    <p data-description></p>
+    <div id="mod-library"></div></section
+></template>
+<template id="load-error"
+  ><section class="product-card" role="alert">
+    <h2>This screen could not be loaded.</h2>
+    <p data-error></p>
+    <button type="button">Try again</button>
+  </section></template
+>

@@ -1,0 +1,180 @@
+.application-auth {
+  max-width: 28rem;
+  margin: 10vh auto;
+  padding: 1.5rem;
+}
+.application-auth form,
+.settings-form,
+[data-settings-fields] {
+  display: grid;
+  gap: 1rem;
+}
+.application-auth label,
+.settings-form label {
+  display: grid;
+  gap: 0.4rem;
+}
+.application-main {
+  width: min(90rem, 100%);
+  margin: auto;
+  padding: 1.5rem;
+}
+.application-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.application-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.application-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.application-metrics span,
+.application-metrics strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.application-metrics strong {
+  font-size: 1.4rem;
+}
+.application-operation {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--product-border, #334155);
+}
+.application-operation p {
+  margin: 0.3rem 0;
+}
+.application-main pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 65vh;
+  overflow: auto;
+}
+.application-main input,
+.application-main textarea,
+.application-auth input {
+  max-width: 100%;
+  min-width: 0;
+}
+.application-main [data-actions]:empty {
+  display: none;
+}
+@media (max-width: 600px) {
+  .application-main {
+    padding: 1rem;
+  }
+  .application-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+:root {
+  color-scheme: dark;
+  font:
+    15px/1.5 system-ui,
+    sans-serif;
+  color: var(--product-text);
+  background: var(--product-bg);
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+body[data-product-shell] #shell {
+  display: block;
+  min-height: auto;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+.application-main button,
+.application-auth button {
+  min-height: 44px;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--product-line);
+  border-radius: 6px;
+  background: var(--product-surface);
+  cursor: pointer;
+}
+.application-main button:disabled,
+.application-auth button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.application-main input,
+.application-main select,
+.application-main textarea,
+.application-auth input {
+  padding: 0.65rem;
+  border: 1px solid var(--product-line);
+  border-radius: 6px;
+  background: var(--product-bg);
+}
+.application-main input[type='checkbox'] {
+  min-height: auto;
+  width: 1.1rem;
+}
+.application-main .table-wrap {
+  overflow-x: auto;
+}
+.application-main table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.application-main th,
+.application-main td {
+  text-align: left;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--product-line);
+}
+.application-main h1 {
+  font-size: 1.8rem;
+}
+.application-main h2 {
+  font-size: 1.2rem;
+}
+.application-sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--product-line);
+  margin-bottom: 1rem;
+}
+.application-sections a {
+  color: var(--product-muted);
+  padding: 0.5rem 0;
+  text-decoration: none;
+}
+.application-sections a[aria-current='page'] {
+  color: var(--product-accent);
+  border-bottom: 2px solid currentColor;
+}
+.application-main [data-operation-form] textarea,
+.application-main [data-operation-form] input {
+  width: 100%;
+}
+.application-main [data-operation-form] [data-fields] {
+  display: grid;
+  gap: 1rem;
+}
+.application-main [data-rows] button {
+  margin: 0.25rem;
+}

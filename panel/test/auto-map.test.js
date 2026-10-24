@@ -7,7 +7,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {makeZip,zipEntries} from '../zip.js';
+import {makeZip,zipEntries} from '../core/archive.js';
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 async function until(check){for(let i=0;i<160;i++){const value=await check();if(value)return value;await delay(25);}throw new Error('Test condition timed out.');}
@@ -26,12 +26,13 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
     let raw='';for await(const chunk of req)raw+=chunk;const body=raw?JSON.parse(raw):{},url=new URL(req.url,'http://docker');
     const reply=(status,value)=>{res.writeHead(status,{'content-type':'application/json'});res.end(value===undefined?'':JSON.stringify(value));};
     if(url.pathname==='/containers/json')return reply(200,[]);
+    if(url.pathname==='/containers/factorio-panel-controller/json')return reply(200,{Mounts:[{Type:'bind',Destination:state,Source:state}]});
     if(url.pathname==='/containers/factorio-server/json')return reply(200,{State:{Running:true,Status:'running'},Config:{Image:'test-factorio:2.0.77'},Mounts:[{Type:'bind',Destination:'/factorio',Source:data}]});
     if(url.pathname==='/containers/create'){
       assert.equal(url.searchParams.get('platform'),'linux/amd64');
       assert.equal(body.HostConfig.CpuShares,128);assert.equal(body.HostConfig.Memory,1073741824);
       assert.equal(body.HostConfig.NanoCpus,undefined,'Background priority must not impose a hard CPU quota.');
-      assert.equal(body.HostConfig.NetworkMode,'none');const name=url.searchParams.get('name');helpers.set(name,{work:path.join(data,'.panel-work',name.slice('factorio-panel-map-'.length))});return reply(201,{Id:name});
+      assert.equal(body.HostConfig.NetworkMode,'none');const name=url.searchParams.get('name');helpers.set(name,{work:path.join(state,'.panel-work',name.slice('factorio-panel-map-'.length))});return reply(201,{Id:name});
     }
     const execMatch=url.pathname.match(/^\/containers\/([^/]+)\/exec$/);
     if(execMatch){const id=crypto.randomUUID();execs.set(id,{name:execMatch[1],command:body.Cmd[1]});return reply(201,{Id:id});}

@@ -1,0 +1,222 @@
+.product-workflow {
+  color: var(--product-text);
+  line-height: 1.5;
+}
+.product-workflow h1 {
+  font-size: 1.8rem;
+  margin: 0 0 0.5rem;
+}
+.product-workflow h2 {
+  font-size: 1.1rem;
+  margin: 0 0 1rem;
+}
+.product-workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.product-card {
+  background: var(--product-surface);
+  border: 1px solid var(--product-line);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin: 1rem 0;
+  min-width: 0;
+}
+.product-workflow-grid > .product-card {
+  margin: 0;
+}
+.product-workflow form {
+  display: grid;
+  gap: 0.8rem;
+}
+.product-workflow label {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+}
+.product-workflow input,
+.product-workflow select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.65rem;
+  background: var(--product-bg);
+  border: 1px solid var(--product-line);
+  border-radius: 6px;
+  color: var(--product-text);
+  font: inherit;
+}
+.product-workflow .check-label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
+}
+.product-workflow input[type='checkbox'] {
+  width: 1.1rem;
+  height: 1.1rem;
+  min-height: auto;
+  flex: none;
+  accent-color: var(--product-accent);
+}
+.product-workflow button,
+.product-workflow a.button {
+  display: inline-block;
+  background: var(--product-bg);
+  border: 1px solid var(--product-line);
+  border-radius: 6px;
+  padding: 0.6rem 0.85rem;
+  color: var(--product-text);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  margin: 0.15rem 0.3rem 0.15rem 0;
+}
+.product-workflow button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.product-workflow button:focus-visible,
+.product-workflow a:focus-visible {
+  outline: 2px solid var(--product-accent);
+  outline-offset: 3px;
+}
+.product-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  border-bottom: 1px solid var(--product-line);
+  padding: 0.8rem 0;
+  flex-wrap: wrap;
+}
+.product-workflow small {
+  display: block;
+  color: var(--product-muted);
+  font-size: 0.8rem;
+}
+.product-workflow td,
+.product-workflow th {
+  text-align: left;
+  padding: 0.8rem;
+  border-bottom: 1px solid var(--product-line);
+}
+.product-workflow table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.product-workflow .table-wrap {
+  overflow: auto;
+}
+.product-workflow p {
+  color: var(--product-muted);
+}
+
+.product-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.product-card-header h2 {
+  margin: 0;
+}
+.product-workflow-badge {
+  color: var(--product-muted);
+  font-size: 0.8rem;
+}
+.product-workflow .danger {
+  border-color: var(--product-error);
+  color: var(--product-error);
+}
+.product-workflow .retention-options {
+  margin: 18px 0;
+}
+.product-workflow .retention-options summary,
+.product-workflow .retention-protected summary {
+  cursor: pointer;
+  font-size: 13px;
+  padding: 12px 0;
+  color: var(--product-green);
+}
+.product-workflow .retention-options .check-label {
+  margin-top: 14px;
+}
+.product-workflow .retention-status {
+  margin-top: 16px;
+}
+.product-workflow .retention-review {
+  border-top: 1px solid var(--product-line);
+  margin-top: 22px;
+  padding-top: 22px;
+}
+.product-workflow .retention-review h3 {
+  font-size: 18px;
+  margin: 0 0 12px;
+}
+.product-workflow .retention-files {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.product-workflow .retention-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--product-line);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.product-workflow .retention-files li > span:first-child {
+  min-width: 0;
+}
+.product-workflow .retention-files li > span:last-child:not(:first-child) {
+  white-space: nowrap;
+  color: var(--product-muted);
+}
+.product-workflow .retention-files small {
+  display: block;
+  color: var(--product-muted);
+  margin-top: 7px;
+  line-height: 1.5;
+}
+.product-workflow .retention-protected {
+  margin-top: 18px;
+}
+
+.product-operation-history > .button-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+.product-operation-history > .button-group label {
+  flex: 1;
+  min-width: min(12rem, 100%);
+  max-width: 20rem;
+}
+.product-operation-history summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.product-operation-history [data-context],
+.product-operation-history [data-correlation],
+.product-operation-history [data-phases] {
+  overflow-wrap: anywhere;
+}
+.product-operation-history [data-operation-state='interrupted'],
+.product-operation-history [data-operation-state='queued'],
+.product-operation-history [data-operation-state='running'] {
+  color: var(--product-accent);
+  background: #f6b84d1a;
+}
+.product-operation-history [data-operation-state='failed'] {
+  color: var(--product-error);
+  background: #ffb4a71a;
+}

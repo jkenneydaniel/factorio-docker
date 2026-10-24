@@ -2,7 +2,7 @@ import path from 'node:path';
 import {assert,readJSON,writeJSON,sleep} from '../common.js';
 import {migrationImage,ownedImage,ownedImages} from '../core/game-images.js';
 import {migrateImage,replacementSpec} from '../core/image-migration.js';
-import {selectedGame} from '../games/index.js';
+import {selectedApplication} from '../applications/index.js';
 export async function controllerJob(manager,item,action){
  const queued=await manager.request(item,'/jobs',{action,params:{confirm:true},actor:'automatic image migration'});
  for(let n=0;n<1800;n++){
@@ -13,7 +13,7 @@ export async function controllerJob(manager,item,action){
  throw Error('The pre-migration operation has not completed. Check the server before retrying.');
 }
 export async function migrateFleet(manager){
- const definition=item=>manager.module?.(item.game)||selectedGame(item.game);
+ const definition=item=>manager.module?.(item.game)||selectedApplication(item.game);
  const candidates=manager.state.servers.filter(item=>item.state!=='removed'&&definition(item).managed.legacyMigration&&(!ownedImage(item.game,item.image)||migrationImage(item.game,item.image)||item.migration?.state==='pending'));
  if(!candidates.length)return;
  assert(!manager.active,'Another host operation is running.',409);

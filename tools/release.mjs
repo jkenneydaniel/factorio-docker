@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {makeZip} from '../panel/zip.js';
+import {makeZip} from '../panel/core/archive.js';
 import {sourceMoves,repositoryPath,installationPath} from '../panel/source-layout.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');

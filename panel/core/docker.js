@@ -1,10 +1,12 @@
+import {brokerClient} from './broker-client.js';
 import http from 'node:http';
 import {HttpError,redact} from '../common.js';
 
-export function docker(method, route, data, {raw=false,timeout=150000}={}) {
+export function docker(method, route, data, {raw=false,timeout=150000,socketPath=process.env.DOCKER_SOCKET||'/var/run/docker.sock'}={}) {
+  if(process.env.DOCKER_BROKER_SOCKET!==undefined||process.env.DOCKER_BROKER_TOKEN_FILE!==undefined)return brokerClient({socketPath:process.env.DOCKER_BROKER_SOCKET,tokenFile:process.env.DOCKER_BROKER_TOKEN_FILE}).docker(method,route,data,{raw,timeout});
   return new Promise((resolve,reject)=>{
     const body=data===undefined ? undefined : Buffer.from(JSON.stringify(data));
-    const req=http.request({socketPath:process.env.DOCKER_SOCKET||'/var/run/docker.sock', path:route, method,
+    const req=http.request({socketPath, path:route, method,
       headers:body?{'content-type':'application/json','content-length':body.length}:{}},res=>{
       const chunks=[];let size=0;
       res.on('data',chunk=>{size+=chunk.length;if(size>32*1024*1024){req.destroy(new Error('Docker response is too large.'));return;}chunks.push(chunk);});

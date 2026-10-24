@@ -5,11 +5,35 @@ export function createApi({
   onUnauthorized = () => {},
   fetcher = (...args) => fetch(...args),
 } = {}) {
+  const pending = new Map();
   return async function request(
     route,
     {method = 'GET', body, raw = false, signal} = {},
   ) {
+    const requestedSession = getSession();
     route = '/' + route.replace(/^\//, '');
+    const operation =
+      method === 'POST' &&
+      !raw &&
+      body &&
+      (route === '/jobs' ||
+        /(?:^|\/)servers(?:\/[a-f0-9]{32}\/(?:snapshot|remove))?$/.test(
+          route,
+        ) ||
+        (route.endsWith('/jobs/recovery') && body.operation === 'retry'));
+    const pendingKey =
+      operation && JSON.stringify([getSession()?.username, route, body]);
+    if (operation && !body.requestId) {
+      if (!pending.has(pendingKey))
+        pending.set(
+          pendingKey,
+          globalThis.crypto?.randomUUID?.() ||
+            Date.now().toString(36) +
+              '_' +
+              Math.random().toString(36).slice(2).padEnd(16, '0'),
+        );
+      body = {...body, requestId: pending.get(pendingKey)};
+    }
     const headers = {};
     if (method !== 'GET') headers['x-csrf-token'] = getSession()?.csrf || '';
     if (body !== undefined && !raw)
@@ -30,9 +54,11 @@ export function createApi({
       );
     }
     if (!response.ok) {
+      if (response.status < 500) pending.delete(pendingKey);
       if (
         response.status === 401 &&
-        !['/login', '/register', '/registration'].includes(route)
+        !['/login', '/register', '/registration'].includes(route) &&
+        getSession() === requestedSession
       )
         onUnauthorized();
       throw Object.assign(
@@ -40,6 +66,7 @@ export function createApi({
         {status: response.status},
       );
     }
+    pending.delete(pendingKey);
     return result;
   };
 }
@@ -56,6 +83,23 @@ export function serverState(value) {
   if (!value) return {label: 'Unavailable', state: 'attention'};
   if (value.imageMigration)
     return {label: 'Needs attention', state: 'attention'};
+  if (value.summary) {
+    const labels = {
+      ready: 'Ready',
+      paused: 'Paused',
+      starting: 'Starting',
+      stopped: 'Stopped',
+      unavailable: 'Unavailable',
+    };
+    return {
+      label: labels[value.summary.state] || 'Unavailable',
+      state: ['ready', 'paused'].includes(value.summary.state)
+        ? 'ready'
+        : value.summary.state === 'unavailable'
+          ? 'attention'
+          : value.summary.state,
+    };
+  }
   if (value.ready)
     return {label: value.paused ? 'Paused' : 'Ready', state: 'ready'};
   if (value.running) return {label: 'Starting', state: 'starting'};

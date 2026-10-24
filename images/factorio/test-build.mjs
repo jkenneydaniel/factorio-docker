@@ -59,7 +59,7 @@ test('image CI watches the Factorio image validator implementation for pushes an
   for(const event of ['push','pull_request']){
     const paths=workflow.match(new RegExp('  '+event+':\\n    paths: (\\[[^\\n]+\\])'))?.[1];
     assert.ok(paths,event+' must have image path filters');
-    assert.ok(paths.includes("'panel/games/factorio/update-worker.js'"),event+' must watch the implementation');
+    assert.ok(paths.includes("'panel/applications/factorio/update-worker.js'"),event+' must watch the implementation');
     assert.ok(paths.includes("'panel/update-worker.js'"),event+' must keep watching the wrapper');
   }
 });

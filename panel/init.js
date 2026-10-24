@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
-import {Accounts} from './accounts.js';
+import {Accounts} from './applications/factorio/accounts.js';
 
 export async function initializePanel(root,address='http://localhost:8080',{recovery=false}={}){
   const url=new URL(address);

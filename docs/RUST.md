@@ -43,7 +43,7 @@ path support is not implemented. The existing Windows Factorio setup is unchange
 New installations use the first-party **linux/amd64** Rust image:
 
 ```sh
-node panel/games/rust/setup.js \
+node panel/applications/rust/setup.js \
   --directory /absolute/path/to/new-rust-install \
   --url http://localhost:8088
 ```

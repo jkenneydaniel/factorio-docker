@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {StatusMetadata} from '../status-metadata.js';
+import {StatusMetadata} from '../applications/factorio/status-metadata.js';
 const server={Id:'fixture',Image:'sha256:fixture',State:{StartedAt:'first-start'}};
 
 test('status metadata expires and refreshes for a new process, image, world, or invalidation',async()=>{

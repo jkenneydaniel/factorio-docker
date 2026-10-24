@@ -18,7 +18,7 @@ export async function build({run=async args=>execute('docker',args,{timeout:1200
  const d=await imageDefinition(),context=await fs.mkdtemp(path.join(os.tmpdir(),'lobby-goblin-rust-build-'));
  try{
   // Never send the checkout's private .env, installed worlds or backups to Docker.
-  for(const name of ['panel/package.json','panel/package-lock.json','panel/games/rust/transport.js','panel/games/rust/image/entrypoint.mjs','panel/games/rust/image/Dockerfile']){
+  for(const name of ['panel/package.json','panel/package-lock.json','panel/applications/rust/transport.js','panel/games/rust/image/entrypoint.mjs','panel/games/rust/image/Dockerfile']){
    const source=await sourceFile(root,name);if(!(await fs.lstat(source)).isFile()||await fs.realpath(source)!==source)throw Error('Image source must be a regular file without links');
    const target=path.join(context,name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.copyFile(source,target);
   }

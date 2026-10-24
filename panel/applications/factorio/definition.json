@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "id": "factorio",
+  "name": "Factorio",
+  "revision": 1,
+  "kind": "game",
+  "primary": "server",
+  "services": [
+    {
+      "id": "server",
+      "role": "game",
+      "profile": "managed-game-v1",
+      "required": true,
+      "dependsOn": [],
+      "configuration": {
+        "version": 1,
+        "imagePolicy": {
+          "version": 1,
+          "defaultImage": "ghcr.io/jkenneydaniel/factorio-server:2.0.77-fc.3",
+          "referencePattern": "^ghcr\\.io/jkenneydaniel/factorio-server:(?<engine>2\\.0\\.\\d+)-fc\\.(?<revision>[1-9]\\d*)$",
+          "architecture": "amd64",
+          "labels": {
+            "io.lobby-goblin.compatibility": "1"
+          },
+          "captureLabels": {
+            "factorio.version": "engine",
+            "io.lobby-goblin.image-revision": "revision"
+          }
+        },
+        "catalog": {
+          "version": "2.0.77",
+          "cpu": 1,
+          "memoryGiB": 2,
+          "creation": {
+            "minMemoryGiB": 1,
+            "maxMemoryGiB": 32,
+            "maxPlayers": 100,
+            "defaultPlayers": 10,
+            "defaults": {
+              "worldSize": 2000
+            },
+            "fields": [],
+            "help": "The game version remains compatible with 2.0.77 clients."
+          },
+          "snapshotHelp": "Factorio will save and create a consistent backup. The published snapshot includes the active world and its mods."
+        },
+        "storage": {
+          "dataTarget": "/factorio",
+          "backupDirectory": "panel-backups"
+        },
+        "ports": [
+          {
+            "key": "gamePort",
+            "containerPort": 34197,
+            "protocol": "udp",
+            "offset": 0
+          }
+        ],
+        "helpers": {
+          "previewWorker": {
+            "target": "/factorio",
+            "root": "state/.panel-work",
+            "entrypoint": [
+              "/opt/factorio/bin/x64/factorio"
+            ],
+            "namePrefixes": [
+              "factorio-panel-preview-",
+              "factorio-panel-map-",
+              "factorio-panel-job-"
+            ]
+          },
+          "archiveReadPaths": [
+            "/opt/factorio/data/map-settings.example.json"
+          ],
+          "execCommands": [
+            {
+              "executable": "rcon",
+              "arguments": 1,
+              "maxArgumentBytes": 65536
+            }
+          ]
+        },
+        "environment": {
+          "server": {
+            "LOAD_LATEST_SAVE": [
+              {
+                "literal": "true"
+              }
+            ],
+            "GENERATE_NEW_SAVE": [
+              {
+                "literal": "false"
+              }
+            ],
+            "SAVE_NAME": [
+              {
+                "literal": "world"
+              }
+            ],
+            "DLC_SPACE_AGE": [
+              {
+                "literal": "false"
+              }
+            ],
+            "UPDATE_MODS_ON_START": [
+              {
+                "literal": "false"
+              }
+            ]
+          },
+          "controller": {
+            "FACTORIO_CONTAINER": [
+              {
+                "field": "container"
+              }
+            ],
+            "FACTORIO_DATA": [
+              {
+                "literal": "/instance/data"
+              }
+            ],
+            "BACKUPS_DIR": [
+              {
+                "literal": "/instance/backups"
+              }
+            ],
+            "FACTORIO_PLATFORM": [
+              {
+                "literal": "linux/amd64"
+              }
+            ],
+            "GAME_ADDRESS": [
+              {
+                "field": "address"
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "gamePort"
+              }
+            ]
+          }
+        },
+        "snapshots": {
+          "includesPlayerData": false
+        },
+        "secrets": []
+      }
+    }
+  ]
+}

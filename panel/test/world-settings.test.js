@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import {validateConfiguration} from '../world-settings.js';
-import {fields,toDisplay,fromDisplay,sliderDisplay,sliderPosition} from '../public/world-fields.js';
+import {validateConfiguration} from '../applications/factorio/world-settings.js';
+import {fields,toDisplay,fromDisplay,sliderDisplay,sliderPosition} from '../applications/factorio/public/world-fields.js';
 const defaults=JSON.parse(await fs.readFile(new URL('../world-defaults.json',import.meta.url),'utf8'));
 test('world configuration preserves all advanced settings and returns an independent copy',()=>{
   const chosen=structuredClone(defaults);chosen.map_gen_settings.autoplace_controls['iron-ore']={frequency:2,size:3,richness:6};chosen.map_gen_settings.peaceful_mode=true;chosen.map_settings.difficulty_settings.technology_price_multiplier=2;chosen.map_settings.enemy_expansion.min_expansion_cooldown=18000;

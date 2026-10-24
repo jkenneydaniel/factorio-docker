@@ -1,118 +1,239 @@
-import {mountProductShell} from './shell.js';
-import {createApi,pollEvery,playerCount,sameImageReference} from './client.js';
-import {welcomeView} from './fleet-onboarding.js';
-import {mountHosts,hostRoute,serverKey} from './fleet-hosts.js';
-const $=selector=>document.querySelector(selector),esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let session=null,servers=[],snapshots=[],games=[],active=null,refreshing=false,view='servers';const live=new Map(),hostJobs=new Map();let hosts=[],creationGames=[],creationRevision=0;
-const routeFor=(hostId,route)=>{const host=hosts.find(h=>h.id===hostId);if(!host)throw Error('This host is no longer connected.');return hostRoute(host,route);};
-const hostBusy=hostId=>!!hostJobs.get(hostId);
-let hostSettings=null,hostDirty=false,hostSaving=false,hostLoading=false,hostDraftRevision=0;
-const navigation=[{id:'servers',label:'Servers'},{id:'library',label:'Snapshot library'},{id:'hosts',label:'Hosts'},{id:'host',label:'Host settings'},{id:'access',label:'Accounts',adminOnly:true}];
-const shell=mountProductShell({area:'fleet',onboarding:true,navigation,onLogout:()=>$('#logout').click()});
-const request=createApi({getSession:()=>session,onUnauthorized:()=>{session=null;authenticated();}});
-const api=(route,body)=>request(route,body===undefined?{}:{method:'POST',body});
-function error(message,target='#error'){const node=$(target);node.textContent=message;node.hidden=!message;if(target==='#error')shell.notify(message,{error:true});}
-function notice(message){$('#notice').textContent=message;$('#notice').hidden=!message;shell.notify(message);}
-function needsWelcome(){return session?.role==='admin'&&session.onboarding?.completed===false;}
-function showSignIn(){$('#login').hidden=false;$('#register').hidden=true;$('#register').reset();$('#register-toggle').hidden=false;$('#back-to-login').hidden=true;$('#register-submit').disabled=false;$('#register-submit').textContent='Create account';$('#invitation-field').hidden=false;$('#auth-title').textContent='A home for your servers.';$('#auth-description').textContent='Sign in to create and manage your Factorio and Rust servers.';error('');}
-function authenticated(){shell.session(session);$('#session-loading').hidden=true;const signed=!!session;$('#auth').hidden=signed;$('#dashboard').hidden=!signed||needsWelcome();$('#onboarding').hidden=!needsWelcome();$('#account').hidden=!signed;$('#username').textContent=session?.username||'';document.querySelectorAll('[data-admin]').forEach(node=>node.hidden=session?.role!=='admin');if(signed&&hostSettings)renderHostSettings();}
-async function showWelcome(){
- try{const [status,host]=await Promise.all([api('/status'),api('/host-settings')]);$('#onboarding').innerHTML=welcomeView({username:session.username,origin:location.origin,status,host});
- $('#retry-installation').onclick=()=>showWelcome();$('#finish-installation').onclick=async()=>{const button=$('#finish-installation');button.disabled=true;try{session.onboarding=await api('/onboarding',{complete:true});authenticated();await load();}catch(e){error(e.message);button.disabled=false;}};error('');
- }catch(e){$('#onboarding').innerHTML='<h1>Your account is ready.</h1><p>The host could not be checked. Your progress has been saved.</p><button id="retry-installation">Try again</button>';$('#retry-installation').onclick=()=>showWelcome();error(e.message);}
-}
-function selectView(next){next=navigation.some(item=>item.id===next&&(!item.adminOnly||session?.role==='admin'))?next:'servers';view=next;shell.active(next);history.replaceState(null,'','/#'+next);for(const name of ['servers','library','access','hosts','host']){document.getElementById(name+'-view').hidden=name!==next;document.getElementById('show-'+name).setAttribute('aria-current',name===next?'page':'false');}if(next==='access')void loadAccess();if(next==='host')void loadHostSettings();if(next==='hosts')void hostUI.pairing();}
-function render(){
- const admin=session?.role==='admin';$('#new-server').disabled=!hosts.some(h=>h.connected&&h.aligned!==false&&!hostBusy(h.id));
- $('#servers').innerHTML=servers.length?servers.map(s=>{
-  const status=live.get(serverKey(s)),removed=s.state==='removed',unavailable=!hosts.find(h=>h.id===s.hostId)?.connected||s.unavailable,busy=hostBusy(s.hostId),state=removed?'Removed · data kept':unavailable?'Host unavailable':status?.ready?'Ready':status?.running?'Starting':status?.state==='exited'?'Stopped':s.state==='attention'?'Needs attention':s.state==='creating'?'Creating':'Checking';
-  return `<article class="card"><span class="game">${esc(s.game.toUpperCase())} · ${esc(s.hostName)}</span><h2>${esc(s.name)}</h2><span class="status ${unavailable||s.state==='attention'?'attention':''}">${esc(state)}</span><p><code>${esc(s.address)}</code></p><div class="stats"><div><strong>${unavailable||status?.players==null?'—':playerCount(status.players)}</strong>players</div><div><strong>${esc(s.cpu)}</strong>CPU cores</div><div><strong>${esc(s.memoryGiB)} GiB</strong>memory limit</div></div>${removed?'<p class="remove-note">Your isolated storage and published snapshots were retained.</p>':`<div class="actions"><a class="button primary" href="${esc(s.manageUrl)}">Open server</a>${admin?`<button data-snapshot="${serverKey(s)}" ${busy||unavailable?'disabled':''}>Publish snapshot</button><button class="quiet" data-remove="${serverKey(s)}" ${busy||unavailable?'disabled':''}>Remove</button>`:''}</div>`}</article>`;
- }).join(''):'<div class="empty"><h2>Your first server starts here.</h2><p>Create a Factorio factory or a Rust island on this machine or a paired game host.</p></div>';
- $('#snapshots').innerHTML=snapshots.length?snapshots.map(s=>`<article class="card"><span class="game">${esc(s.game.toUpperCase())} · ${esc(s.hostName)}</span><h2>${esc(s.title)}</h2><p>From ${esc(s.sourceName)} · ${esc(new Date(s.created).toLocaleDateString())}</p><p class="hint">${s.files} verified files · ${(s.bytes/1024**2).toFixed(1)} MiB${s.includesPlayerData?' · Includes player progress and blueprints':''}</p>${admin?`<button data-clone="${serverKey(s)}" class="primary" ${hostBusy(s.hostId)||s.unavailable?'disabled':''}>Create server on this host</button>`:''}</article>`).join(''):'<div class="empty"><h2>A library worth returning to.</h2><p>Publish a consistent saved world from a managed server. Each snapshot stays on its source host; clones become independent servers there.</p></div>';
- document.querySelectorAll('[data-snapshot]').forEach(b=>b.onclick=()=>{const s=servers.find(s=>serverKey(s)===b.dataset.snapshot),f=$('#publish');f.reset();f.elements.serverId.value=s.id;f.elements.hostId.value=s.hostId;f.elements.title.value=s.name+' snapshot';$('#snapshot-help').textContent=s.hostName+': '+(games.find(game=>game.id===s.game)?.snapshotHelp||'The game will save a consistent snapshot. Players may be disconnected.');$('#snapshot-dialog').showModal();});
- document.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{const s=servers.find(s=>serverKey(s)===b.dataset.remove),f=$('#remove');f.reset();f.elements.serverId.value=s.id;f.elements.hostId.value=s.hostId;$('#remove-dialog').showModal();});
- document.querySelectorAll('[data-clone]').forEach(b=>b.onclick=()=>openCreate(snapshots.find(s=>serverKey(s)===b.dataset.clone)));
-}
-async function refresh(){
- if(!session||refreshing||needsWelcome())return;refreshing=true;
- try{
-  hosts=await hostUI.refresh();const nextServers=[],nextSnapshots=[],jobs=[];
-  await Promise.all(hosts.map(async host=>{
-   if(host.connected)try{
-    const [serverResult,library,operations]=await Promise.all([api(hostRoute(host,'/servers')),api(hostRoute(host,'/snapshots')),api(hostRoute(host,'/jobs'))]);hostJobs.set(host.id,operations.active);
-    nextServers.push(...serverResult.servers.map(s=>({...s,hostId:host.id,hostName:host.name,manageUrl:hostRoute(host,'/servers/'+s.id+'/')})));nextSnapshots.push(...library.snapshots.map(s=>({...s,hostId:host.id,hostName:host.name})));jobs.push(...operations.jobs.map(j=>({...j,hostName:host.name})));return;
-   }catch(e){host.connected=false;host.error=e.message;}
-   hostJobs.delete(host.id);nextServers.push(...servers.filter(s=>s.hostId===host.id).map(s=>({...s,unavailable:true})));nextSnapshots.push(...snapshots.filter(s=>s.hostId===host.id).map(s=>({...s,unavailable:true})));
-  }));
-  const order=s=>hosts.findIndex(h=>h.id===s.hostId);servers=nextServers.sort((a,b)=>order(a)-order(b));snapshots=nextSnapshots.sort((a,b)=>order(a)-order(b));active=hostJobs.get(hosts.find(h=>h.local)?.id);render();hostUI.render();
-  shell.status({ready:hosts.some(host=>host.connected)});shell.operation(active);
-  $('#jobs').innerHTML=jobs.sort((a,b)=>String(b.started).localeCompare(String(a.started))).slice(0,12).map(j=>`<div class="job"><div><strong>${esc(j.hostName)} · ${esc(j.action)}</strong><small>${esc(j.message)}</small></div><span>${esc(j.state)}</span></div>`).join('')||'<p class="hint">Creation and snapshot progress will appear here.</p>';
-  for(let n=0;n<servers.length;n+=4)await Promise.all(servers.slice(n,n+4).filter(s=>!s.unavailable&&['installed','starting','attention'].includes(s.state)).map(async s=>{try{const r=await fetch(s.manageUrl+'api/status',{signal:AbortSignal.timeout(10000)});if(r.ok)live.set(serverKey(s),await r.json());else live.delete(serverKey(s));}catch{live.delete(serverKey(s));}}));render();error('');
-  if(view==='host')await loadHostSettings();if(view==='hosts')await hostUI.progress();
- }catch(e){error(e.message);}finally{refreshing=false;}
-}
-function configureCreation(keepSnapshot=''){
- const f=$('#create'),game=creationGames.find(game=>game.id===f.elements.game.value);if(!game)return;
- const policy=game.creation;if(!policy)throw Error('Update this host to provide its game creation options.');
- f.elements.cpu.value=game.cpu;f.elements.memoryGiB.value=game.memoryGiB;f.elements.memoryGiB.min=policy.minMemoryGiB;f.elements.memoryGiB.max=policy.maxMemoryGiB;
- f.elements.maxPlayers.value=policy.defaultPlayers;f.elements.maxPlayers.max=policy.maxPlayers;
- $('#creation-fields').innerHTML=policy.fields.map(field=>`<label>${esc(field.label)}<input name="${esc(field.key)}" type="${field.control==='range'?'range':'number'}" min="${esc(field.min)}" max="${esc(field.max)}" step="${esc(field.step)}" value="${esc(field.default)}" required>${field.control==='range'?`<output>${esc(field.default)}</output>`:''}</label>`).join('');
- f.elements.snapshotId.innerHTML='<option value="">New world</option>'+snapshots.filter(snapshot=>snapshot.hostId===f.elements.hostId.value&&snapshot.game===game.id&&sameImageReference(snapshot.image,game.image)&&!snapshot.unavailable).map(snapshot=>`<option value="${snapshot.id}">${esc(snapshot.title)}</option>`).join('');
- f.elements.snapshotId.value=keepSnapshot;cloneChanged();
- $('#creation-help').textContent=`${game.name} ${game.version}. Ports are allocated automatically. ${policy.help||''} Memory reservations include a separate controller.`;
-}
-function cloneChanged(){
- const f=$('#create'),clone=!!f.elements.snapshotId.value,game=creationGames.find(game=>game.id===f.elements.game.value);
- $('#clone-note').hidden=!clone;f.elements.seed.disabled=clone;
- for(const field of game?.creation?.fields||[])f.elements[field.key].disabled=clone&&field.lockOnClone===true;
-}
-async function creationHostChanged(snapshotId=''){
- const revision=++creationRevision,f=$('#create'),host=hosts.find(h=>h.id===f.elements.hostId.value);$('#create-submit').disabled=true;error('','#creation-error');
- $('#creation-host-help').textContent='Checking the selected host…';
- try{if(!host?.connected||host.aligned===false)throw Error('Connect and update this host before creating a server.');const data=await api(hostRoute(host,'/catalog'));if(revision!==creationRevision)return;creationGames=data.games;games=data.games;f.elements.game.innerHTML=creationGames.map(g=>`<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('');configureCreation(snapshotId);$('#creation-host-help').textContent='This server and its world will be created on '+host.name+'.';$('#create-submit').textContent='Create on '+host.name;$('#create-submit').disabled=hostBusy(host.id);}catch(e){if(revision===creationRevision){error(e.message,'#creation-error');$('#creation-host-help').textContent='Choose an available host.';}}
-}
-async function openCreate(snapshot,host){const f=$('#create');f.reset();f.elements.hostId.innerHTML=hosts.map(h=>`<option value="${h.id}" ${h.connected&&h.aligned!==false&&!hostBusy(h.id)?'':'disabled'}>${esc(h.name)}${!h.connected?' · unavailable':h.aligned===false?' · update needed':''}</option>`).join('');f.elements.hostId.value=snapshot?.hostId||host?.id||hosts.find(h=>h.connected&&h.aligned!==false&&!hostBusy(h.id))?.id||'';$('#create-dialog').showModal();await creationHostChanged(snapshot?.id||'');if(snapshot){f.elements.game.value=snapshot.game;configureCreation(snapshot.id);f.elements.name.value=snapshot.title+' copy';}}
-$('#new-server').onclick=()=>openCreate();$('#close-create').onclick=()=>$('#create-dialog').close();$('#create').elements.hostId.onchange=()=>creationHostChanged();$('#create').elements.game.onchange=()=>configureCreation();$('#create').elements.snapshotId.onchange=cloneChanged;$('#creation-fields').oninput=e=>{if(e.target.nextElementSibling?.tagName==='OUTPUT')e.target.nextElementSibling.value=e.target.value;};
-$('#create').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget;$('#create-submit').disabled=true;try{const body=Object.fromEntries(new FormData(f));body.autoStart=f.elements.autoStart.checked;await api(routeFor(f.elements.hostId.value,'/servers'),body);$('#create-dialog').close();notice('Creating your server. Progress appears below; existing servers stay available.');selectView('servers');await refresh();}catch(e){error(e.message,'#creation-error');}finally{if($('#create-dialog').open)$('#create-submit').disabled=hostBusy(f.elements.hostId.value);}};
-$('#publish').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget;try{await api(routeFor(f.elements.hostId.value,'/servers/'+f.elements.serverId.value+'/snapshot'),{title:f.elements.title.value,confirm:f.elements.confirm.checked});$('#snapshot-dialog').close();notice('Publishing a verified snapshot. Watch Host operations for progress.');await refresh();}catch(e){$('#snapshot-dialog').close();error(e.message);}};
-$('#remove').onsubmit=async e=>{e.preventDefault();const f=e.currentTarget;try{await api(routeFor(f.elements.hostId.value,'/servers/'+f.elements.serverId.value+'/remove'),{name:f.elements.name.value,confirm:true});$('#remove-dialog').close();notice('Removing only this server’s containers. Its data volume will be kept.');await refresh();}catch(e){$('#remove-dialog').close();error(e.message);}};
-$('#cancel-publish').onclick=()=>$('#snapshot-dialog').close();$('#cancel-remove').onclick=()=>$('#remove-dialog').close();
-$('#show-servers').onclick=()=>selectView('servers');$('#show-library').onclick=()=>selectView('library');$('#show-access').onclick=()=>selectView('access');$('#show-host').onclick=()=>selectView('host');$('#show-hosts').onclick=()=>selectView('hosts');
-function renderHostSettings(resetDraft=false){
- const data=hostSettings;if(!data)return;const admin=session?.role==='admin',capacityKnown=data.maxMemoryBudgetGiB!==null,conflict=hostDirty&&hostDraftRevision!==data.revision;
- $('#host-summary').innerHTML=[['Host budget',data.memoryBudgetGiB+' GiB'],['Allocated',data.allocatedMemoryGiB+' GiB'],['Available to allocate',data.availableMemoryGiB+' GiB'],['Docker memory',data.dockerMemoryGiB===null?'Unavailable':data.dockerMemoryGiB.toFixed(1)+' GiB']].map(([label,value])=>`<div class="card"><strong>${esc(value)}</strong><p>${esc(label)}</p></div>`).join('');
- const meter=$('#host-allocation-meter');meter.max=Math.max(1,data.memoryBudgetGiB);meter.value=data.allocatedMemoryGiB;meter.textContent=`${data.allocatedMemoryGiB} of ${data.memoryBudgetGiB} GiB allocated`;
- $('#host-allocations').innerHTML=data.allocations.length?data.allocations.map(item=>`<tr><th scope="row">${esc(item.name)}<small>${esc(item.game==='factorio'?'Factorio':'Rust')}</small></th><td>${esc(item.gameGiB)} GiB</td><td>${esc(item.controllerGiB)} GiB</td><td>${esc(item.totalGiB)} GiB</td></tr>`).join(''):'<tr><td colspan="4">No managed servers have memory allocated yet.</td></tr>';
- $('#host-allocated-total').textContent=data.allocatedMemoryGiB+' GiB';
- const input=$('#host-budget');input.min=data.minMemoryBudgetGiB;input.max=data.maxMemoryBudgetGiB??128;
- if(!hostDirty||resetDraft){input.value=data.memoryBudgetGiB;hostDraftRevision=data.revision;hostDirty=false;}
- input.disabled=!admin||hostSaving||!capacityKnown||data.maxMemoryBudgetGiB<data.minMemoryBudgetGiB;
- $('#save-host-settings').disabled=input.disabled||(!resetDraft&&conflict);$('#host-readonly').hidden=admin;$('#host-conflict').hidden=resetDraft||!conflict;
- $('#host-budget-help').textContent=capacityKnown&&data.maxMemoryBudgetGiB<data.minMemoryBudgetGiB?'Docker cannot currently accommodate existing allocations with management headroom. Increase Docker’s memory limit or remove a server before changing the budget.':capacityKnown?`Choose ${data.minMemoryBudgetGiB}–${data.maxMemoryBudgetGiB} GiB. Keep at least ${data.hostHeadroomGiB} GiB of Docker memory outside the budget, plus room for other workloads.`:'Docker memory capacity is unavailable. Budget changes are temporarily unavailable.';
-}
-async function loadHostSettings({resetDraft=false}={}){
- if(hostLoading||hostSaving)return;hostLoading=true;
- try{const data=await api('/host-settings');if(!hostSettings||data.revision>=hostSettings.revision){hostSettings=data;renderHostSettings(resetDraft);}error('','#host-error');}catch(e){error(e.message,'#host-error');}finally{hostLoading=false;}
-}
-$('#host-budget').oninput=()=>{hostDirty=true;$('#host-saved').hidden=true;};
-$('#reload-host').onclick=()=>loadHostSettings({resetDraft:true});
-$('#host-settings-form').onsubmit=async event=>{
- event.preventDefault();if(!hostSettings||hostSaving||session?.role!=='admin')return;hostSaving=true;renderHostSettings();error('','#host-error');$('#host-saved').hidden=true;
- try{hostSettings=await api('/host-settings',{memoryBudgetGiB:Number($('#host-budget').value),revision:hostDraftRevision});hostDirty=false;renderHostSettings(true);$('#host-saved').textContent='Memory budget saved. Existing servers stayed running.';$('#host-saved').hidden=false;}catch(e){error(e.message,'#host-error');}finally{hostSaving=false;renderHostSettings();}
+import {navigationAllowed} from '../shared/access.js';
+import {createSessionController} from '../shared/session.js';
+import {createScreenRouter} from '../shared/screens.js';
+import {escapeHTML as esc} from '../shared/view.js';
+import {mountProductShell} from '../shell.js';
+import {createApi, pollEvery} from '../client.js';
+import {createServerDialog} from './creation.js';
+import {createFleetModel} from './model.js';
+import {createFleetScreens} from './screen-controllers.js';
+import {createFleetAuth} from './auth.js';
+
+const $ = (selector) => document.querySelector(selector);
+let session = null;
+const navigation = [
+  {id: 'servers', label: 'Servers'},
+  {id: 'library', label: 'Snapshot library', ownerOnly: true},
+  {id: 'hosts', label: 'Hosts', ownerOnly: true},
+  {id: 'host', label: 'Host settings', ownerOnly: true},
+  {id: 'operations', label: 'Operations', ownerOnly: true},
+  {
+    id: 'access',
+    label: 'Accounts',
+    adminOnly: true,
+    permission: 'account.self',
+  },
+];
+const shell = mountProductShell({
+  area: 'fleet',
+  onboarding: true,
+  navigation,
+  onLogout: () => $('#logout').click(),
+});
+const request = createApi({
+  getSession: () => session,
+  onUnauthorized: () => {
+    sessionController.set(null);
+    auth.showSignIn();
+    authenticated();
+  },
+});
+const api = async (route, body) => {
+  const user = session;
+  const result = await request(
+    route,
+    body === undefined ? {} : {method: 'POST', body},
+  );
+  if (session !== user)
+    throw new DOMException('This dialog has closed.', 'AbortError');
+  return result;
 };
-async function loadAccess(){try{const data=await api('/accounts');$('#accounts').innerHTML=data.users.map(u=>`<div class="job"><strong>${esc(u.username)}</strong><span>${esc(u.role)}</span></div>`).join('');}catch(e){error(e.message);}}
-$('#invite').onsubmit=async e=>{e.preventDefault();try{const r=await api('/invitations',{role:e.currentTarget.elements.role.value});$('#invitation').textContent=location.origin+'/#register='+r.token;$('#invitation').hidden=false;}catch(e){error(e.message);}};
-$('#login').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget;try{session=await api('/login',Object.fromEntries(new FormData(form)));form.reset();authenticated();await load();}catch(e){error(e.message);}};
-$('#register-toggle').onclick=()=>{$('#register').hidden=!$('#register').hidden;};
-$('#back-to-login').onclick=()=>showSignIn();
-$('#register').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,button=$('#register-submit');button.disabled=true;try{const data=Object.fromEntries(new FormData(form));if(data.password!==data.confirmPassword)throw Error('The passwords do not match. Please enter them again.');data.token=data.token.match(/#register=([A-Za-z0-9_-]+)/)?.[1]||data.token;session=await api('/register',data);form.reset();history.replaceState(null,'','/');authenticated();await load();}catch(e){error(e.message);}finally{button.disabled=false;}};
-$('#logout').onclick=async()=>{try{await api('/logout',{});}finally{session=null;showSignIn();authenticated();}};
-async function load(){if(needsWelcome())return showWelcome();selectView(location.hash.slice(1)||'servers');await refresh();}
-addEventListener('hashchange',()=>{if(session)selectView(location.hash.slice(1));});
-const hostUI=mountHosts({api,error,notice,getSession:()=>session,onChange:async()=>{hosts=await hostUI.refresh();await refresh();},onCreate:host=>openCreate(null,host)});
-const invitation=location.hash.match(/^#register=([A-Za-z0-9_-]+)$/)?.[1];
-if(invitation){
- $('#register').hidden=false;$('#login').hidden=true;$('#register-toggle').hidden=true;$('#back-to-login').hidden=false;$('#register').elements.token.value=invitation;history.replaceState(null,'','/');authenticated();
- try{const details=await api('/registration',{token:invitation});$('#auth-title').textContent=details.owner?'Create your administrator account.':'You’re invited.';$('#auth-description').textContent=details.owner?'Choose your own sign-in details. This private installation link can be used once.':'Create an account to join this panel. Your invitation determines your access.';$('#invitation-field').hidden=true;$('#register-submit').textContent=details.owner?'Create administrator account':'Create account';}catch(e){error(e.message);$('#register-submit').disabled=true;}
-}else try{session=await api('/session');authenticated();await load();}catch{authenticated();}
-pollEvery(refresh,5000);
+const sessionController = createSessionController({
+  request,
+  onChange(value) {
+    if (!value || session?.username !== value.username) {
+      model.reset();
+      screenRouter.reset();
+      creation.cancel();
+    }
+    session = value;
+    shell.session(value);
+  },
+});
+function error(message, target = '#error') {
+  const node = $(target);
+  node.textContent = message;
+  node.hidden = !message;
+  if (target === '#error') shell.notify(message, {error: true});
+}
+function notice(message) {
+  $('#notice').textContent = message;
+  $('#notice').hidden = !message;
+  shell.notify(message);
+}
+const model = createFleetModel({
+  includeWorkflows: true,
+  request,
+  getSession: () => session,
+  onChange(value) {
+    $('#new-server').disabled = !value.hosts.some(
+      (host) =>
+        host.connected && host.aligned !== false && !model.busy(host.id),
+    );
+    shell.status({
+      ready: value.assigned || value.hosts.some((host) => host.connected),
+    });
+    shell.operation(value.active);
+    shell.attention(
+      'operations',
+      value.workflowUnavailable ? 'Workflow progress unavailable' : '',
+    );
+    const principal = session;
+    shell.recovery(
+      value.jobs,
+      async (job, operation) => {
+        if (session !== principal || session?.role !== 'admin') return;
+        if (job.source) {
+          if (!job.sourceId)
+            throw Error(
+              'The workflow identity is unavailable. Reload before reviewing it.',
+            );
+          await api(model.route(job.hostId, '/operations/recovery'), {
+            source: job.source,
+            id: job.sourceId,
+            operation,
+            confirm: true,
+          });
+        } else
+          await api(model.route(job.hostId, '/jobs/recovery'), {
+            id: job.id,
+            operation,
+            confirm: true,
+          });
+        await refresh();
+      },
+      {admin: session?.role === 'admin'},
+    );
+    $('#jobs').innerHTML =
+      value.jobs
+        .slice()
+        .sort((a, b) => String(b.started).localeCompare(String(a.started)))
+        .slice(0, 12)
+        .map(
+          (job) =>
+            `<div class="job"><div><strong>${esc(job.hostName)} · ${esc(job.action)}</strong><small>${esc(job.message)}</small></div><span>${esc(job.state)}</span></div>`,
+        )
+        .join('') ||
+      '<p class="hint">Creation and snapshot progress will appear here.</p>';
+    void screenRouter.refresh({reason: 'model'});
+  },
+});
+const creation = createServerDialog({
+  api,
+  getHosts: () => model.snapshot.hosts,
+  getSnapshots: () => model.snapshot.snapshots,
+  hostBusy: (id) => model.busy(id),
+  routeFor: (id, route) => model.route(id, route),
+  error,
+  notice,
+  selectView,
+  onCreated: refresh,
+  onCatalog: (games) => model.setGames(games),
+});
+const screenRouter = createScreenRouter({
+  factories: createFleetScreens({
+    model,
+    getSession: () => session,
+    sessionController,
+    creation,
+    error,
+    notice,
+    onReady: async () => {
+      authenticated();
+      if (session) await load();
+      else auth.showSignIn();
+    },
+  }),
+  root: (id) =>
+    document.getElementById(
+      {
+        servers: 'servers',
+        library: 'snapshots',
+        access: 'access-view',
+        host: 'host-view',
+        operations: 'operations-view',
+        hosts: 'hosts-view',
+        welcome: 'onboarding',
+      }[id],
+    ),
+  request,
+  confirm: (...args) => shell.confirm(...args),
+  onError: (problem) => error(problem.message),
+});
+function needsWelcome() {
+  return session?.role === 'admin' && session.onboarding?.completed === false;
+}
+function authenticated() {
+  shell.session(session);
+  $('#session-loading').hidden = true;
+  const signed = !!session;
+  $('#auth').hidden = signed;
+  $('#dashboard').hidden = !signed || needsWelcome();
+  $('#onboarding').hidden = !needsWelcome();
+  $('#account').hidden = !signed;
+  $('#username').textContent = session?.username || '';
+  document
+    .querySelectorAll('[data-admin]')
+    .forEach((node) => (node.hidden = session?.role !== 'admin'));
+}
+function selectView(next) {
+  next = navigation.some(
+    (item) => item.id === next && navigationAllowed(item, session),
+  )
+    ? next
+    : 'servers';
+  $('#dashboard > .heading').hidden = ['access', 'operations'].includes(next);
+  $('#dashboard > .operations').hidden =
+    ['access', 'operations'].includes(next) || session?.role === 'member';
+  shell.active(next);
+  history.replaceState(null, '', '/#' + next);
+  for (const item of navigation) {
+    document.getElementById(item.id + '-view').hidden = item.id !== next;
+    document
+      .getElementById('show-' + item.id)
+      .setAttribute('aria-current', item.id === next ? 'page' : 'false');
+  }
+  return screenRouter.open(next);
+}
+async function refresh() {
+  if (!session || needsWelcome()) return;
+  try {
+    await screenRouter.refresh({reason: 'poll'});
+    if (session) error('');
+  } catch (problem) {
+    if (session) error(problem.message);
+  }
+}
+async function load() {
+  if (needsWelcome()) return screenRouter.open('welcome');
+  return selectView(location.hash.slice(1) || 'servers');
+}
+for (const item of navigation)
+  $('#show-' + item.id).onclick = () => selectView(item.id);
+addEventListener('hashchange', () => {
+  if (session) void selectView(location.hash.slice(1));
+});
+const auth = createFleetAuth({
+  sessionController,
+  request,
+  error,
+  authenticated,
+  load,
+  onSignedOut() {
+    model.reset();
+    screenRouter.reset();
+    creation.cancel();
+  },
+});
+await auth.bootstrap();
+pollEvery(refresh, 5000);

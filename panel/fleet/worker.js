@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {assert, writeJSON, readJSON} from '../common.js';
 import {validId} from '../core/instance.js';
 import {validateManagedGame} from '../core/managed-game.js';
-import {selectedGame} from '../games/index.js';
+import {selectedApplication} from '../applications/index.js';
 import {cloneSnapshot, publishSnapshot} from './snapshots.js';
 
 export async function runWorker(
@@ -12,7 +12,7 @@ export async function runWorker(
   {
     instance = '/instance',
     library = '/library',
-    resolveGame = selectedGame,
+    resolveGame = selectedApplication,
   } = {},
 ) {
   assert(

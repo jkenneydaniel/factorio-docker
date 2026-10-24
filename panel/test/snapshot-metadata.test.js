@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {SnapshotMetadata} from '../snapshot-metadata.js';
+import {SnapshotMetadata} from '../applications/factorio/snapshot-metadata.js';
 import {writeJSON} from '../common.js';
 
 test('unchanged snapshots are parsed once, concurrent polls coalesce, and only metadata is retained',async t=>{

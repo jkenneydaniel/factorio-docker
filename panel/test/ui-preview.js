@@ -3,7 +3,9 @@
 // real server-management actions are rejected. Optional creation/onboarding flows
 // simulate success in memory only, for browser acceptance of those workflows.
 import http from 'node:http';
-import {web as factorioWeb} from '../games/factorio/web.js';
+import {web as factorioWeb} from '../applications/factorio/web.js';
+import {factorio} from '../applications/factorio/index.js';
+import {publicContract} from '../core/game-contract.js';
 import {sharedAssets} from '../core/web-assets.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -11,7 +13,7 @@ import {fileURLToPath} from 'node:url';
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const scope=process.env.UI_SERVER_SCOPE||'';
 if(scope&&!/^(?:\/hosts\/[a-f0-9]{32})?\/servers\/[a-f0-9]{32}$/.test(scope))throw Error('Invalid isolated server scope.');
-import {emptySetups,changeSetups} from '../world-setups.js';
+import {emptySetups,changeSetups} from '../applications/factorio/world-setups.js';
 import {diagnosticsReport,controllerDiagnostics} from '../diagnostics.js';
 import {defaultRetention,retentionPolicy,retentionSelection} from '../backup-retention.js';
 let setups=emptySetups();
@@ -28,7 +30,7 @@ if(process.env.UI_MAP_ENEMIES_TEST==='1'){
 }
 let retention={policy:{...defaultRetention},revision:0,lastRun:null};const cleanupPlans=new Map();
 const backups=[],schedule={enabled:false,hours:6,keep:12,lastRun:null};
-const {summarizeBackups}=await import('../backup-health.js');
+const {summarizeBackups}=await import('../core/backup-health.js');
 const status={version:'2.0.77',image:'factoriotools/factorio:2.0.77',currentWorld:snapshot.world,seed:String(snapshot.seed),running:true,ready:true,paused:true,players:[],playtime:'Demo snapshot',name:'Lobby Goblin demo',schedule,autoPause:true,connection:'localhost:34197',autosaveMinutes:5,autosaveSlots:10,lastSaveAt:snapshot.created,saveVerified:true,memory:45000000,cpu:0};
 const data={session:{username:'Preview',role:process.env.UI_ROLE||'admin',csrf:'isolated-preview',onboarding:{completed:process.env.UI_ONBOARDING_TEST!=='1'}},status,map:{snapshot,pins:[],staleWorld:false},jobs:{jobs:[],active:null},backups:{backups,schedule,retention,health:summarizeBackups(backups,schedule,[],null)},accounts:{users:[{username:'Preview',role:'admin'}],invitations:[]},sessions:{sessions:[{id:'preview-session',created:new Date().toISOString(),expires:Date.now()+3600000,current:true}]}};
 data.settings={name:'Isolated preview fixture',description:'Synthetic settings; cannot manage a real server.',max_players:0,autosave_interval:5,autosave_slots:10,auto_pause:true,require_user_verification:false};
@@ -55,7 +57,7 @@ let draftPreview=null,previewRequests=0;
 let playerSample=0;
 function previewPlayers(){playerSample++;return process.env.UI_LIVE_PLAYERS_TEST==='1'?{enabled:true,state:'live',world:snapshot.world,seed:snapshot.seed,updatedAt:new Date().toISOString(),players:[{name:'Preview engineer',x:playerSample*3,y:0,surface:snapshot.surface,color:[90,200,220]}]}:{enabled:false,state:'disabled',players:[]};}
 if(process.env.UI_AUTO_REFRESH_TEST==='1')setTimeout(()=>{snapshot.created=new Date().toISOString();console.log('Preview-only snapshot advanced in memory.');},20000).unref();
-http.createServer(async(req,res)=>{
+const server=http.createServer(async(req,res)=>{
   if(scope){if(!req.url.startsWith(scope+'/')){res.writeHead(404);return res.end('Open the scoped disposable server URL.');}req.url=req.url.slice(scope.length);}
   if(req.method==='POST'&&req.url==='/api/backup-retention'&&process.env.UI_RETENTION_TEST==='1'){
     try{
@@ -100,6 +102,9 @@ http.createServer(async(req,res)=>{
   if(req.method!=='GET'){res.writeHead(403,{'content-type':'application/json'});return res.end('{"error":"This isolated preview cannot change the real server or accounts."}');}
   const route=req.url.split('?')[0];if(route==='/api/world-preview-image'){res.writeHead(200,{'content-type':'image/svg+xml'});return res.end(fixtureImage);}
   if(route==='/api/world-preview'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(draftPreview||{state:'idle'}));}
+  if(route==='/api/players'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({available:status.ready,players:status.players.map(name=>({name})),message:status.ready?'':'Factorio is not ready.'}));}
   if(route.startsWith('/api/')){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(route==='/api/live-players'?previewPlayers():route==='/api/map-status'?{created:snapshot.created,automatic:data.map.automatic,active:null}:data[route.slice(5)]||{}));}
-  const files={...sharedAssets,...factorioWeb.assets};const file=files[route];if(!file){res.writeHead(404);return res.end();}let content=await fs.readFile(path.join(project,'public',file[0]));if(scope&&file[1].startsWith('text/html'))content=content.toString().replace(/(href|src)="\/(?!\/)/g,(_,key)=>key+'="'+scope+'/');res.writeHead(200,{'content-type':file[1]});res.end(content);
+  if(route==='/application-definition.json'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(publicContract(factorio)));}
+  const files={...sharedAssets,...factorioWeb.assets};const file=files[route];if(!file){res.writeHead(404);return res.end();}let content=await fs.readFile(new URL(file[0],Object.hasOwn(factorioWeb.assets,route)?factorioWeb.publicRoot:new URL('../public/',import.meta.url)));if(scope&&file[1].startsWith('text/html'))content=content.toString().replace(/(href|src)="\/(?!\/)/g,(_,key)=>key+'="'+scope+'/');res.writeHead(200,{'content-type':file[1]});res.end(content);
 }).listen(Number(process.env.UI_PREVIEW_PORT||8089),'127.0.0.1',()=>console.log('Isolated UI fixture listening (no server-management access).'));
+for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{server.closeAllConnections();server.close();});

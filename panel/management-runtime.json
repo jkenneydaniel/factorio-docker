@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "brokerProtocol": 1,
+  "managementMaintenance": {
+    "version": 1,
+    "environment": "PANEL_MAINTENANCE_ID",
+    "status": "/management/status",
+    "activate": "/management/activate",
+    "localOperatorOnly": true,
+    "receipt": "management-activation.json",
+    "roles": {
+      "host-controller": {"mode": "fleet-controller", "activation": "local-request"},
+      "instance-controller": {"mode": "controller", "activation": "local-request"},
+      "host-web": {"mode": "fleet-web", "activation": "local-request"},
+      "host-agent-web": {"mode": "host-agent-web", "activation": "storage-receipt"}
+    }
+  },
+  "managementStorage": {
+    "version": 1,
+    "legacyJSON": true,
+    "sqliteSchema": 1,
+    "profiles": ["accounts", "controller", "host"]
+  }
+}

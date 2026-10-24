@@ -1,9 +1,10 @@
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {assert,equalSecret,readJSON,writeJSON,json,requestJSON,readBody} from '../common.js';
+import {assert,equalSecret,json,requestJSON,readBody} from '../common.js';
+import {RemoteHostsRepository} from '../core/storage/state-repositories.js';
 import {validId} from './catalog.js';
-import {registeredGames} from '../games/index.js';
-import {controllerRoutes} from '../core/routes.js';
+import {registeredApplications} from '../applications/index.js';
+import {controllerAccess} from '../core/routes.js';
 import {proxyResponse} from '../core/proxy.js';
 import {agentVersion} from './agent-update.js';
 import {AgentConnection} from './agent-connection.js';
@@ -23,6 +24,9 @@ export function hostOrigin(value){
 // account administration, enrollment and arbitrary controller URLs stay local.
 export function remoteRoute(method,route){
  if(!['GET','POST'].includes(method))return false;
+ if(route==='/operations')return method==='GET';
+ if(route==='/operations/recovery')return method==='POST';
+ if(route==='/jobs/recovery')return method==='POST';
  if(['/agent-status','/agent-update-plan','/agent-update'].includes(route))return method===(route==='/agent-status'?'GET':'POST');
  if(['/status','/catalog','/servers','/snapshots','/jobs','/host-settings'].includes(route))return method==='GET'||['/servers','/host-settings'].includes(route);
  const match=route.match(/^\/servers\/[a-f0-9]{32}(?:\/(.*))?$/);if(!match)return false;
@@ -30,17 +34,18 @@ export function remoteRoute(method,route){
  if(['snapshot','remove'].includes(match[1]))return method==='POST';
  if(!match[1].startsWith('controller/'))return false;
  const action='/'+match[1].slice(11);
- return registeredGames().some(module=>controllerRoutes(module).includes(action));
+ return registeredApplications().some(module=>controllerAccess(module,method,action));
 }
 
 export class RemoteHosts{
  constructor(manager,{fetcher=fetch,now=Date.now,identity}={}){this.identity=identity;this.connections=new Map();this.manager=manager;this.fetcher=fetcher;this.now=now;this.file=path.join(manager.root,'remote-hosts.json');this.queue=Promise.resolve();this.pairing=false;}
- async init(){
-  this.state=await readJSON(this.file,{version:1,outgoing:[],incoming:[],pending:[]});
+ async init({connect=true}={}){
+  this.repository=new RemoteHostsRepository(this.manager.root);this.storageSnapshot=await this.repository.read();this.state=this.storageSnapshot.value;
   assert(this.state.version===1&&Array.isArray(this.state.outgoing)&&Array.isArray(this.state.incoming)&&Array.isArray(this.state.pending),'Unsupported remote host registry.',409);
   for(const item of this.state.outgoing){assert(validId(item.id)&&validId(item.pairId)&&name(item.name)&&/^[A-Za-z0-9_-]{43}$/.test(item.token),'Invalid remote host registry.',409);hostOrigin(item.origin);assert(item.fingerprint===undefined||/^[a-f0-9]{64}$/.test(item.fingerprint),'Invalid paired agent identity.',409);}
-  for(const item of this.state.outgoing)if(item.fingerprint)this.connection(item.origin,item.fingerprint).start();
+  if(connect)this.startConnections();
  }
+ startConnections(){for(const item of this.state.outgoing)if(item.fingerprint)this.connection(item.origin,item.fingerprint).start();}
  connection(origin,fingerprint){
   fingerprint??=this.state.outgoing.find(h=>h.origin===origin)?.fingerprint;if(!fingerprint)return null;
   let connection=this.connections.get(origin);if(connection&&connection.fingerprint!==fingerprint){connection.close();this.connections.delete(origin);connection=null;}
@@ -49,7 +54,7 @@ export class RemoteHosts{
  fetchFor(origin,fingerprint){const connection=this.connection(origin,fingerprint);return connection?connection.fetch.bind(connection):this.fetcher;}
  close(){for(const connection of this.connections.values())connection.close();this.connections.clear();}
  async change(fn){
-  const next=this.queue.then(async()=>{const draft=structuredClone(this.state),result=await fn(draft);await writeJSON(this.file,draft);this.state=draft;return result;});this.queue=next.catch(()=>{});return next;
+  const next=this.queue.then(async()=>{const draft=structuredClone(this.state),result=await fn(draft);await this.repository.save(this.storageSnapshot,draft);this.state=draft;return result;});this.queue=next.catch(()=>{});return next;
  }
  local(){return {id:this.manager.fleet,name:'This host',local:true,connected:true};}
  host(hostId){assert(validId(hostId),'Invalid host.');const item=this.state.outgoing.find(h=>h.id===hostId);assert(item,'Remote host not found. It may have been disconnected.',404);return item;}
@@ -108,7 +113,7 @@ export class RemoteHosts{
   const hosts=[this.local()];
   // Bounded parallel probes. A failed host never hides the local host or others.
   for(let n=0;n<this.state.outgoing.length;n+=4)hosts.push(...await Promise.all(this.state.outgoing.slice(n,n+4).map(async item=>{
-   const {id,name,origin,created}=item;try{const status=await this.request(origin,'/status',{token:item.token,timeout:3000});assert(status.hostId===id&&status.protocol===1,'Remote host identity changed.',409);const panelVersion=await agentVersion();return {id,name,origin,created,local:false,connected:true,connection:item.fingerprint?'persistent':'https',version:status.version,panelVersion,aligned:status.version===panelVersion,agentOnly:status.agentOnly,agentUpdate:status.agentUpdate};}
+   const {id,name,origin,created}=item;try{const status=await this.request(origin,'/status',{token:item.token,timeout:3000});assert(status.hostId===id&&status.protocol===1,'Remote host identity changed.',409);const panelVersion=await agentVersion();return {id,name,origin,created,local:false,connected:true,connection:item.fingerprint?'persistent':'https',version:status.version,panelVersion,aligned:status.version===panelVersion,agentOnly:status.agentOnly,agentUpdate:status.agentUpdate,agentUpdateSupported:status.agentUpdateSupported,isolation:status.isolation};}
    catch(error){return {id,name,origin,created,local:false,connected:false,error:error.message};}
   })));return {hosts};
  }
@@ -130,6 +135,6 @@ export class RemoteHosts{
   if(req.method==='POST'&&!['/agent-update','/agent-update-plan'].includes(route)){
    const status=await this.request(host.origin,'/status',{token:host.token,timeout:5000});assert(status.hostId===host.id&&status.version===await agentVersion(),'Update the agent to match this panel before changing its servers.',409);
   }
-  await proxyResponse(req,res,host.origin+'/remote/v1'+route+url.search,{fetcher:this.fetchFor(host.origin),headers:{origin:host.origin,authorization:'Bearer '+host.token,'content-type':req.headers['content-type']||'application/json','x-panel-user':req.headers['x-panel-user']||'administrator'},body,download:route.endsWith('/download'),timeout:route.endsWith('/mod-library')||route.endsWith('/mod-library-plan')?150000:30000});return true;
+  await proxyResponse(req,res,host.origin+'/remote/v1'+route+url.search,{fetcher:this.fetchFor(host.origin),headers:{origin:host.origin,authorization:'Bearer '+host.token,'content-type':req.headers['content-type']||'application/json','x-panel-user':req.headers['x-panel-user']||'administrator','x-panel-update-kind':req.headers['x-panel-update-kind']==='game'?'game':'any'},body,download:route.endsWith('/download'),timeout:route.endsWith('/mod-library')||route.endsWith('/mod-library-plan')?150000:30000});return true;
  }
 }

@@ -1,3 +1,4 @@
+@import './workflows.css';
 :root {
   --product-bg: #131c1d;
   --product-surface: #1a2526;
@@ -337,4 +338,28 @@ body[data-product-shell] .job-banner {
 body[data-product-shell] dialog .heading {
   flex-direction: row;
   align-items: flex-start;
+}
+.product-recovery {
+  margin: 0 auto 1rem;
+  max-width: 1440px;
+  padding: 1rem 1.5rem;
+  border: 1px solid #bd8d47;
+  border-radius: 12px;
+  background: #252016;
+  color: #f3e6cf;
+}
+.product-recovery h2 {
+  font-size: 1.1rem;
+  margin: 0 0 0.5rem;
+}
+.product-recovery p {
+  line-height: 1.5;
+}
+.product-recovery article {
+  border-top: 1px solid #695332;
+  margin-top: 0.8rem;
+  padding-top: 0.4rem;
+}
+.product-recovery button {
+  margin: 0.25rem 0.5rem 0.25rem 0;
 }

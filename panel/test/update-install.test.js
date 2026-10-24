@@ -4,12 +4,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {UpdateManager} from '../update-manager.js';
-import {runUpdate,validateDeployment,reportsGameVersion,inspectGameImage} from '../update-worker.js';
+import {UpdateManager} from '../applications/factorio/update-manager.js';
+import {runUpdate,validateDeployment,reportsGameVersion,inspectGameImage} from '../applications/factorio/update-worker.js';
 import {sourceSnapshot,sha256,unpackRelease,initializeUpdateBaseline,daemonPath} from '../update-source.js';
 import {writeJSON,readJSON,HttpError} from '../common.js';
-import {makeZip} from '../zip.js';
-import {gameSources,parseGameImage} from '../public/game-images.js';
+import {makeZip} from '../core/archive.js';
+import {gameSources,parseGameImage} from '../applications/factorio/public/game-images.js';
 
 function candidateImage(image){
   const parsed=parseGameImage(image),digest='a'.repeat(64);
@@ -86,7 +86,7 @@ test('verified panel update stages/builds before replacement and never restarts 
 });
 test('same-version source migration pins the reviewed image digest and preserves world, mods and configuration',async t=>{
   for(const source of ['factory']){
-    const f=await fixture(t),owned=gameSources.factory.repository;
+    const f=await fixture(t);
     for(const file of ['config/server-settings.json','config/rconpw','config/server-id.json','mods/mod-list.json','mods/custom.zip']){await fs.mkdir(path.dirname(path.join(f.root,'data',file)),{recursive:true});await fs.writeFile(path.join(f.root,'data',file),'original-'+file);}
     const result=await f.execute({kind:'game',target:'2.0.77',source,imageRevision:2,targetImage:gameSources[source].repository+':2.0.77'+'-fc.2'});
     assert.equal(result.state,'succeeded',result.message);
@@ -263,4 +263,44 @@ test('published multi-platform runtime inspection selects the Docker host manife
  const {inspectPanelImage}=await import('../core/panel-image.js'),calls=[];
  const value=await inspectPanelImage('ghcr.io/jkenneydaniel/lobby-goblin:0.3.5-alpha','0.3.5-alpha',async args=>{calls.push(args);if(args[0]==='info')return 'aarch64';if(!args.includes('--platform'))return '[{"Id":"index-without-config"}]';return JSON.stringify([{Id:'sha256:'+'a'.repeat(64),Os:'linux',Architecture:'arm64',RepoDigests:['ghcr.io/jkenneydaniel/lobby-goblin@sha256:'+'b'.repeat(64)],Config:{Labels:{'org.opencontainers.image.version':'0.3.5-alpha','org.opencontainers.image.source':'https://github.com/jkenneydaniel/lobby-goblin','io.lobby-goblin.runtime':'1'}}}]);});
  assert.ok(calls.some(args=>args.includes('linux/arm64')));assert.match(value,/@sha256:b{64}$/);
+});
+
+test('a delegated image grant validates the saved plan kind before refresh, backup or Docker effects',async t=>{
+ const f=await fixture(t),manager=reviewManager(f),id=crypto.randomUUID();
+ await writeJSON(path.join(f.state,'plan-'+id+'.json'),{id,kind:'panel',created:Date.now()});
+ let effects=0;manager.refresh=async()=>{effects++;throw Error('Must not refresh a denied plan');};
+ await assert.rejects(manager.install({planId:id,kind:'game',confirm:true},'Assigned',{gameOnly:true}),error=>error.status===403);
+ assert.equal(effects,0);assert.equal(manager.busy,false);assert.equal((await readJSON(path.join(f.state,'plan-'+id+'.json'))).kind,'panel');
+ await writeJSON(path.join(f.state,'plan-'+id+'.json'),{id,kind:'game',created:Date.now()});
+ await assert.rejects(manager.install({planId:id,confirm:true},'Assigned',{gameOnly:true}),/Must not refresh/);assert.equal(effects,1);
+ assert.equal(await fs.readFile(path.join(f.root,'data/saves/World.zip'),'utf8'),'real-fixture-world');
+});
+
+test('a lost update worker start response preserves its running journal and does not permit another worker',async t=>{
+  const f=await fixture(t);await writeJSON(path.join(f.state,f.job.id+'.json'),{...f.job,state:'failed'});
+  const inspected=reviewManager(f).docker;let worker=false,created=0;
+  const docker=async(method,route,body)=>{
+    if(method==='POST'&&route.startsWith('/containers/create')){created++;worker=true;return {Id:'fixture-worker'};}
+    if(route.includes('lobby-goblin-update-')){
+      if(method==='GET'){if(!worker)throw new HttpError(404,'Missing');return {State:{Running:true}};}
+      if(method==='POST'&&route.endsWith('/start'))throw Error('Docker response was lost after accepting start');
+    }
+    return inspected(method,route,body);
+  };
+  const options={root:f.state,docker,backup:async()=>'verified-before.zip',current:'0.1.0-alpha',names:f.names};
+  const manager=new UpdateManager(options);await manager.init();const plan=await manager.plan({kind:'game',target:'2.0.78'});
+  const accepted=await manager.install({planId:plan.id,confirm:true},'Operator');assert.equal(accepted.state,'running');
+  const saved=await readJSON(path.join(f.state,accepted.id+'.json'));assert.equal(saved.state,'running');assert.equal(saved.actor,'Operator');assert.equal(saved.operationRecord.source,'updates');
+  const restarted=new UpdateManager(options);await restarted.init();assert.equal(restarted.busy,true);assert.equal(created,1);
+  await assert.rejects(restarted.plan({kind:'game',target:'2.0.79'}),/current operation/);
+});
+
+test('legacy update workers reject selected transactional state before commands or recovery copies and preserve data',async t=>{
+ const f=await fixture(t),marker=path.join(f.root,'.panel-data','auth','panel-storage.json');await fs.writeFile(marker,JSON.stringify({version:1,backend:'sqlite'}));
+ const env=await fs.readFile(path.join(f.root,'.env'),'utf8'),world=await fs.readFile(path.join(f.root,'data/saves/World.zip'));
+ await writeJSON(path.join(f.state,f.job.id+'.json'),f.job);
+ const result=await runUpdate({root:f.root,state:f.state,id:f.job.id,run:()=>assert.fail('No engine command'),fetcher:()=>assert.fail('No release download'),own:async()=>{}});
+ assert.equal(result.state,'failed');assert.match(result.message,/legacy updater cannot snapshot or restore/);
+ assert.equal(await fs.readFile(path.join(f.root,'.env'),'utf8'),env);assert.deepEqual(await fs.readFile(path.join(f.root,'data/saves/World.zip')),world);
+ await assert.rejects(fs.access(path.join(f.state,f.job.id,'auth')),{code:'ENOENT'});assert.ok(await fs.readFile(marker));
 });

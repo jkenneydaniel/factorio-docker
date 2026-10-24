@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {PassThrough} from 'node:stream';
-import {command,commandFailure} from '../update-worker.js';
+import {command,commandFailure} from '../applications/factorio/update-worker.js';
 
 function processFixture(run){
   const child=new EventEmitter();child.stdout=new PassThrough();child.stderr=new PassThrough();

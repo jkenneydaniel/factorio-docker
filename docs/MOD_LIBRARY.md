@@ -1,6 +1,9 @@
 # Live mod library
 
-Administrators can open **Mods** in Factorio or **Mods & plugins** in Rust.
+Administrators and assigned-server accounts with `mods.manage` can open **Mods**
+in Factorio or **Mods & plugins** in Rust. This explicit permission authorizes
+executable server code and reviewed lifecycle changes; use it only for trusted
+server operators. See [server access](ACCESS.md).
 **Browse** searches current upstream releases, **Installed** lists this server's
 files, and **Updates** checks for newer releases. Nothing installs or updates in
 the background. Every change requires review and confirmation.
@@ -22,7 +25,9 @@ game files or stopping a server. Changes use the normal serialized job queue.
 
 The library uses the official [Mod Portal API](https://wiki.factorio.com/Mod_portal_API).
 Browsing needs no upstream account. Downloads need a Factorio username and
-service token with mod access; enter these in **Factorio download account**.
+service token with mod access; an administrator enters these in **Factorio
+download account**. Delegated mod operators can use the connected account but
+cannot connect or disconnect its credentials.
 The controller stores them privately with restrictive file permissions and
 returns only connection status to the browser. Disconnect removes that file.
 

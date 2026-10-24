@@ -1,0 +1,191 @@
+{
+  "version": 1,
+  "id": "rust",
+  "name": "Rust",
+  "revision": 1,
+  "kind": "game",
+  "primary": "server",
+  "services": [
+    {
+      "id": "server",
+      "role": "game",
+      "profile": "managed-game-v1",
+      "required": true,
+      "dependsOn": [],
+      "configuration": {
+        "version": 1,
+        "imagePolicy": {
+          "version": 1,
+          "defaultImage": "ghcr.io/jkenneydaniel/rust-server:steam-lg.2",
+          "referencePattern": "^ghcr\\.io/jkenneydaniel/rust-server:steam-lg\\.(?<revision>[1-9]\\d*)$",
+          "architecture": "amd64",
+          "labels": {
+            "io.lobby-goblin.compatibility": "1",
+            "io.lobby-goblin.game": "rust"
+          },
+          "captureLabels": {
+            "io.lobby-goblin.image-revision": "revision"
+          }
+        },
+        "catalog": {
+          "version": "Steam public branch",
+          "cpu": 4,
+          "memoryGiB": 12,
+          "creation": {
+            "minMemoryGiB": 8,
+            "maxMemoryGiB": 32,
+            "maxPlayers": 1000,
+            "defaultPlayers": 20,
+            "fields": [
+              {
+                "key": "worldSize",
+                "label": "Rust world size",
+                "control": "range",
+                "lockOnClone": true,
+                "min": 1000,
+                "max": 6000,
+                "step": 100,
+                "default": 2000
+              }
+            ],
+            "help": "The first installation downloads the Rust server and can take several minutes."
+          },
+          "snapshotHelp": "Rust will save, stop briefly, copy its complete identity and resume if running. Players will disconnect."
+        },
+        "storage": {
+          "dataTarget": "/steamcmd/rust",
+          "backupDirectory": "archives"
+        },
+        "ports": [
+          {
+            "key": "gamePort",
+            "containerPort": 28015,
+            "protocol": "udp",
+            "offset": 0
+          },
+          {
+            "key": "queryPort",
+            "containerPort": 28017,
+            "protocol": "udp",
+            "offset": 2
+          }
+        ],
+        "helpers": {
+          "archiveReadPaths": [],
+          "execCommands": []
+        },
+        "environment": {
+          "server": {
+            "RUST_SERVER_IDENTITY": [
+              {
+                "literal": "lobby-goblin-rust"
+              }
+            ],
+            "RUST_RCON_PASSWORD": [
+              {
+                "secret": "rconPassword"
+              }
+            ],
+            "RUST_RCON_PORT": [
+              {
+                "literal": "28016"
+              }
+            ],
+            "RUST_SERVER_PORT": [
+              {
+                "literal": "28015"
+              }
+            ],
+            "RUST_SERVER_QUERYPORT": [
+              {
+                "literal": "28017"
+              }
+            ],
+            "RUST_SERVER_LEVEL": [
+              {
+                "literal": "Procedural Map"
+              }
+            ],
+            "RUST_SERVER_WORLDSIZE": [
+              {
+                "field": "worldSize"
+              }
+            ],
+            "RUST_SERVER_SEED": [
+              {
+                "field": "seed"
+              }
+            ]
+          },
+          "controller": {
+            "RUST_INSTANCE_ID": [
+              {
+                "field": "id"
+              }
+            ],
+            "RUST_CONTAINER": [
+              {
+                "field": "container"
+              }
+            ],
+            "RUST_IMAGE": [
+              {
+                "field": "image"
+              }
+            ],
+            "RUST_HOST_DATA": [
+              {
+                "literal": "/managed/"
+              },
+              {
+                "field": "id"
+              }
+            ],
+            "RUST_DATA": [
+              {
+                "literal": "/instance/data/server"
+              }
+            ],
+            "RUST_INSTALL_ROOT": [
+              {
+                "literal": "/instance/data"
+              }
+            ],
+            "RUST_STATE_DIR": [
+              {
+                "literal": "/instance/state"
+              }
+            ],
+            "RUST_BACKUPS_DIR": [
+              {
+                "literal": "/instance/backups"
+              }
+            ],
+            "RUST_RCON_PASSWORD_FILE": [
+              {
+                "literal": "/instance/control/rcon-password"
+              }
+            ],
+            "RUST_GAME_ADDRESS": [
+              {
+                "field": "address"
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "gamePort"
+              }
+            ]
+          }
+        },
+        "snapshots": {
+          "includesPlayerData": true
+        },
+        "secrets": [
+          "rconPassword"
+        ]
+      }
+    }
+  ]
+}

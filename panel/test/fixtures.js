@@ -1,3 +1,10 @@
+import {action,backupActions} from '../core/game-contract.js';
+
+export function fixtureContract(actions=[],routes={}){
+  return {version:1,features:{backups:true},backup:{strategy:'files',extension:'.zip',mediaType:'application/zip',interruption:false},
+    actions:{...backupActions(),...Object.fromEntries(actions.map(name=>[name,action(name)]))},routes};
+}
+
 // Terminal job state can be visible while its final persistence still holds the
 // controller's operation lock. Sequential integration actions must await idle.
 export async function waitForIdleJob(readJobs,id,{attempts=100,pause=()=>new Promise(resolve=>setTimeout(resolve,30))}={}){

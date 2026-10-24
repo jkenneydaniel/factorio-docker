@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert,inside,readJSON,writeJSON} from '../../common.js';
-import {zipEntries} from '../../zip.js';
+import {zipEntries} from '../../core/archive.js';
 
 const roots=new Set(['.gitignore','.gitattributes','.env.example','compose.yaml','README.md','LICENSE','CHANGELOG.md','SECURITY.md','THIRD_PARTY_NOTICES.md','Setup.sh','Setup.command','Setup.ps1','Start-Server.sh','Start-Server.ps1','Configure-Lan.ps1','Configure-Autostart.ps1','Register-LanAnnouncer.ps1','Start-LanAnnouncer.ps1','tools/release.mjs','tools/factorio-image.mjs','fleet.compose.yaml','.env.fleet.example','Fleet.ps1','Fleet.sh']);
 export const sha256=data=>crypto.createHash('sha256').update(data).digest('hex');

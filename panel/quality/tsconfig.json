@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "target": "ES2023",
+    "module": "NodeNext",
+    "lib": ["ES2023", "DOM"],
+    "types": []
+  },
+  "files": [
+    "../public/shared/session.js",
+    "../public/shared/operations.js",
+    "../public/shared/view.js",
+    "../public/shared/screens.js",
+    "../public/shared/events.js",
+    "../public/fleet/model.js",
+    "../public/application/definition.js",
+    "../public/application/action-forms.js",
+    "contract-probes.js"
+  ]
+}

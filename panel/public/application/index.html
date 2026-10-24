@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Lobby Goblin</title>
+    <link rel="stylesheet" href="./shell.css" />
+    <link rel="stylesheet" href="./workflows.css" />
+    <link rel="stylesheet" href="./mod-library.css" />
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./application/style.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <p id="session-loading" role="status">Opening your panel…</p>
+    <noscript><p>Enable JavaScript to use this panel.</p></noscript>
+    <section id="auth" class="application-auth" hidden>
+      <p class="product-eyebrow">LOBBY GOBLIN</p>
+      <h1 id="auth-title">Sign in to your panel</h1>
+      <p id="auth-help">Use your panel account.</p>
+      <form id="login">
+        <label
+          >Username<input
+            name="username"
+            autocomplete="username"
+            minlength="3"
+            maxlength="32"
+            required
+        /></label>
+        <label
+          >Password<input
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            maxlength="128"
+            required
+        /></label>
+        <label id="registration-confirmation" hidden
+          >Confirm password<input
+            name="confirmation"
+            type="password"
+            autocomplete="new-password"
+            minlength="12"
+            maxlength="128"
+            disabled
+        /></label>
+        <button class="primary" type="submit">Sign in</button>
+      </form>
+      <p id="auth-error" role="alert"></p>
+    </section>
+    <div id="shell" hidden>
+      <main class="application-main">
+        <header class="application-heading">
+          <h1 id="page-title">Overview</h1>
+          <span id="connection-state" role="status">Connecting…</span>
+        </header>
+        <p id="connection-warning" role="status" hidden></p>
+        <nav
+          id="application-sections"
+          class="application-sections"
+          hidden
+        ></nav>
+        <div id="application-content"></div>
+      </main>
+    </div>
+  </body>
+</html>

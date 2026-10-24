@@ -7,9 +7,11 @@ import {fixture} from './image-migration-fixture.js';
 import {migrateFleet} from '../fleet/migrations.js';
 import {standaloneInstallation,launchStandaloneMigration,runStandaloneMigration} from '../core/standalone-migration.js';
 import {startController} from '../core/controller.js';
-import {selectedGame} from '../games/index.js';
+import {selectedApplication} from '../applications/index.js';
 import {ownedImages} from '../core/game-images.js';
 import {writeJSON,readJSON} from '../common.js';
+import {fixtureContract} from './fixtures.js';
+import {noManagedUpdater} from '../core/managed-updater.js';
 const id='b'.repeat(32),volume='test-volume';
 async function temporary(t){const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lg-migration-')));t.after(()=>fs.rm(root,{recursive:true,force:true}));return root;}
 async function managed(t,game,running){
@@ -65,8 +67,8 @@ test('standalone preflight requires matching Compose identity and exact panel/co
 test('standalone operation gate clears after worker completion and never blesses a changed container',{timeout:15000},async t=>{
  const root=await temporary(t),state=path.join(root,'state'),updates=path.join(root,'updates'),items=installation(root),token='migration-test-token';await fs.mkdir(state);await fs.mkdir(updates);await fs.writeFile(path.join(root,'token'),token);
  const docker=async(method,url,data)=>{const name=url.split('/')[2],item=items.get(name);if(method==='GET'){if(!item)throw Object.assign(Error('missing'),{status:404});return item;}if(url.startsWith('/containers/create'))items.set(new URL(url,'http://docker').searchParams.get('name'),{Config:data,State:{Running:true}});};
- const updater={jobs:[],busy:false,async init(){},async refresh(){return {};}};
- const module={managed:selectedGame('factorio').managed,id:'factorio',name:'fixture',routes:[],web:{Accounts:class{},assets:{}},configuration:()=>({state,backupDir:path.join(root,'backups'),library:path.join(root,'library'),container:'game'}),createUpdater:()=>updater,diagnostics:async()=>({}),async createController(){return {actions:{increment:async()=>{}},async init(){},async start(){},async waitIdle(){},status:async()=>({ready:true}),validateAction(){},async beforeJob(){},async afterJob(){},invalidate(){}};}};
+ const updater=noManagedUpdater('fixture');
+ const module={managed:selectedApplication('factorio').managed,id:'factorio',name:'fixture',contract:fixtureContract(['increment']),routes:[],web:{...selectedApplication('factorio').web,adminReadRoutes:[]},configuration:()=>({state,backupDir:path.join(root,'backups'),library:path.join(root,'library'),container:'game'}),createUpdater:()=>updater,diagnostics:async()=>({}),async createController(){return {actions:{increment:async()=>{}},async init(){},async start(){},async waitIdle(){},status:async()=>({ready:true}),validateAction(){},async beforeJob(){},async afterJob(){},invalidate(){},recentStatus:()=>null,locations:[],async handle(){},backupFiles:async()=>[],validateBackup:()=>({}),backupVerified:()=>''};}};
  const server=await startController(module,{docker,hostname:'127.0.0.1',port:0,env:{CONTROLLER_TOKEN_FILE:path.join(root,'token'),CONTROLLER_CONTAINER:'controller',PANEL_CONTAINER:'panel',UPDATE_STATE_DIR:updates}});t.after(()=>new Promise(resolve=>{server.closeAllConnections();server.close(resolve);}));
  const call=(body,route='/status')=>fetch('http://127.0.0.1:'+server.address().port+(body?'/jobs':route),{signal:AbortSignal.timeout(3000),method:body?'POST':'GET',headers:{authorization:'Bearer '+token,'content-type':'application/json'},body:body?JSON.stringify(body):undefined});
  assert.equal((await call({action:'increment'})).status,409);

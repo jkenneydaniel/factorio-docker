@@ -3,8 +3,8 @@
 import http from 'node:http';
 import {sharedAssets} from '../core/web-assets.js';
 import fs from 'node:fs/promises';
-import {factorio} from '../games/factorio/index.js';
-import {rust} from '../games/rust/index.js';
+import {factorio} from '../applications/factorio/index.js';
+import {rust} from '../applications/rust/index.js';
 const states=new Map();
 for(const [id,module] of [['a'.repeat(32),factorio],['b'.repeat(32),rust]])states.set(id,{module,game:module.id,connected:false,installed:[],plans:new Map(),jobs:[],running:true});
 const examples={factorio:[['BottleneckLite','Bottleneck Lite','See which machines are waiting for ingredients or running at full capacity.','raiguard','1.2.8'],['SqueakThrough','Squeak Through','Walk between closely placed machines and explore your factory more comfortably.','Supercheese','1.8.2'],['FactoryPlanner','Factory Planner','Plan production chains and understand what your next factory needs.','Therenas','2.0.11']],rust:[['GatherManager','Gather Manager','Adjust gathering rates for resources, quarries and pickups.','Mughisi','2.2.78'],['Vanish','Vanish','Become invisible while administering your server.','Whispers88','2.1.5'],['BetterLoot','Better Loot','Customize the native loot system for your community.','MagicServices','4.5.4']]};

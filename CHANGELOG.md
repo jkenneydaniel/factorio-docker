@@ -1,17 +1,40 @@
 # Changelog
 
-## Unreleased
+## 0.3.7-alpha — 2026-10-24
 
-- Release operation reservations and preserve job history when an initial state
-  write fails, allowing a later retry without restarting management services.
-- Preserve managed-server URL scope after Factorio world creation, registration
-  and setup navigation, including remote-host server pages.
-- Move managed provisioning, creation policies and snapshot content handling into
-  checked game adapters while preserving existing identities and storage formats.
-- Share navigation, account identity, status, progress, feedback, confirmation
-  dialogs and browser transport across fleet, Factorio and Rust interfaces.
-- Centralize route exposure and shared assets; retain installation entry points,
-  cookies, account/world paths, image contracts and historical import exports.
+- Package Factorio and Rust as registered application definitions with reusable
+  screens, runtime profiles and native HTML extensions for specialized tools.
+  Preserve installation identities, existing URLs and historical updater formats.
+- Share navigation, sessions, accounts, status, operation progress, backups and
+  confirmations across server and host panels, with desktop/mobile regressions
+  and required static quality checks.
+- Add explicit per-server delegated access, package-owned Factorio map and Rust
+  framework/plugin permissions, and separate executable-mod and image grants.
+  Keep existing administrator/read-only accounts and revoke changed sessions.
+- Match download authorization to Factorio's historical world-download default;
+  backup-download permission cannot access worlds by omitting the download kind.
+- Add bounded private audit history, correlated operation outcomes and recovery
+  review. Retain interrupted work and refuse uncertain retries without replaying
+  actions from history. Audit publication failures remain visible for review.
+- Isolate Docker-host authority behind a local broker for new managed hosts,
+  with scoped credentials, resource limits, revocation and owned-resource checks.
+  Keep existing direct-socket installations compatible; conversion is review-only.
+- Move Factorio helper work into private controller storage, verify nested input
+  and output identities, and safely retire owned interrupted helpers.
+- Add an explicit local management update command for broker-managed installs:
+  engine-bound plans, metadata snapshots, held startup, pre-activation rollback,
+  forward recovery after commitment and restart-safe runtime receipts. Management
+  network reconnection waits for operator activation.
+- Add compatible storage repositories and optional, reviewed transactional storage
+  migration, export and offline recovery. Existing JSON storage stays authoritative
+  until an operator explicitly selects the new backend.
+- Preserve unresolved standalone-update history and required world restoration.
+  Repair terminal audit publication for updates, host setup and agent updates.
+  Cleanup failures no longer roll back a committed Rust framework change.
+- Exercise extensibility with synthetic game and multi-service application
+  fixtures. Production non-game Docker providers remain future work.
+- Reuse the existing published Factorio and Rust images. Publishing this release
+  does not upgrade installations, replace game containers or modify worlds.
 
 ## 0.3.6-alpha — 2026-10-22
 

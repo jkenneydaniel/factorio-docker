@@ -32,6 +32,9 @@ jobs:
         with:
           node-version: '24.22.0'
       - run: npm ci --prefix panel --ignore-scripts --no-audit --no-fund
+      - run: npm ci --prefix panel/quality --ignore-scripts --no-audit --no-fund
+      - name: Require static quality checks before building or publishing
+        run: npm run quality --prefix panel
       - run: npm test --prefix panel
       - name: Select the versioned shared runtime
         env:

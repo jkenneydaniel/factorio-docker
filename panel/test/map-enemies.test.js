@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {mountMap} from '../public/map.js';
+import {mountMap} from '../applications/factorio/public/map.js';
 
 const lua=spawnSync('lua',['-v'],{encoding:'utf8'});
 test('Lua exports enemies in explored areas and preserves bases at the object cap',{skip:lua.error?'Lua interpreter unavailable; covered by isolated Factorio acceptance':false},()=>{

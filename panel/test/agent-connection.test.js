@@ -32,6 +32,12 @@ test('agent identity persists across restarts with private keys, and incomplete 
  const secret='x'.repeat(43);assert.deepEqual(pairingCode('lg1.'+identity.fingerprint+'.'+secret),{fingerprint:identity.fingerprint,secret,code:'lg1.'+identity.fingerprint+'.'+secret});
  await fs.unlink(path.join(root,'secrets/agent-identity/key.pem'));await assert.rejects(ensureAgentIdentity(root));assert.equal((await fs.readFile(path.join(root,'secrets/agent-identity/cert.pem'))).toString(),identity.cert.toString());
 });
+test('paired clients refuse reserved management paths before opening an agent connection',async t=>{
+ let requests=0;const f=await fixture(t,(_req,res)=>{requests++;res.end('ready');});
+ for(const route of ['/management/status','/management/activate','/api/session'])await assert.rejects(f.connection.fetch(f.origin+route),/Invalid agent destination/);
+ assert.equal(requests,0);assert.equal(f.count(),0);
+ assert.equal(await(await f.connection.fetch(f.origin+'/health')).text(),'ready');
+});
 test('one pinned TLS connection multiplexes requests and streams uploads and large downloads with keepalives',async t=>{
  const payload=Buffer.alloc(4*1024**2,7),f=await fixture(t,async(req,res)=>{
   if(req.url.endsWith('/upload')){let size=0;for await(const chunk of req)size+=chunk.length;res.end(String(size));return;}

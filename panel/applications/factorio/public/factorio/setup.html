@@ -1,0 +1,140 @@
+<template id="setup">
+  <div class="setup-top">
+    <a class="brand" href="#overview"
+      ><span class="brand-mark" data-icon="building-factory-2"></span
+      ><span>LOBBY GOBLIN</span></a
+    ><span>Setup · Local installation</span>
+  </div>
+  <ol class="setup-stepper" aria-label="Setup progress">
+    <li><span data-icon="check"></span> Host setup</li>
+    <li><span data-icon="check"></span> Administrator</li>
+    <li aria-current="step"><span>3</span> Ready to play</li>
+  </ol>
+  <div class="setup-heading">
+    <h1></h1>
+    <p></p>
+  </div>
+  <div class="setup-columns">
+    <div>
+      <section class="card">
+        <div class="card-body">
+          <div data-part="readiness"></div>
+          <div class="button-group section-spacer" data-part="save">
+            <button class="button" data-action="save">
+              <span data-icon="device-floppy"></span> Save now
+            </button>
+          </div>
+          <p class="hint" data-part="stopped">
+            Start the game from Overview when you’re ready. This guide will not
+            start it automatically.
+          </p>
+          <p class="hint">
+            <a href="#settings/diagnostics"
+              >Need a hand? Open guided diagnostics</a
+            >
+          </p>
+          <details class="installation-details">
+            <summary>Installation details</summary>
+            <div class="detail-row">
+              <span>Game image</span><code data-part="image"></code>
+            </div>
+            <p class="hint">
+              Game helpers use linux/amd64. ARM hosts require Docker’s
+              compatibility support. Host prerequisites are checked by the setup
+              launcher.
+            </p>
+          </details>
+        </div>
+      </section>
+      <section class="card section-spacer">
+        <div class="card-body">
+          <h2>A few useful things to know</h2>
+          <div class="knowledge-row">
+            <span data-icon="device-floppy"></span>
+            <div>
+              <strong>Your progress saves automatically</strong>
+              <p>
+                Every <span data-part="autosave"></span> minutes during play.
+                Keep backups on another device too.
+              </p>
+            </div>
+          </div>
+          <div class="knowledge-row">
+            <span data-icon="users"></span>
+            <div>
+              <strong>Invite panel viewers from Accounts</strong>
+              <p>They can view the panel. Joining the game is separate.</p>
+            </div>
+          </div>
+          <div class="knowledge-row">
+            <span data-icon="refresh"></span>
+            <div>
+              <strong>Updates happen on your terms</strong>
+              <p>Only an administrator can review and install an update.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <section class="card join-setup">
+      <div class="card-body">
+        <h2>Join your factory</h2>
+        <ol class="join-steps">
+          <li>
+            <span>1</span>
+            <div>
+              Open Factorio <span data-part="version"></span>
+              <p>Your game version must match the server.</p>
+            </div>
+          </li>
+          <li>
+            <span>2</span>
+            <div>Multiplayer → Connect to address</div>
+          </li>
+        </ol>
+        <div class="connection-line">
+          <code data-part="connection"></code
+          ><button class="button" data-part="copy-address">
+            <span data-icon="copy"></span> Copy address
+          </button>
+        </div>
+        <ol class="join-steps" start="3">
+          <li>
+            <span>3</span>
+            <div>Join <span data-part="world"></span></div>
+          </li>
+        </ol>
+        <p class="hint" data-part="address-hint"></p>
+        <hr />
+        <h3>Your management panel</h3>
+        <div class="connection-line section-spacer">
+          <code data-part="origin"></code
+          ><button class="button" data-part="copy-link">
+            <span data-icon="copy"></span> Copy link
+          </button>
+        </div>
+        <p class="hint" data-part="panel-hint"></p>
+      </div>
+    </section>
+  </div>
+  <div class="setup-finish">
+    <div>
+      <button class="button primary" id="finish-setup">
+        Open server overview <span data-icon="arrow-right"></span></button
+      ><a class="button ghost" href="#overview"></a>
+    </div>
+    <p class="hint">
+      Keep private registration and recovery links somewhere safe.
+      <span data-part="waiting"></span>
+    </p>
+  </div>
+</template>
+<template id="readiness-row"
+  ><div class="readiness-row">
+    <span data-part="icon"></span>
+    <div>
+      <strong></strong>
+      <p></p>
+    </div>
+    <span class="mini-pill"></span></div
+></template>

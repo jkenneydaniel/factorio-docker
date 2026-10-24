@@ -1,0 +1,202 @@
+<template id="updates-unsupported"
+  ><section id="panel-updates" class="card">
+    <div class="card-body">
+      <h2>Managed server</h2>
+      <p data-part="message"></p>
+      <p class="hint">
+        Fleet-wide panel and game-image updates are not available in this alpha.
+      </p>
+    </div>
+  </section></template
+>
+<template id="updates-delegated"
+  ><section id="panel-updates">
+    <section class="card">
+      <div class="card-body">
+        <h2>Factorio server image</h2>
+        <p>
+          Review the game version or image source before installing. Players
+          disconnect during replacement. The controller saves and verifies a
+          backup first; a failed replacement requires explicit recovery.
+        </p>
+        <div data-part="game-form"></div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="card-body">
+        <h2>Game installation history</h2>
+        <div data-part="history"></div>
+      </div>
+    </section></section
+></template>
+<template id="updates-unavailable"
+  ><section id="panel-updates" class="card">
+    <div class="card-body">
+      <p>
+        Release information is unavailable. Check your connection and try again.
+      </p>
+      <div data-part="check"></div>
+    </div></section
+></template>
+<template id="update-check"
+  ><button class="button ghost" id="check-panel-updates">
+    <span data-icon="refresh"></span> <span data-part="label"></span></button
+></template>
+<template id="updates">
+  <section id="panel-updates">
+    <div class="update-layout">
+      <div class="card">
+        <div class="card-body">
+          <div class="update-section">
+            <div class="update-title">
+              <span data-icon="building-factory-2"></span>
+              <div>
+                <h2>Lobby Goblin</h2>
+                <p class="hint">Web panel + controller</p>
+              </div>
+            </div>
+            <div class="version-path">
+              <span data-part="current"></span
+              ><span data-icon="arrow-right" data-part="arrow"></span
+              ><strong data-part="latest"></strong
+              ><span class="mini-pill pending" data-part="available"
+                >Available</span
+              >
+            </div>
+            <p class="form-note">
+              <span data-part="release-label"></span>. The panel reconnects
+              during installation. Older game images migrate after the v0.3.4
+              update completes, with a backup and a brief interruption.
+            </p>
+            <p class="warning" data-part="error"></p>
+            <div class="button-group">
+              <button class="button primary" id="review-panel-update">
+                Review panel update</button
+              ><span data-part="check"></span
+              ><a
+                class="button ghost"
+                data-part="release-link"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Release notes <span data-icon="external-link"></span
+              ></a>
+            </div>
+          </div>
+          <div class="update-section">
+            <div class="update-title">
+              <span data-icon="server"></span>
+              <h2>Factorio server</h2>
+            </div>
+            <p class="form-note">
+              Installed <span data-part="version"></span>. Match all clients and
+              check mod compatibility. Players disconnect during image
+              replacement.
+            </p>
+            <div data-part="game-form"></div>
+          </div>
+          <div class="update-section">
+            <h3>Before installation</h3>
+            <div class="update-policy">
+              <div class="policy-row">
+                <span data-icon="device-floppy"></span> Save and verify a backup
+              </div>
+              <div class="policy-row">
+                <span data-icon="database"></span> Keep recovery copies
+              </div>
+              <div class="policy-row">
+                <span data-icon="shield-check"></span> Check readiness after
+                replacement
+              </div>
+            </div>
+            <p class="hint">
+              These steps run after confirmation. A failed Factorio replacement
+              requires an explicit backup restore.
+            </p>
+          </div>
+        </div>
+      </div>
+      <aside class="card">
+        <div class="card-body">
+          <h2>Update preferences</h2>
+          <div class="detail-row">
+            <span>Release channel</span><strong data-part="channel"></strong>
+          </div>
+          <p class="hint" data-part="channel-hint"></p>
+          <div class="detail-row">
+            <span>Last checked</span><strong data-part="checked"></strong>
+          </div>
+          <div class="detail-row">
+            <span>Automatic checks</span><strong data-part="checks"></strong>
+          </div>
+          <div class="detail-row">
+            <span>Automatic install</span><strong>Off</strong>
+          </div>
+          <p class="hint">
+            An administrator chooses when to install. Release-channel
+            preferences come from your host configuration.
+          </p>
+          <p class="hint" data-part="service-hint"></p>
+        </div>
+      </aside>
+    </div>
+    <section class="card update-history">
+      <div class="card-header"><h2>Installation history</h2></div>
+      <div id="update-history" class="card-body" data-part="history"></div>
+    </section>
+  </section>
+</template>
+<template id="update-history-row"
+  ><div class="activity-row">
+    <div class="activity-icon" data-part="icon"></div>
+    <div>
+      <strong></strong>
+      <p role="status"></p>
+      <p class="hint" data-part="image">Image: <code></code></p>
+      <p class="hint" data-part="backup"></p>
+      <p class="hint" data-part="recovery"></p>
+    </div>
+    <time></time></div
+></template>
+<template id="update-history-empty"
+  ><p data-part="label"></p>
+  <p class="hint">Progress and recovery details will appear here.</p></template
+>
+<template id="game-update-form">
+  <p class="hint">Current image: <code data-part="current-image"></code></p>
+  <p class="warning" data-part="unsupported">
+    This image needs a reviewed host upgrade. In-panel changes support Lobby
+    Goblin 2.0.x images.
+  </p>
+  <form id="game-update-form">
+    <div class="form-grid">
+      <label
+        >Image source<select
+          name="source"
+          aria-label="Image source"
+        ></select></label
+      ><label
+        >Factorio version<input
+          name="version"
+          placeholder="2.0.x"
+          pattern="2\.0\.[0-9]+"
+          required /></label
+      ><label id="image-revision-field"
+        >Image revision<input
+          name="imageRevision"
+          type="number"
+          min="1"
+          max="9007199254740991"
+          step="1"
+          required
+      /></label>
+    </div>
+    <p class="form-note" id="game-image-choice" role="status"></p>
+    <button class="button">Review image change</button>
+  </form>
+  <p class="hint">
+    Keep the Factorio version unchanged to update the image revision. Lobby
+    Goblin tags use an image revision, starting at 1. The exact tag must be
+    published first. Saves, settings, mods and ports are preserved; players
+    disconnect during replacement.
+  </p>
+</template>

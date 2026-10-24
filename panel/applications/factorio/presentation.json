@@ -1,0 +1,461 @@
+{
+  "version": 1,
+  "id": "factorio",
+  "kind": "game",
+  "revision": 1,
+  "onboarding": {
+    "screen": "setup",
+    "resumeLabel": "Continue setup"
+  },
+  "screens": [
+    {
+      "id": "overview",
+      "label": "Overview",
+      "permission": "server.view",
+      "component": "overview",
+      "options": {
+        "fields": [
+          {
+            "key": "currentWorld",
+            "label": "Active world"
+          },
+          {
+            "key": "version",
+            "label": "Game version"
+          },
+          {
+            "key": "players.length",
+            "label": "Players online",
+            "format": "integer"
+          },
+          {
+            "key": "memory",
+            "label": "Memory",
+            "format": "bytes"
+          },
+          {
+            "key": "cpu",
+            "label": "CPU",
+            "format": "percent"
+          },
+          {
+            "key": "lastSaveAt",
+            "label": "Last confirmed save"
+          }
+        ],
+        "actionLabels": {
+          "save": "Save now",
+          "start": "Start server",
+          "stop": "Stop & save"
+        },
+        "actionAvailability": {
+          "save": "ready"
+        }
+      },
+      "actions": [
+        "save",
+        "start",
+        "restart",
+        "stop"
+      ]
+    },
+    {
+      "id": "worlds",
+      "label": "Worlds",
+      "permission": "server.view",
+      "component": "extension",
+      "options": {
+        "provider": "factorio.worlds",
+        "version": 1,
+        "requiresStatus": true
+      },
+      "subroutes": [
+        "create",
+        "import",
+        "created"
+      ]
+    },
+    {
+      "id": "map",
+      "label": "Map",
+      "permission": "application.factorio.map.view",
+      "component": "extension",
+      "options": {
+        "provider": "factorio.map",
+        "version": 1,
+        "requiresStatus": true
+      }
+    },
+    {
+      "id": "players",
+      "label": "Players",
+      "permission": "server.view",
+      "component": "table",
+      "options": {
+        "source": "/players",
+        "collection": "players",
+        "heading": "Online players",
+        "refreshLabel": "Refresh players",
+        "empty": "No engineers online. The world can pause automatically when everyone leaves.",
+        "availableKey": "available",
+        "messageKey": "message",
+        "fields": [
+          {
+            "key": "name",
+            "label": "Player"
+          }
+        ],
+        "forms": [
+          {
+            "id": "player-form",
+            "heading": "Player access",
+            "action": "player",
+            "submitLabel": "Apply player action",
+            "description": "Adding names to an empty whitelist restricts joining to those names. LAN names are self-selected while account verification is disabled.",
+            "availability": "ready",
+            "confirmation": {
+              "title": "Apply player action?",
+              "message": "This changes the selected player\u2019s access immediately."
+            },
+            "fields": [
+              {
+                "key": "name",
+                "label": "LAN player name",
+                "type": "text",
+                "max": 64,
+                "required": true,
+                "placeholder": "Player name"
+              },
+              {
+                "key": "operation",
+                "label": "Action",
+                "type": "select",
+                "choices": [
+                  {
+                    "value": "promote",
+                    "label": "Make administrator"
+                  },
+                  {
+                    "value": "demote",
+                    "label": "Remove administrator"
+                  },
+                  {
+                    "value": "whitelist",
+                    "label": "Add to whitelist"
+                  },
+                  {
+                    "value": "unwhitelist",
+                    "label": "Remove from whitelist"
+                  },
+                  {
+                    "value": "unban",
+                    "label": "Remove ban"
+                  },
+                  {
+                    "value": "kick",
+                    "label": "Kick player"
+                  },
+                  {
+                    "value": "ban",
+                    "label": "Ban player"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "announce-form",
+            "heading": "Send an announcement",
+            "action": "announce",
+            "submitLabel": "Send announcement",
+            "availability": "ready",
+            "fields": [
+              {
+                "key": "message",
+                "label": "Message",
+                "type": "textarea",
+                "max": 250,
+                "required": true,
+                "placeholder": "A message for everyone in the factory\u2026"
+              }
+            ]
+          }
+        ],
+        "rowActions": [
+          {
+            "label": "Kick",
+            "action": "player",
+            "params": {
+              "operation": "kick"
+            },
+            "bindings": {
+              "name": "name"
+            },
+            "confirmation": {
+              "title": "Kick player?",
+              "message": "This takes effect immediately for the selected player."
+            }
+          },
+          {
+            "label": "Ban",
+            "action": "player",
+            "params": {
+              "operation": "ban"
+            },
+            "bindings": {
+              "name": "name"
+            },
+            "confirmation": {
+              "title": "Ban player?",
+              "message": "This takes effect immediately for the selected player."
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "mods",
+      "label": "Mods",
+      "adminOnly": true,
+      "permission": "mods.manage",
+      "component": "mod-library",
+      "options": {
+        "description": "Browse current releases and review every change before applying it."
+      }
+    },
+    {
+      "id": "backups",
+      "label": "Backups",
+      "permission": "backups.read",
+      "component": "backups",
+      "options": {
+        "description": "Complete snapshots of your saves, server settings and mods.",
+        "restore": true,
+        "showHeading": true
+      }
+    },
+    {
+      "id": "logs",
+      "label": "Activity",
+      "permission": "logs.read",
+      "component": "logs",
+      "options": {
+        "source": "/logs",
+        "key": "text",
+        "description": "Latest game log output. Credentials are filtered.",
+        "forms": [
+          {
+            "id": "console-form",
+            "heading": "Administrative console",
+            "description": "These commands inspect the server without running Lua scripts or disabling achievements.",
+            "action": "console",
+            "submitLabel": "Run command",
+            "resultId": "console-output",
+            "availability": "ready",
+            "fields": [
+              {
+                "key": "command",
+                "label": "Administrative command",
+                "type": "select",
+                "choices": [
+                  {
+                    "value": "/players",
+                    "label": "/players"
+                  },
+                  {
+                    "value": "/time",
+                    "label": "/time"
+                  },
+                  {
+                    "value": "/seed",
+                    "label": "/seed"
+                  },
+                  {
+                    "value": "/version",
+                    "label": "/version"
+                  },
+                  {
+                    "value": "/evolution",
+                    "label": "/evolution"
+                  },
+                  {
+                    "value": "/admins",
+                    "label": "/admins"
+                  },
+                  {
+                    "value": "/bans",
+                    "label": "/bans"
+                  },
+                  {
+                    "value": "/whitelist get",
+                    "label": "/whitelist get"
+                  },
+                  {
+                    "value": "/help",
+                    "label": "/help"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "announce-form",
+            "heading": "Send an announcement",
+            "action": "announce",
+            "submitLabel": "Send announcement",
+            "availability": "ready",
+            "fields": [
+              {
+                "key": "message",
+                "label": "Message",
+                "type": "textarea",
+                "max": 250,
+                "required": true,
+                "placeholder": "A message for everyone in the factory\u2026"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "settings",
+      "label": "Settings",
+      "permissionsAny": [
+        "settings.read",
+        "images.change"
+      ],
+      "component": "settings",
+      "options": {
+        "source": "/settings",
+        "action": "settings",
+        "requiresStopped": false,
+        "formId": "settings-form",
+        "submitLabel": "Save & restart",
+        "description": "Changes create a backup and restart a running server. PC and Switch must run the same Factorio version. Keep account verification off for Switch LAN usernames.",
+        "fields": [
+          {
+            "key": "name",
+            "label": "Server name",
+            "type": "text",
+            "max": 100,
+            "required": true
+          },
+          {
+            "key": "description",
+            "label": "Description",
+            "type": "textarea",
+            "max": 500
+          },
+          {
+            "key": "max_players",
+            "label": "Player limit (0 = unlimited)",
+            "type": "number",
+            "max": 1000,
+            "min": 0,
+            "required": true
+          },
+          {
+            "key": "autosave_interval",
+            "label": "Autosave interval (minutes)",
+            "type": "number",
+            "max": 60,
+            "min": 1,
+            "required": true
+          },
+          {
+            "key": "autosave_slots",
+            "label": "Rolling autosave slots",
+            "type": "number",
+            "max": 100,
+            "min": 1,
+            "required": true
+          },
+          {
+            "key": "game_password",
+            "label": "New game password",
+            "type": "password",
+            "max": 100,
+            "placeholder": "Leave blank to keep the current password"
+          },
+          {
+            "key": "auto_pause",
+            "label": "Pause the world when nobody is connected",
+            "type": "boolean"
+          },
+          {
+            "key": "require_user_verification",
+            "label": "Require Factorio account identity verification",
+            "type": "boolean"
+          },
+          {
+            "key": "clear_password",
+            "label": "Remove the current game password",
+            "type": "boolean",
+            "visibleWhen": "passwordSet"
+          }
+        ]
+      },
+      "contentPermission": "settings.read",
+      "routes": [
+        {
+          "id": "updates",
+          "label": "Updates",
+          "component": "extension",
+          "adminOnly": true,
+          "permission": "images.change",
+          "options": {
+            "provider": "factorio.updates",
+            "version": 1,
+            "requiresStatus": true
+          }
+        },
+        {
+          "id": "diagnostics",
+          "label": "Diagnostics",
+          "component": "diagnostics",
+          "adminOnly": true
+        }
+      ]
+    },
+    {
+      "id": "accounts",
+      "label": "Accounts",
+      "component": "accounts",
+      "options": {
+        "showHeading": true
+      }
+    },
+    {
+      "id": "setup",
+      "label": "Setup",
+      "adminOnly": true,
+      "component": "extension",
+      "options": {
+        "provider": "factorio.setup",
+        "version": 1,
+        "requiresStatus": true
+      }
+    },
+    {
+      "id": "operations",
+      "label": "Operations",
+      "adminOnly": true,
+      "component": "operations"
+    }
+  ],
+  "confirmations": {
+    "stop": {
+      "title": "Stop the server?",
+      "message": "The world will be saved. Connected players will be disconnected."
+    },
+    "restart": {
+      "title": "Restart the server?",
+      "message": "The world will be saved. Connected players will be disconnected while the server restarts."
+    },
+    "settings": {
+      "title": "Save settings and restart?",
+      "message": "A backup will be created before applying these settings. Connected players will be disconnected if the server is running."
+    }
+  }
+}

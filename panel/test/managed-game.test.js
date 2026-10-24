@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {registeredGames} from '../games/index.js';
+import {registeredApplications} from '../applications/index.js';
 import {
   gameCatalog,
   validateManagedGame,
@@ -9,7 +9,7 @@ import {
 import {safeSnapshotPath} from '../core/snapshot-files.js';
 import {controllerRoutes, sharedControllerRoutes} from '../core/routes.js';
 
-for (const module of registeredGames())
+for (const module of registeredApplications())
   test(`${module.name} implements the managed-game contract without changing legacy defaults`, () => {
     const managed = validateManagedGame(module),
       catalog = gameCatalog(module);
